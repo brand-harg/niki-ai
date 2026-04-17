@@ -112,54 +112,29 @@ export default function Home() {
     let mounted = true;
     isUnmountingRef.current = false;
 
-    // 🚨 THE NUCLEAR FALLBACK 🚨
-    // If Supabase hangs for more than 2 seconds, force the UI to unlock.
-    const safetyTimer = setTimeout(() => {
-      if (mounted) {
-        console.warn("Supabase is taking too long. Forcing UI to load.");
-        setAuthChecked(true);
-      }
-    }, 2000);
-
     const initialize = async () => {
-      try {
-        // 1. STRICT CHECK: Verify the token with the actual server
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-        // 2. If the token is expired/dead, clear the Ghost Session immediately
-        if (userError || !user) {
-          setSession(null);
-          lastSessionIdRef.current = null;
-          setProfile(null);
-          setProfileLoaded(true);
-          setChatHistory([]);
-          setCurrentChatId(null);
-          currentChatIdRef.current = null;
-          setMessages(defaultGreeting);
-          return; // Stop here so it doesn't try to fetch data
-        }
+      if (!mounted) return;
 
-        // 3. If the server says you are good, grab the session details
-        const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setAuthChecked(true);
 
-        if (!mounted) return;
-
-        setSession(session);
-        lastSessionIdRef.current = session?.user?.id || null;
+      if (session) {
+        lastSessionIdRef.current = session.user.id;
         setProfileLoaded(false);
-
-        // Now safely fetch the real data
-        if (session?.user?.id) {
-          fetchHistory(session.user.id);
-          fetchProfile(session.user.id);
-        }
-
-      } catch (err) {
-        console.error("Vault Sync Error:", err);
-      } finally {
-        if (mounted) {
-          setAuthChecked(true);
-        }
+        await fetchHistory(session.user.id);
+        await fetchProfile(session.user.id);
+      } else {
+        lastSessionIdRef.current = null;
+        setProfile(null);
+        setProfileLoaded(true);
+        setChatHistory([]);
+        setCurrentChatId(null);
+        currentChatIdRef.current = null;
+        setMessages(defaultGreeting);
       }
     };
 
@@ -202,7 +177,6 @@ export default function Home() {
     return () => {
       mounted = false;
       isUnmountingRef.current = true;
-      clearTimeout(safetyTimer);
       abortControllerRef.current?.abort();
       subscription.unsubscribe();
     };
@@ -490,23 +464,7 @@ export default function Home() {
       if (session?.user?.id) fetchHistory(session.user.id);
     }
   };
-  // ⬇️ PASTE THIS NEW GUARD BLOCK HERE ⬇️
 
-  if (!authChecked) {
-    return (
-      <div className="flex h-screen bg-black items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className={`w-12 h-12 rounded-xl bg-white/5 animate-pulse flex items-center justify-center font-black ${accentColor}`}>
-            N
-          </div>
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 animate-pulse">
-            Syncing Vault...
-          </span>
-        </div>
-      </div>
-    );
-  }
-  // ⬆️ END OF NEW CODE ⬆️
   return (
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
       {/* SIDEBAR */}
