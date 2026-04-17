@@ -464,7 +464,23 @@ export default function Home() {
       if (session?.user?.id) fetchHistory(session.user.id);
     }
   };
+  // ⬇️ PASTE THIS NEW GUARD BLOCK HERE ⬇️
 
+  if (!authChecked) {
+    return (
+      <div className="flex h-screen bg-black items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className={`w-12 h-12 rounded-xl bg-white/5 animate-pulse flex items-center justify-center font-black ${accentColor}`}>
+            N
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 animate-pulse">
+            Syncing Vault...
+          </span>
+        </div>
+      </div>
+    );
+  }
+  // ⬆️ END OF NEW CODE ⬆️
   return (
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
       {/* SIDEBAR */}
