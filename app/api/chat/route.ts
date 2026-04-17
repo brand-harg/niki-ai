@@ -1,3 +1,21 @@
+// 1. Add this at the very top of route.ts to fix Vercel build errors
+export const dynamic = 'force-dynamic';
+
+// ... (your existing imports)
+
+// 2. Inside your POST function, ensure the fetch looks like this:
+const response = await fetch("https://imprudent-ardently-slicing.ngrok-free.dev/api/chat", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    model: "qwen2.5:7b", // Ensure this matches exactly what is in 'ollama list'
+    messages: [
+       // ... your message history logic
+    ],
+    stream: true,
+  }),
+});
+
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
 
