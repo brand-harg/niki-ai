@@ -113,28 +113,36 @@ export default function Home() {
     isUnmountingRef.current = false;
 
     const initialize = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
 
-      if (!mounted) return;
+        if (error) throw error;
+        if (!mounted) return;
 
-      setSession(session);
-      setAuthChecked(true);
+        setSession(session);
 
-      if (session) {
-        lastSessionIdRef.current = session.user.id;
-        setProfileLoaded(false);
-        await fetchHistory(session.user.id);
-        await fetchProfile(session.user.id);
-      } else {
-        lastSessionIdRef.current = null;
-        setProfile(null);
-        setProfileLoaded(true);
-        setChatHistory([]);
-        setCurrentChatId(null);
-        currentChatIdRef.current = null;
-        setMessages(defaultGreeting);
+        if (session) {
+          lastSessionIdRef.current = session.user.id;
+          setProfileLoaded(false);
+          // We don't await these here so they don't block the UI from loading
+          fetchHistory(session.user.id);
+          fetchProfile(session.user.id);
+        } else {
+          lastSessionIdRef.current = null;
+          setProfile(null);
+          setProfileLoaded(true);
+          setChatHistory([]);
+          setCurrentChatId(null);
+          currentChatIdRef.current = null;
+          setMessages(defaultGreeting);
+        }
+      } catch (err) {
+        console.error("Vault Sync Error:", err);
+      } finally {
+        // The 'finally' block GUARANTEES this runs, dropping the loading screen
+        if (mounted) {
+          setAuthChecked(true);
+        }
       }
     };
 
