@@ -112,6 +112,15 @@ export default function Home() {
     let mounted = true;
     isUnmountingRef.current = false;
 
+    // 🚨 THE NUCLEAR FALLBACK 🚨
+    // If Supabase hangs for more than 2 seconds, force the UI to unlock.
+    const safetyTimer = setTimeout(() => {
+      if (mounted) {
+        console.warn("Supabase is taking too long. Forcing UI to load.");
+        setAuthChecked(true);
+      }
+    }, 2000);
+
     const initialize = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -185,6 +194,7 @@ export default function Home() {
     return () => {
       mounted = false;
       isUnmountingRef.current = true;
+      clearTimeout(safetyTimer);
       abortControllerRef.current?.abort();
       subscription.unsubscribe();
     };
