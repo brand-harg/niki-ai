@@ -123,20 +123,12 @@ export default function Home() {
 
     const initialize = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // 1. STRICT CHECK: Verify the token with the actual server
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-        if (error) throw error;
-        if (!mounted) return;
-
-        setSession(session);
-
-        if (session) {
-          lastSessionIdRef.current = session.user.id;
-          setProfileLoaded(false);
-          // We don't await these here so they don't block the UI from loading
-          fetchHistory(session.user.id);
-          fetchProfile(session.user.id);
-        } else {
+        // 2. If the token is expired/dead, clear the Ghost Session immediately
+        if (userError || !user) {
+          setSession(null);
           lastSessionIdRef.current = null;
           setProfile(null);
           setProfileLoaded(true);
@@ -144,11 +136,27 @@ export default function Home() {
           setCurrentChatId(null);
           currentChatIdRef.current = null;
           setMessages(defaultGreeting);
+          return; // Stop here so it doesn't try to fetch data
         }
+
+        // 3. If the server says you are good, grab the session details
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        setSession(session);
+        lastSessionIdRef.current = session?.user?.id || null;
+        setProfileLoaded(false);
+
+        // Now safely fetch the real data
+        if (session?.user?.id) {
+          fetchHistory(session.user.id);
+          fetchProfile(session.user.id);
+        }
+
       } catch (err) {
         console.error("Vault Sync Error:", err);
       } finally {
-        // The 'finally' block GUARANTEES this runs, dropping the loading screen
         if (mounted) {
           setAuthChecked(true);
         }
