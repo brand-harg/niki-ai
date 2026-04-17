@@ -464,6 +464,7 @@ export default function Home() {
       if (session?.user?.id) fetchHistory(session.user.id);
     }
   };
+  
 
   return (
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
