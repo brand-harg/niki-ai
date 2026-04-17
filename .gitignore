@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Secrets
+.env
+.env.local
+.env.production
+
+# Data (Ignore your 200+ transcripts)
+transcripts/
+final_data/
+*.json
