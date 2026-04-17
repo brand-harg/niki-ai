@@ -67,6 +67,8 @@ export default function Home() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  // Start as true so we never flash the "not logged in" state before Supabase responds
+  const [authChecked, setAuthChecked] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -76,12 +78,15 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isUnmountingRef = useRef(false);
+  // Track whether a stream is actively running so auth events don't reset state
+  const isStreamingRef = useRef(false);
+  // Track the last session user id to avoid redundant re-fetches
+  const lastSessionIdRef = useRef<string | null>(null);
 
   // --- DYNAMIC THEME ENGINE ---
   const isGreen = profile?.theme_accent === "green";
@@ -118,10 +123,12 @@ export default function Home() {
       setAuthChecked(true);
 
       if (session) {
+        lastSessionIdRef.current = session.user.id;
         setProfileLoaded(false);
         await fetchHistory(session.user.id);
         await fetchProfile(session.user.id);
       } else {
+        lastSessionIdRef.current = null;
         setProfile(null);
         setProfileLoaded(true);
         setChatHistory([]);
@@ -138,6 +145,19 @@ export default function Home() {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
 
+      const newUserId = session?.user?.id ?? null;
+
+      // If a stream is running, don't disrupt state at all
+      if (isStreamingRef.current) return;
+
+      // If it's the same user (e.g. token refresh), skip redundant re-fetch
+      if (newUserId && newUserId === lastSessionIdRef.current) {
+        // Still update the session object (token may have refreshed) but don't reset UI
+        setSession(session);
+        return;
+      }
+
+      lastSessionIdRef.current = newUserId;
       setSession(session);
 
       if (session) {
@@ -185,12 +205,13 @@ export default function Home() {
     }
   }, [messages, isLoading]);
 
-  // Keep stream alive when tab is hidden
+  // Keep stream alive when tab is hidden — prevent page from being frozen
   useEffect(() => {
     const handleVisibilityChange = () => {
+      // No-op: just having the listener prevents some browsers from
+      // aggressively throttling/freezing the fetch stream when hidden
       console.log("Visibility changed:", document.visibilityState);
     };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
@@ -290,6 +311,7 @@ export default function Home() {
   const startNewSession = () => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    isStreamingRef.current = false;
     setIsLoading(false);
     setCurrentChatId(null);
     currentChatIdRef.current = null;
@@ -318,6 +340,7 @@ export default function Home() {
     setMessages(updatedHistory);
     setInputValue("");
     setIsLoading(true);
+    isStreamingRef.current = true;
 
     abortControllerRef.current?.abort();
 
@@ -428,6 +451,7 @@ export default function Home() {
       }
     } finally {
       window.clearTimeout(timeoutId);
+      isStreamingRef.current = false;
 
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
@@ -631,7 +655,10 @@ export default function Home() {
             </div>
 
             <div className="border-l border-white/10 pl-6 flex items-center gap-5">
-              {!authChecked ? null : session ? (
+              {/* Show nothing until auth is checked to avoid flash */}
+              {!authChecked ? (
+                <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
+              ) : session ? (
                 <button
                   onClick={() => router.push("/settings")}
                   className="group flex items-center gap-3 p-1 pr-3 rounded-full hover:bg-white/5 transition-all border border-transparent hover:border-white/10 outline-none"
