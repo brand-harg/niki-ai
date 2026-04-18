@@ -893,7 +893,7 @@ export default function Home() {
                       }
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
-                      const finalContent = sanitizeMathContent(autoWrapMath(clean));
+                      const finalContent = sanitizeMathContent(clean);
 
                       const shouldRenderFinalMath = /[$\\]/.test(finalContent) && isMathSafeToRender(finalContent);
 
