@@ -64,6 +64,17 @@ function sanitizeMathContent(content: string): string {
   return cleaned;
 }
 
+function autoWrapMath(text: string): string {
+  if (!text || typeof text !== "string") return "";
+
+  if (/\$\$|\$/.test(text)) return text;
+
+  if (/\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)/.test(text)) {
+    return `$$\n${text}\n$$`;
+  }
+
+  return text;
+}
 // Utility to parse <think>...</think> blocks from Qwen output
 function parseThoughtTrace(content: string): {
   steps: { label: string; detail: string }[];
@@ -806,8 +817,9 @@ export default function Home() {
                   {msg.role === "ai" ? (
                     (() => {
                       const { steps, clean } = parseThoughtTrace(msg.content);
-                      const hasMath = /\$\$[\s\S]*?\$\$|\$[^$\n]+\$/.test(clean);
-
+                      const hasMath =
+                        /\$\$[\s\S]*?\$\$|\$[^$\n]+\$/.test(clean) ||
+                        /\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)/.test(clean);
                       return (
                         <>
                           {hasMath ? (
@@ -816,7 +828,7 @@ export default function Home() {
                                 remarkPlugins={[remarkMath]}
                                 rehypePlugins={[rehypeKatex]}
                               >
-                                {sanitizeMathContent(clean)}
+                                {sanitizeMathContent(autoWrapMath(clean))}
                               </ReactMarkdown>
                             </div>
                           ) : (
@@ -858,50 +870,52 @@ export default function Home() {
         </div>
 
         {/* FOOTER INPUT */}
-        <footer className="absolute bottom-0 left-0 right-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-6 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">          <div className="max-w-4xl mx-auto space-y-6">
-          {/* Mode toggle */}
-          <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">            <button
-            onClick={() => setIsNikiMode(false)}
-            className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-              }`}
-          >
-            Pure Logic
-          </button>
-            <button
-              onClick={() => setIsNikiMode(true)}
-              className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                }`}
-            >
-              Nemanja Mode
-            </button>
-          </div>
-
-          {/* Input bar */}
-          <div className="bg-[#111] border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-2xl focus-within:border-white/30 transition-all">
-            <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
-              <input
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                type="text"
-                placeholder={
-                  isNikiMode
-                    ? "Ask Professor Nikitovic..."
-                    : "Specify mathematical query..."
-                }
-                className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
-                  } placeholder:text-slate-600 shadow-none`}
-              />
+        <footer className="absolute bottom-0 left-0 right-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-6 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Mode toggle */}
+            <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">
               <button
-                onClick={handleSend}
-                disabled={isLoading}
-                className={`shrink-0 w-full sm:w-auto bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-6 sm:px-8 py-3 sm:py-4 rounded-[1.2rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
+                onClick={() => setIsNikiMode(false)}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                  }`}
               >
-                {isLoading ? "Thinking" : "Send"}
+                Pure Logic
+              </button>
+              <button
+                onClick={() => setIsNikiMode(true)}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                  }`}
+              >
+                Nemanja Mode
               </button>
             </div>
+
+            {/* Input bar */}
+            <div className="bg-[#111] border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-2xl focus-within:border-white/30 transition-all">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
+                <input
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  type="text"
+                  placeholder={
+                    isNikiMode
+                      ? "Ask Professor Nikitovic..."
+                      : "Specify mathematical query..."
+                  }
+                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
+                    } placeholder:text-slate-600 shadow-none`}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={isLoading}
+                  className={`shrink-0 w-full sm:w-auto bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-6 sm:px-8 py-3 sm:py-4 rounded-[1.2rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
+                >
+                  {isLoading ? "Thinking" : "Send"}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
         </footer>
       </section>
 

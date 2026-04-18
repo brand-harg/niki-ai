@@ -77,3 +77,8 @@ body {
     line-height: 1.55;
   }
 }
+
+.katex-display {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}

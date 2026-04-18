@@ -68,6 +68,10 @@ Math formatting rules (STRICT):
 - Do NOT include commas inside integrals like "\int f(x), dx"
 - Always write integrals like: \int f(x) \, dx
 - If formatting becomes complex, use plain text instead of LaTeX.
+- Always wrap math in $...$ or $$...$$
+- Never output raw LaTeX like \frac without wrapping it
+- Use $$ for full equations
+- Use $ for inline expressions
 
 For general writing tasks:
 - Respond in clean natural prose.
@@ -108,6 +112,10 @@ Math formatting rules (STRICT):
 - Do NOT include commas inside integrals like "\int f(x), dx"
 - Always write integrals like: \int f(x) \, dx
 - If formatting becomes complex, use plain text instead of LaTeX.
+- Always wrap math in $...$ or $$...$$
+- Never output raw LaTeX like \frac without wrapping it
+- Use $$ for full equations
+- Use $ for inline expressions
 
 For general writing tasks:
 - Respond in clean natural prose.
