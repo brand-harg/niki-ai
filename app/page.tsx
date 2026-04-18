@@ -63,6 +63,21 @@ function sanitizeMathContent(content: string): string {
   return cleaned;
 }
 
+function stripPartialThink(content: string): string {
+  if (!content) return "";
+
+  // Remove fully completed think blocks
+  let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, "");
+
+  // Remove partial opening <think> that hasn't closed yet
+  const openIndex = cleaned.indexOf("<think>");
+  if (openIndex !== -1) {
+    cleaned = cleaned.slice(0, openIndex);
+  }
+
+  return cleaned;
+}
+
 function autoWrapMath(text: string): string {
   if (!text || typeof text !== "string") return "";
 
@@ -841,18 +856,35 @@ export default function Home() {
                 <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 leading-6 sm:leading-7 text-sm sm:text-base overflow-hidden">
                   {msg.role === "ai" ? (
                     (() => {
-                      const { steps, clean } = parseThoughtTrace(msg.content);
-                      const prepared = sanitizeMathContent(autoWrapMath(clean));
                       const isStreamingMessage = isLoading && i === messages.length - 1;
+
+                      if (isStreamingMessage) {
+                        const liveContent = stripPartialThink(msg.content);
+
+                        return /[$\\]/.test(liveContent) ? (
+                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
+                            >
+                              {sanitizeMathContent(liveContent)}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          <div>{liveContent}</div>
+                        );
+                      }
+
+                      const { steps, clean } = parseThoughtTrace(msg.content);
 
                       return (
                         <>
-                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                          <div className="prose prose-invert max-w-none prose-p:my-2">
                             <ReactMarkdown
-                              remarkPlugins={isStreamingMessage ? [] : [remarkMath]}
-                              rehypePlugins={isStreamingMessage ? [] : [rehypeKatex]}
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
                             >
-                              {prepared}
+                              {sanitizeMathContent(clean)}
                             </ReactMarkdown>
                           </div>
 
