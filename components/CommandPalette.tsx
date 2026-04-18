@@ -76,7 +76,7 @@ function saveRecent(id: string) {
   try {
     const prev = getRecent().filter((r) => r !== id);
     localStorage.setItem(RECENT_KEY, JSON.stringify([id, ...prev].slice(0, MAX_RECENT)));
-  } catch {}
+  } catch { }
 }
 
 export default function CommandPalette({
@@ -187,23 +187,23 @@ export default function CommandPalette({
 
     const contextual: Command[] = hasActiveChat
       ? [
-          {
-            id: "rename-chat",
-            icon: "✎",
-            label: "Rename Chat",
-            description: `Rename "${currentChatTitle.slice(0, 30)}${currentChatTitle.length > 30 ? "…" : ""}"`,
-            action: () => onRenameChat?.(),
-            contextual: true,
-          },
-          {
-            id: "pin-chat",
-            icon: "★",
-            label: "Pin Chat",
-            description: "Keep this session at the top of history",
-            action: () => onPinChat?.(),
-            contextual: true,
-          },
-        ]
+        {
+          id: "rename-chat",
+          icon: "✎",
+          label: "Rename Chat",
+          description: `Rename "${currentChatTitle.slice(0, 30)}${currentChatTitle.length > 30 ? "…" : ""}"`,
+          action: () => onRenameChat?.(),
+          contextual: true,
+        },
+        {
+          id: "pin-chat",
+          icon: "★",
+          label: "Pin Chat",
+          description: "Keep this session at the top of history",
+          action: () => onPinChat?.(),
+          contextual: true,
+        },
+      ]
       : [];
 
     return [
@@ -221,10 +221,10 @@ export default function CommandPalette({
   // Filter by query
   const filtered = query.trim()
     ? allCommands.filter(
-        (c) =>
-          c.label.toLowerCase().includes(query.toLowerCase()) ||
-          c.description.toLowerCase().includes(query.toLowerCase())
-      )
+      (c) =>
+        c.label.toLowerCase().includes(query.toLowerCase()) ||
+        c.description.toLowerCase().includes(query.toLowerCase())
+    )
     : null; // null = show grouped view
 
   // Recent commands (only when no query)
@@ -238,6 +238,7 @@ export default function CommandPalette({
   // --- EFFECTS ---
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
       setSelectedIdx(0);
       setRecent(getRecent());
@@ -246,6 +247,7 @@ export default function CommandPalette({
   }, [isOpen]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIdx(0);
   }, [query]);
 
@@ -338,8 +340,8 @@ export default function CommandPalette({
         {/* Search bar */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/5">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-slate-600 flex-shrink-0">
-            <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"/>
-            <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
           <input
             ref={inputRef}

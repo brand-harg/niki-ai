@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -8,17 +8,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [themeAccent, setThemeAccent] = useState('cyan');
+  const [themeAccent] = useState(() => {
+    if (typeof window === 'undefined') return 'cyan';
+    const savedAccent = localStorage.getItem('theme_accent');
+    return savedAccent === 'green' || savedAccent === 'amber' || savedAccent === 'cyan'
+      ? savedAccent
+      : 'cyan';
+  });
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [forgotSent, setForgotSent] = useState(false);
   const router = useRouter();
-
-  useEffect(() => {
-    const savedAccent = localStorage.getItem('theme_accent');
-    if (savedAccent === 'green' || savedAccent === 'amber' || savedAccent === 'cyan') {
-      setThemeAccent(savedAccent);
-    }
-  }, []);
 
   const isGreen = themeAccent === 'green';
   const isAmber = themeAccent === 'amber';
@@ -156,7 +155,7 @@ export default function LoginPage() {
             ) : (
               <form onSubmit={handleForgotPassword} className="space-y-4">
                 <p className="text-slate-400 text-xs text-center mb-2">
-                  Enter your email and we'll send you a reset link.
+                  Enter your email and we&apos;ll send you a reset link.
                 </p>
                 <input
                   type="email"

@@ -20,7 +20,7 @@ type ChatRequest = {
 function buildSystemPrompt(
   isNikiMode: boolean,
   userName: string,
-    forceStepByStep: boolean,
+  forceStepByStep: boolean,
   wantsDeeperExplanation: boolean,
   includeThoughtTrace: boolean,
   personalContext = "",
@@ -41,7 +41,7 @@ Math formatting rules (STRICT):
 
 Math response structure:
 ${forceStepByStep
-    ? `- Use explicit numbered steps: Step 1, Step 2, Step 3, ...
+      ? `- Use explicit numbered steps: Step 1, Step 2, Step 3, ...
 - Use at least ${wantsDeeperExplanation ? "5" : "3"} steps, and continue with additional steps whenever needed for clarity.
 - Put each step on its own line.
 - In each step, show both the operation and the intermediate result.
@@ -50,11 +50,40 @@ ${forceStepByStep
 - If the student asks for more help, expand the walkthrough with more steps instead of compressing.
 - End with a separate line: Final Answer: [result].
 - Do not skip directly to only the final result.`
-    : `- Prefer clean explanatory prose (not rigid numbered steps).
+      : `- Prefer clean explanatory prose (not rigid numbered steps).
 - Show key equations on their own lines with $$...$$.
 - Briefly state the rule used, then apply it.
 - End with a standalone concluding equation/result line.
 - Only use explicit Step 1/Step 2 labels if the user asks for step-by-step.`}
+
+Output template (STRICT):
+${forceStepByStep
+    ? `Given: [what is known]
+Goal: [what to find]
+Step 1: ...
+Step 2: ...
+...
+Final Answer: [result only]
+Optional: Alternative form or quick check (only if useful).`
+    : `Start with one short setup sentence.
+Step 1: [choose method/rule]
+- [short bullet if needed]
+Step 2: [apply the method]
+$$...$$
+Step 3: [simplify/evaluate]
+$$...$$
+Final Answer: [result only]`}
+
+Method-specific formatting (REQUIRED for all calculus methods):
+- Keep the same visual style across methods: numbered Step sections + bullet sub-lines + display equations.
+- Adapt Step 1/Step 2 labels to the method being used:
+  - u-substitution: choose substitution, compute $du$, rewrite integral.
+  - integration by parts: choose $u$ and $dv$, compute $du$ and $v$.
+  - partial fractions: factor denominator, decompose, solve constants.
+  - trig identities/substitution: choose identity/substitution, rewrite, integrate.
+- For any method, explicitly show "Let:" (or equivalent setup line) and use bullets for derived helper pieces.
+- Never collapse setup details into one long sentence; keep the same structured step style.
+
 `.trim();
 
   const sharedThoughtTraceRules = `
@@ -111,8 +140,8 @@ Persona:
 - You are a teacher first. Your job is to make the student understand, not just to give the answer.
 
 ${includeThoughtTrace
-      ? sharedThoughtTraceRules
-      : "Do not output any <think>...</think> tags unless the user explicitly asks for thought trace/reasoning trace."}
+        ? sharedThoughtTraceRules
+        : "Do not output any <think>...</think> tags unless the user explicitly asks for thought trace/reasoning trace."}
 
 ${sharedMathRules}
 
@@ -318,7 +347,7 @@ export async function POST(req: Request) {
       {
         role: "assistant",
         content:
-          "I will always open my response with a <think> block of 3 to 6 labeled steps before answering. I will always close the block with </think> before writing my answer. I will format all math using proper LaTeX with one equation per line.",
+          "I will format all math using proper LaTeX with one equation per line.",
       },
       ...formattedHistory,
       userMessage,
@@ -347,7 +376,7 @@ export async function POST(req: Request) {
     );
 
     if (!response.ok) {
-      const responseText = await response.text().catch(() => "");
+const responseText = await response.text().catch(() => "");
       console.log(
         "❌ Ollama request failed:",
         response.status,
@@ -426,8 +455,8 @@ export async function POST(req: Request) {
         "Cache-Control": "no-cache",
       },
     });
-  } catch (error: any) {
-    if (error?.name === "AbortError") {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") {
       return NextResponse.json({ reply: "System Error: Model timed out." });
     }
 

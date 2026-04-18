@@ -17,41 +17,42 @@ export default function PersonalizationPage() {
   });
 
   useEffect(() => {
-    fetchPersonalization();
-  }, []);
+    const run = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return router.push('/login');
 
-  const fetchPersonalization = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return router.push('/login');
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('about_user, response_style, default_niki_mode, theme_accent')
+        .eq('id', session.user.id)
+        .maybeSingle();
 
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('about_user, response_style, default_niki_mode, theme_accent')
-      .eq('id', session.user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.log("Personalization fetch error:", error);
-    }
-
-    if (profile) {
-      setData({
-        about_user: profile.about_user || '',
-        response_style: profile.response_style || '',
-        default_niki_mode: profile.default_niki_mode ?? true
-      });
-
-      if (
-        profile.theme_accent === 'cyan' ||
-        profile.theme_accent === 'green' ||
-        profile.theme_accent === 'amber'
-      ) {
-        setThemeAccent(profile.theme_accent);
+      if (error) {
+        console.log("Personalization fetch error:", error);
       }
-    }
 
-    setLoading(false);
-  };
+      if (profile) {
+        setData({
+          about_user: profile.about_user || '',
+          response_style: profile.response_style || '',
+          default_niki_mode: profile.default_niki_mode ?? true
+        });
+
+        if (
+          profile.theme_accent === 'cyan' ||
+          profile.theme_accent === 'green' ||
+          profile.theme_accent === 'amber'
+        ) {
+          setThemeAccent(profile.theme_accent);
+        }
+      }
+
+
+      setLoading(false);
+    };
+
+    run();
+  }, [router]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -173,7 +174,7 @@ export default function PersonalizationPage() {
             <div>
               <span className="text-xs font-bold text-slate-300">Default to Nemanja Mode</span>
               <p className="text-[8px] text-slate-600 uppercase mt-1">
-                Start sessions with the Professor's persona active
+                Start sessions with the Professor&apos;s persona active
               </p>
             </div>
             <button
