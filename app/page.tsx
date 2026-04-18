@@ -59,6 +59,8 @@ function sanitizeMathContent(content: string): string {
     }
   }
 
+  cleaned = cleaned.replace(/^\$\s*$/gm, "");
+
   return cleaned;
 }
 
@@ -804,14 +806,21 @@ export default function Home() {
                   {msg.role === "ai" ? (
                     (() => {
                       const { steps, clean } = parseThoughtTrace(msg.content);
+                      const hasMath = /\$\$[\s\S]*?\$\$|\$[^$\n]+\$/.test(clean);
+
                       return (
                         <>
-                          <ReactMarkdown
-                            remarkPlugins={[remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
-                          >
-                            {sanitizeMathContent(clean)}
-                          </ReactMarkdown>
+                          {hasMath ? (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
+                            >
+                              {sanitizeMathContent(clean)}
+                            </ReactMarkdown>
+                          ) : (
+                            <div>{clean}</div>
+                          )}
+
                           {steps.length > 0 && (
                             <ThoughtTrace
                               steps={steps}

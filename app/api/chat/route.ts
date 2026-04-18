@@ -59,6 +59,22 @@ Math rules:
 - Never output partial LaTeX commands.
 - If a derivation would get too messy, explain it in plain text instead.
 
+Math formatting rules (STRICT):
+- Never output a single $ on its own line.
+- Never wrap multi-line math with $.
+- Only use $$...$$ for full standalone equations.
+- Only use $...$ for short inline math.
+- Do NOT mix plain text and LaTeX in the same line.
+- Do NOT include commas inside integrals like "\int f(x), dx"
+- Always write integrals like: \int f(x) \, dx
+- If formatting becomes complex, use plain text instead of LaTeX.
+
+For general writing tasks:
+- Respond in clean natural prose.
+- Do not use markdown headings.
+- Do not bold labels or section titles unless requested.
+- Do not split a simple paragraph into categories.
+
 User: ${userName}
 ${personalContext}
 ${styleInstructions}
@@ -82,6 +98,22 @@ Math rules:
 - Never leave equations unfinished.
 - Never output partial LaTeX commands.
 - If a derivation would get too messy, explain it in plain text instead.
+
+Math formatting rules (STRICT):
+- Never output a single $ on its own line.
+- Never wrap multi-line math with $.
+- Only use $$...$$ for full standalone equations.
+- Only use $...$ for short inline math.
+- Do NOT mix plain text and LaTeX in the same line.
+- Do NOT include commas inside integrals like "\int f(x), dx"
+- Always write integrals like: \int f(x) \, dx
+- If formatting becomes complex, use plain text instead of LaTeX.
+
+For general writing tasks:
+- Respond in clean natural prose.
+- Do not use markdown headings.
+- Do not bold labels or section titles unless requested.
+- Do not split a simple paragraph into categories.
 
 User: ${userName}
 ${personalContext}
