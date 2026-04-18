@@ -878,7 +878,7 @@ export default function Home() {
                       }
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
-                      const finalContent = sanitizeMathContent(clean);
+                      const finalContent = sanitizeMathContent(autoWrapMath(clean));
 
                       return (
                         <>
