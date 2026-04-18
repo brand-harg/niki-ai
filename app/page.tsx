@@ -68,11 +68,8 @@ function sanitizeMathContent(content: string): string {
   cleaned = cleaned.replace(/\$\s*\$\$/g, "$$");
   cleaned = cleaned.replace(/\$\$\s*\$/g, "$$");
 
-  // Remove any leading stray $
-  cleaned = cleaned.replace(/^\$/gm, "");
-
-  // Remove any $ directly before $$ blocks
-  cleaned = cleaned.replace(/\$(?=\$\$)/g, "");
+  // Remove a stray single `$` on its own line, but preserve `$$` block delimiters
+  cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
 
   return cleaned;
 }
@@ -899,26 +896,31 @@ export default function Home() {
                       if (isStreamingMessage) {
                         const liveContent = stripPartialThink(msg.content);
 
-                        return /[$\\]/.test(liveContent) ? (
+                        const liveMathContent = sanitizeMathContent(liveContent);
+                        const canRenderLiveMath = /[$\\]/.test(liveMathContent) && isMathSafeToRender(liveMathContent);
+
+                        return canRenderLiveMath ? (
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
                             <ReactMarkdown
                               remarkPlugins={[remarkMath]}
                               rehypePlugins={[rehypeKatex]}
                             >
-                              {sanitizeMathContent(liveContent)}
+                              {liveMathContent}
                             </ReactMarkdown>
                           </div>
                         ) : (
-                          <div>{liveContent}</div>
+                          <div className="whitespace-pre-wrap">{liveContent}</div>
                         );
                       }
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
                       const finalContent = sanitizeMathContent(autoWrapMath(clean));
 
+                      const shouldRenderFinalMath = /[$\\]/.test(finalContent) && isMathSafeToRender(finalContent);
+
                       return (
                         <>
-                          {/[$\\]/.test(finalContent) ? (
+                          {shouldRenderFinalMath ? (
                             <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
                               <ReactMarkdown
                                 remarkPlugins={[remarkMath]}
@@ -928,7 +930,7 @@ export default function Home() {
                               </ReactMarkdown>
                             </div>
                           ) : (
-                            <div>{clean}</div>
+                            <div className="whitespace-pre-wrap">{clean}</div>
                           )}
 
                           {steps.length > 0 && (
@@ -1024,4 +1026,5 @@ export default function Home() {
       />
     </main>
   );
+  
 }
