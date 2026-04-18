@@ -10,7 +10,7 @@ const response = await fetch("https://imprudent-ardently-slicing.ngrok-free.dev/
   body: JSON.stringify({
     model: "qwen2.5:7b", // Ensure this matches exactly what is in 'ollama list'
     messages: [
-       // ... your message history logic
+      // ... your message history logic
     ],
     stream: true,
   }),
@@ -72,6 +72,12 @@ Math formatting rules (STRICT):
 - Do not output partial fractions, integrals, or commands.
 - If needed, rewrite the expression fully instead of continuing a broken one.
 
+Formatting examples (follow this structure):
+Example:
+$$\int x^2 dx = \frac{x^3}{3} + C$$
+Steps should be clearly separated. Each major equation should be on its own line.
+Never place multiple equations on the same line.
+
 For general writing tasks:
 - Respond in clean natural prose.
 - Do not use markdown headings.
@@ -114,6 +120,12 @@ Math formatting rules (STRICT):
 - Always ensure all LaTeX expressions are complete before finishing a response.
 - Do not output partial fractions, integrals, or commands.
 - If needed, rewrite the expression fully instead of continuing a broken one.
+
+Formatting examples (follow this structure):
+Example:
+$$\int x^2 dx = \frac{x^3}{3} + C$$
+Steps should be clearly separated. Each major equation should be on its own line.
+Never place multiple equations on the same line.
 
 For general writing tasks:
 - Respond in clean natural prose.
@@ -237,6 +249,11 @@ export async function POST(req: Request) {
         },
         messages: [
           { role: "system", content: systemPrompt },
+          {
+            role: "assistant",
+            content:
+              "I will format all math clearly using proper LaTeX with one equation per line. I will not combine multiple equations on the same line, and I will avoid incomplete or malformed math."
+          },
           ...formattedHistory,
           { role: "user", content: message },
         ],
