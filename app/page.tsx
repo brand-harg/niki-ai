@@ -54,7 +54,7 @@ function sanitizeMathContent(content: string): string {
     cleaned = cleaned.replace(/\$\$(?![\s\S]*\$\$)/, "");
   }
 
-   const withoutDouble = cleaned.replace(/\$\$/g, "");
+  const withoutDouble = cleaned.replace(/\$\$/g, "");
   const singleCount = (withoutDouble.match(/\$/g) || []).length;
   if (singleCount % 2 !== 0) {
     cleaned = cleaned.replace(/\$(?![\s\S]*\$)/, "");
@@ -62,6 +62,17 @@ function sanitizeMathContent(content: string): string {
 
   cleaned = cleaned.replace(/^\$\s*$/gm, "");
   cleaned = cleaned.replace(/\$\$\s*\$\$/g, "$$");
+  cleaned = cleaned.replace(/\$\$(\S)/g, "$$\n$1");
+  cleaned = cleaned.replace(/(\S)\$\$/g, "$1\n$$");
+  // Remove stray single $ next to $$ blocks
+  cleaned = cleaned.replace(/\$\s*\$\$/g, "$$");
+  cleaned = cleaned.replace(/\$\$\s*\$/g, "$$");
+
+  // Remove any leading stray $
+  cleaned = cleaned.replace(/^\$/gm, "");
+
+  // Remove any $ directly before $$ blocks
+  cleaned = cleaned.replace(/\$(?=\$\$)/g, "");
 
   return cleaned;
 }
@@ -91,21 +102,21 @@ function autoWrapMath(text: string): string {
 
     if (!trimmed) return line;
 
-    // Never wrap anything that already has math delimiters
     if (trimmed.includes("$")) return line;
+    if (/^\s*\$\$.*\$\$\s*$/.test(trimmed)) return line;
     if (trimmed.includes("\\(") || trimmed.includes("\\)")) return line;
     if (trimmed.includes("\\[") || trimmed.includes("\\]")) return line;
 
     const looksLikeStandaloneMath =
-      /\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan)\b/.test(trimmed) ||
+      /\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan|arctan)\b/.test(trimmed) ||
       /^[=+\-*/()x0-9\s.^{}\\,]+$/.test(trimmed);
 
     const looksLikeSentence =
       /[A-Za-z]{3,}.*[A-Za-z]{3,}/.test(trimmed) &&
-      !/\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan)\b/.test(trimmed);
+      !/\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan|arctan)\b/.test(trimmed);
 
     if (looksLikeStandaloneMath && !looksLikeSentence) {
-      return `$$${trimmed}$$`;
+      return `\n$$\n${trimmed}\n$$\n`;
     }
 
     return line;
