@@ -24,3 +24,56 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.prose :where(p) {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose :where(ul, ol) {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose :where(li) {
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+}
+
+.prose :where(h1, h2, h3, h4) {
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose :where(pre) {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose :where(blockquote) {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.katex-display {
+  margin: 0.6rem 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15rem 0.1rem;
+}
+
+.katex {
+  font-size: 1em;
+}
+
+@media (max-width: 640px) {
+  .katex-display {
+    font-size: 0.95em;
+    padding-bottom: 0.25rem;
+  }
+
+  .prose {
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+}

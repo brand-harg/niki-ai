@@ -782,8 +782,8 @@ export default function Home() {
         {/* CHAT VIEWPORT */}
         <div
           ref={scrollRef}
-          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-sm" : "pt-10 pb-44 text-xl"
-            } px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-3 pb-40 text-sm" : "pt-5 sm:pt-8 pb-52 sm:pb-44 text-base sm:text-xl"
+            } px-3 sm:px-5 lg:px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
@@ -802,7 +802,7 @@ export default function Home() {
                     : profile?.first_name?.[0] || profile?.username?.[0] || "U"}
                 </div>
 
-                <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 whitespace-pre-wrap leading-7">
+                <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 leading-6 sm:leading-7 text-sm sm:text-base overflow-hidden">
                   {msg.role === "ai" ? (
                     (() => {
                       const { steps, clean } = parseThoughtTrace(msg.content);
@@ -811,12 +811,14 @@ export default function Home() {
                       return (
                         <>
                           {hasMath ? (
-                            <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
-                              rehypePlugins={[rehypeKatex]}
-                            >
-                              {sanitizeMathContent(clean)}
-                            </ReactMarkdown>
+                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3 prose-pre:my-2 prose-code:before:content-none prose-code:after:content-none">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                              >
+                                {sanitizeMathContent(clean)}
+                              </ReactMarkdown>
+                            </div>
                           ) : (
                             <div>{clean}</div>
                           )}
@@ -856,28 +858,27 @@ export default function Home() {
         </div>
 
         {/* FOOTER INPUT */}
-        <footer className="absolute bottom-0 left-0 right-0 p-8 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">
-          <div className="max-w-4xl mx-auto space-y-6">
-            {/* Mode toggle */}
-            <div className="max-w-[280px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl">
-              <button
-                onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                  }`}
-              >
-                Pure Logic
-              </button>
-              <button
-                onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                  }`}
-              >
-                Nemanja Mode
-              </button>
-            </div>
+        <footer className="absolute bottom-0 left-0 right-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-6 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">          <div className="max-w-4xl mx-auto space-y-6">
+          {/* Mode toggle */}
+          <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">            <button
+            onClick={() => setIsNikiMode(false)}
+            className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+              }`}
+          >
+            Pure Logic
+          </button>
+            <button
+              onClick={() => setIsNikiMode(true)}
+              className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                }`}
+            >
+              Nemanja Mode
+            </button>
+          </div>
 
-            {/* Input bar */}
-            <div className="bg-[#111] border border-white/10 rounded-[2rem] p-2 pl-8 flex items-center gap-5 shadow-2xl focus-within:border-white/30 transition-all">
+          {/* Input bar */}
+          <div className="bg-[#111] border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-2xl focus-within:border-white/30 transition-all">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
               <input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -888,19 +889,19 @@ export default function Home() {
                     ? "Ask Professor Nikitovic..."
                     : "Specify mathematical query..."
                 }
-                className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 ${profile?.compact_mode ? "text-base py-3" : "text-lg py-4"
-                  } placeholder:text-slate-800 shadow-none`}
+                className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
+                  } placeholder:text-slate-600 shadow-none`}
               />
               <button
                 onClick={handleSend}
                 disabled={isLoading}
-                className={`bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black ${profile?.compact_mode ? "px-6 py-3" : "px-10 py-4"
-                  } rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
+                className={`shrink-0 w-full sm:w-auto bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-6 sm:px-8 py-3 sm:py-4 rounded-[1.2rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
               >
                 {isLoading ? "Thinking" : "Send"}
               </button>
             </div>
           </div>
+        </div>
         </footer>
       </section>
 
