@@ -469,6 +469,10 @@ export default function Home() {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error("API status:", response.status);
+        console.error("API body:", errorText);
+
         if (response.status === 401) {
           setMessages((prev) => [
             ...prev,
@@ -476,7 +480,8 @@ export default function Home() {
           ]);
           return;
         }
-        throw new Error(`API returned ${response.status}`);
+
+        throw new Error(`API returned ${response.status}: ${errorText}`);
       }
 
       setMessages((prev) => [...prev, { role: "ai", content: "" }]);
@@ -525,7 +530,7 @@ export default function Home() {
         console.error("handleSend error:", error);
         setMessages((prev) => [
           ...prev,
-          { role: "ai", content: "System Error: Vault connection lost." },
+          { role: "ai", content: `System Error: ${error?.message || "Vault connection lost."}` },
         ]);
       }
     } finally {
@@ -546,9 +551,8 @@ export default function Home() {
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${
-        currentChatId === chat.id ? "bg-white/5 text-white" : ""
-      }`}
+      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${currentChatId === chat.id ? "bg-white/5 text-white" : ""
+        }`}
     >
       {renamingChatId === chat.id ? (
         <input
@@ -576,11 +580,10 @@ export default function Home() {
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
           onClick={(e) => togglePin(e, chat.id, chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${
-            chat.is_pinned
-              ? `${accentColor} opacity-100`
-              : "opacity-20 hover:opacity-100 hover:text-white"
-          }`}
+          className={`cursor-pointer transition-opacity ${chat.is_pinned
+            ? `${accentColor} opacity-100`
+            : "opacity-20 hover:opacity-100 hover:text-white"
+            }`}
         >
           {chat.is_pinned ? "★" : "☆"}
         </div>
@@ -616,9 +619,8 @@ export default function Home() {
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
       {/* SIDEBAR */}
       <aside
-        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
-          isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
-        }`}
+        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
+          }`}
       >
         <div className="p-4 pt-6">
           <button
@@ -636,21 +638,19 @@ export default function Home() {
         <div className="flex px-4 mb-6 gap-1">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
-              activeTab === "history"
-                ? `bg-white/5 ${accentColor} ${accentBorder}`
-                : "text-slate-500 border-transparent hover:text-slate-300"
-            }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
+              ? `bg-white/5 ${accentColor} ${accentBorder}`
+              : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
           >
             History
           </button>
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
-              activeTab === "projects"
-                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                : "text-slate-500 border-transparent hover:text-slate-300"
-            }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
           >
             Projects
           </button>
@@ -780,24 +780,20 @@ export default function Home() {
         {/* CHAT VIEWPORT */}
         <div
           ref={scrollRef}
-          className={`flex-1 overflow-y-auto ${
-            profile?.compact_mode ? "pt-4 pb-32 text-sm" : "pt-10 pb-44 text-xl"
-          } px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-sm" : "pt-10 pb-44 text-xl"
+            } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${
-                  profile?.compact_mode ? "gap-4" : "gap-6"
-                } items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
+                className={`flex ${profile?.compact_mode ? "gap-4" : "gap-6"
+                  } items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
               >
                 <div
-                  className={`${
-                    profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
-                  } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${
-                    msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                  }`}
+                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
+                    } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                    }`}
                 >
                   {msg.role === "ai"
                     ? "N"
@@ -857,17 +853,15 @@ export default function Home() {
             <div className="max-w-[280px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl">
               <button
                 onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
-                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                  }`}
               >
                 Pure Logic
               </button>
               <button
                 onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
-                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                  }`}
               >
                 Nemanja Mode
               </button>
@@ -885,16 +879,14 @@ export default function Home() {
                     ? "Ask Professor Nikitovic..."
                     : "Specify mathematical query..."
                 }
-                className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 ${
-                  profile?.compact_mode ? "text-base py-3" : "text-lg py-4"
-                } placeholder:text-slate-800 shadow-none`}
+                className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 ${profile?.compact_mode ? "text-base py-3" : "text-lg py-4"
+                  } placeholder:text-slate-800 shadow-none`}
               />
               <button
                 onClick={handleSend}
                 disabled={isLoading}
-                className={`bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black ${
-                  profile?.compact_mode ? "px-6 py-3" : "px-10 py-4"
-                } rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
+                className={`bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black ${profile?.compact_mode ? "px-6 py-3" : "px-10 py-4"
+                  } rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
               >
                 {isLoading ? "Thinking" : "Send"}
               </button>
