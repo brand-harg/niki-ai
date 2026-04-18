@@ -54,11 +54,14 @@ function sanitizeMathContent(content: string): string {
     cleaned = cleaned.replace(/\$\$(?![\s\S]*\$\$)/, "");
   }
 
-  const withoutDouble = cleaned.replace(/\$\$/g, "");
+   const withoutDouble = cleaned.replace(/\$\$/g, "");
   const singleCount = (withoutDouble.match(/\$/g) || []).length;
   if (singleCount % 2 !== 0) {
     cleaned = cleaned.replace(/\$(?![\s\S]*\$)/, "");
   }
+
+  cleaned = cleaned.replace(/^\$\s*$/gm, "");
+  cleaned = cleaned.replace(/\$\$\s*\$\$/g, "$$");
 
   return cleaned;
 }
@@ -79,14 +82,36 @@ function stripPartialThink(content: string): string {
 }
 
 function autoWrapMath(text: string): string {
-  if (!text) return "";
+  if (!text || typeof text !== "string") return "";
 
-  if (/\$\$|\$/.test(text)) return text;
+  const lines = text.split("\n");
 
-  return text.replace(
-    /(\\int[\s\S]*?dx)/g,
-    (match) => `\n$$${match}$$\n`
-  );
+  const wrappedLines = lines.map((line) => {
+    const trimmed = line.trim();
+
+    if (!trimmed) return line;
+
+    // Never wrap anything that already has math delimiters
+    if (trimmed.includes("$")) return line;
+    if (trimmed.includes("\\(") || trimmed.includes("\\)")) return line;
+    if (trimmed.includes("\\[") || trimmed.includes("\\]")) return line;
+
+    const looksLikeStandaloneMath =
+      /\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan)\b/.test(trimmed) ||
+      /^[=+\-*/()x0-9\s.^{}\\,]+$/.test(trimmed);
+
+    const looksLikeSentence =
+      /[A-Za-z]{3,}.*[A-Za-z]{3,}/.test(trimmed) &&
+      !/\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan)\b/.test(trimmed);
+
+    if (looksLikeStandaloneMath && !looksLikeSentence) {
+      return `$$${trimmed}$$`;
+    }
+
+    return line;
+  });
+
+  return wrappedLines.join("\n");
 }
 
 function isMathSafeToRender(text: string): boolean {
@@ -834,8 +859,8 @@ export default function Home() {
         <div
           ref={scrollRef}
           className={`flex-1 overflow-y-auto ${profile?.compact_mode
-              ? "pt-4 pb-32 text-[15px]"
-              : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+            ? "pt-4 pb-32 text-[15px]"
+            : "pt-10 pb-44 text-[17px] sm:text-[18px]"
             } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
