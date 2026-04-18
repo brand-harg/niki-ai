@@ -59,7 +59,7 @@ body {
   margin: 0.6rem 0 !important;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0.15rem 0.1rem;
+  padding: 0.15rem 0.1rem 0.2rem;
 }
 
 .katex {
@@ -76,9 +76,4 @@ body {
     font-size: 0.95rem;
     line-height: 1.55;
   }
-}
-
-.katex-display {
-  overflow-x: auto;
-  padding-bottom: 4px;
 }

@@ -69,11 +69,37 @@ function autoWrapMath(text: string): string {
 
   if (/\$\$|\$/.test(text)) return text;
 
-  if (/\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)/.test(text)) {
-    return `$$\n${text}\n$$`;
-  }
+  return text.replace(
+    /(\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan|ln|alpha|beta|gamma|theta)[^.\n]*)/g,
+    (match) => `$$\n${match}\n$$`
+  );
+}
 
-  return text;
+function isMathSafeToRender(text: string): boolean {
+  if (!text || typeof text !== "string") return true;
+
+  const normalized = text
+    .replace(/\\\[/g, "$$")
+    .replace(/\\\]/g, "$$")
+    .replace(/\\\(/g, "$")
+    .replace(/\\\)/g, "$");
+
+  const doubleCount = (normalized.match(/\$\$/g) || []).length;
+  if (doubleCount % 2 !== 0) return false;
+
+  const withoutDouble = normalized.replace(/\$\$/g, "");
+  const singleCount = (withoutDouble.match(/\$/g) || []).length;
+  if (singleCount % 2 !== 0) return false;
+
+  const openCurlies = (normalized.match(/{/g) || []).length;
+  const closeCurlies = (normalized.match(/}/g) || []).length;
+  if (openCurlies !== closeCurlies) return false;
+
+  const beginCmds = (normalized.match(/\\(frac|sqrt|text|mathrm|mathbf|left|right|cdot|int|sum|lim|ln|sin|cos|tan)\b/g) || []).length;
+  const trailingSlashCommand = /\\[a-zA-Z]*$/.test(normalized);
+  if (beginCmds > 0 && trailingSlashCommand) return false;
+
+  return true;
 }
 // Utility to parse <think>...</think> blocks from Qwen output
 function parseThoughtTrace(content: string): {
@@ -817,23 +843,19 @@ export default function Home() {
                   {msg.role === "ai" ? (
                     (() => {
                       const { steps, clean } = parseThoughtTrace(msg.content);
-                      const hasMath =
-                        /\$\$[\s\S]*?\$\$|\$[^$\n]+\$/.test(clean) ||
-                        /\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)/.test(clean);
+                      const prepared = sanitizeMathContent(autoWrapMath(clean));
+                      const renderWithKatex = isMathSafeToRender(prepared);
+
                       return (
                         <>
-                          {hasMath ? (
-                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3 prose-pre:my-2 prose-code:before:content-none prose-code:after:content-none">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkMath]}
-                                rehypePlugins={[rehypeKatex]}
-                              >
-                                {sanitizeMathContent(autoWrapMath(clean))}
-                              </ReactMarkdown>
-                            </div>
-                          ) : (
-                            <div>{clean}</div>
-                          )}
+                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
+                            <ReactMarkdown
+                              remarkPlugins={renderWithKatex ? [remarkMath] : []}
+                              rehypePlugins={renderWithKatex ? [rehypeKatex] : []}
+                            >
+                              {prepared}
+                            </ReactMarkdown>
+                          </div>
 
                           {steps.length > 0 && (
                             <ThoughtTrace
