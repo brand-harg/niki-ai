@@ -32,7 +32,7 @@ type Message = {
   content: string;
 };
 
-// Safe sanitizer — never returns empty string, only cleans up malformed LaTeX delimiters
+// Safe sanitizer — cleans up malformed LaTeX delimiters
 function sanitizeMathContent(content: string): string {
   if (!content || typeof content !== "string") return "";
 
@@ -67,7 +67,6 @@ export default function Home() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
-  // Start as true so we never flash the "not logged in" state before Supabase responds
   const [authChecked, setAuthChecked] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatHistory, setChatHistory] = useState<any[]>([]);
@@ -79,13 +78,15 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // --- RENAME STATE ---
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isUnmountingRef = useRef(false);
-  // Track whether a stream is actively running so auth events don't reset state
   const isStreamingRef = useRef(false);
-  // Track the last session user id to avoid redundant re-fetches
   const lastSessionIdRef = useRef<string | null>(null);
 
   // --- DYNAMIC THEME ENGINE ---
@@ -113,58 +114,74 @@ export default function Home() {
     isUnmountingRef.current = false;
 
     const initialize = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      // STRICT AUTH: getUser() validates against Supabase server every time.
+      // This rejects stale/expired tokens from old deployments that caused
+      // the "revolving door" refresh loop on desktop.
+      const { data: { user }, error } = await supabase.auth.getUser();
 
       if (!mounted) return;
 
-      setSession(session);
-      setAuthChecked(true);
-
-      if (session) {
-        lastSessionIdRef.current = session.user.id;
-        setProfileLoaded(false);
-        await fetchHistory(session.user.id);
-        await fetchProfile(session.user.id);
-      } else {
-        lastSessionIdRef.current = null;
+      if (error || !user) {
+        // No valid session — clear everything and show logged-out state
+        setSession(null);
         setProfile(null);
         setProfileLoaded(true);
         setChatHistory([]);
         setCurrentChatId(null);
         currentChatIdRef.current = null;
         setMessages(defaultGreeting);
+        lastSessionIdRef.current = null;
+        setAuthChecked(true);
+        return;
       }
+
+      // Valid session confirmed by server
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setAuthChecked(true);
+      lastSessionIdRef.current = user.id;
+
+      await fetchHistory(user.id);
+      await fetchProfile(user.id);
     };
 
     initialize();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
+      if (isStreamingRef.current) return;
 
       const newUserId = session?.user?.id ?? null;
 
-      // If a stream is running, don't disrupt state at all
-      if (isStreamingRef.current) return;
-
-      // If it's the same user (e.g. token refresh), skip redundant re-fetch
+      // Same user — token refresh only, skip full re-init to avoid UI flicker
       if (newUserId && newUserId === lastSessionIdRef.current) {
-        // Still update the session object (token may have refreshed) but don't reset UI
         setSession(session);
         return;
       }
 
-      lastSessionIdRef.current = newUserId;
-      setSession(session);
-
-      if (session) {
+      // Different user or logout — re-validate strictly
+      if (newUserId) {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error || !user) {
+          // getUser failed — treat as logged out, don't loop
+          setSession(null);
+          setProfile(null);
+          setProfileLoaded(true);
+          setChatHistory([]);
+          setCurrentChatId(null);
+          currentChatIdRef.current = null;
+          setMessages(defaultGreeting);
+          lastSessionIdRef.current = null;
+          return;
+        }
+        lastSessionIdRef.current = newUserId;
+        setSession(session);
         setProfileLoaded(false);
-        await fetchHistory(session.user.id);
-        await fetchProfile(session.user.id);
+        await fetchHistory(newUserId);
+        await fetchProfile(newUserId);
       } else {
+        lastSessionIdRef.current = null;
+        setSession(null);
         setProfile(null);
         setProfileLoaded(true);
         setChatHistory([]);
@@ -182,47 +199,61 @@ export default function Home() {
     };
   }, []);
 
+  // Close delete confirm on outside click
   useEffect(() => {
     const handleWindowClick = () => setConfirmDeleteId(null);
     window.addEventListener("click", handleWindowClick);
     return () => window.removeEventListener("click", handleWindowClick);
   }, []);
 
+  // Set default greeting and niki mode once profile loads
   useEffect(() => {
     if (messages.length > 0) return;
     if (session && !profileLoaded) return;
-
     setMessages(defaultGreeting);
-
     if (profile?.default_niki_mode !== undefined) {
       setIsNikiMode(profile.default_niki_mode);
     }
   }, [session, profileLoaded, profile]);
 
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
 
-  // Keep stream alive when tab is hidden — prevent page from being frozen
+  // Prevent browser from freezing stream when tab is hidden
   useEffect(() => {
     const handleVisibilityChange = () => {
-      // No-op: just having the listener prevents some browsers from
-      // aggressively throttling/freezing the fetch stream when hidden
       console.log("Visibility changed:", document.visibilityState);
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
+  // Ctrl+K command palette hook (ready for CommandPalette component)
+  useEffect(() => {
+    const handleCmdK = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        // Wire up: setIsPaletteOpen(prev => !prev)
+      }
+    };
+    window.addEventListener("keydown", handleCmdK);
+    return () => window.removeEventListener("keydown", handleCmdK);
+  }, []);
+
   // --- DATABASE ACTIONS ---
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
 
     if (error) console.log("Home profile fetch error:", error);
     if (data) setProfile(data);
-
     setProfileLoaded(true);
   };
 
@@ -241,8 +272,12 @@ export default function Home() {
   const loadChat = async (chatId: string) => {
     setCurrentChatId(chatId);
     currentChatIdRef.current = chatId;
+    setRenamingChatId(null);
 
-    await supabase.from("chats").update({ updated_at: new Date().toISOString() }).eq("id", chatId);
+    await supabase
+      .from("chats")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", chatId);
 
     const { data, error } = await supabase
       .from("messages")
@@ -260,9 +295,8 @@ export default function Home() {
         .filter((msg) => msg.role === "ai" || msg.role === "user")
         .map((msg) => ({
           role: msg.role as Message["role"],
-          content: msg.text || msg.text || "",
+          content: msg.text || "",
         }));
-
       setMessages(formatted);
     } else {
       setMessages(defaultGreeting);
@@ -273,29 +307,19 @@ export default function Home() {
 
   const togglePin = async (e: React.MouseEvent, chatId: string, currentStatus: boolean) => {
     e.stopPropagation();
-
     const { error } = await supabase
       .from("chats")
       .update({ is_pinned: !currentStatus, updated_at: new Date().toISOString() })
       .eq("id", chatId);
 
-    if (error) {
-      console.log("Toggle pin error:", error);
-      return;
-    }
-
+    if (error) { console.log("Toggle pin error:", error); return; }
     if (session?.user?.id) fetchHistory(session.user.id);
   };
 
   const deleteChat = async (chatId: string) => {
     if (!session?.user?.id) return;
-
     const { error } = await supabase.from("chats").delete().eq("id", chatId);
-
-    if (error) {
-      console.log("Delete chat error:", error);
-      return;
-    }
+    if (error) { console.log("Delete chat error:", error); return; }
 
     setChatHistory((prev) => prev.filter((chat) => chat.id !== chatId));
 
@@ -304,8 +328,35 @@ export default function Home() {
       currentChatIdRef.current = null;
       setMessages(defaultGreeting);
     }
-
     setConfirmDeleteId(null);
+  };
+
+  // --- RENAME ACTIONS ---
+  const startRename = (e: React.MouseEvent, chatId: string, currentTitle: string) => {
+    e.stopPropagation();
+    setConfirmDeleteId(null);
+    setRenamingChatId(chatId);
+    setRenameValue(currentTitle);
+  };
+
+  const commitRename = async (chatId: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenamingChatId(null);
+      return;
+    }
+    const { error } = await supabase
+      .from("chats")
+      .update({ title: trimmed, updated_at: new Date().toISOString() })
+      .eq("id", chatId);
+
+    if (error) { console.log("Rename error:", error); }
+
+    // Optimistic update — no need to re-fetch entire history
+    setChatHistory((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, title: trimmed } : c))
+    );
+    setRenamingChatId(null);
   };
 
   const startNewSession = () => {
@@ -317,6 +368,7 @@ export default function Home() {
     currentChatIdRef.current = null;
     setMessages(defaultGreeting);
     setConfirmDeleteId(null);
+    setRenamingChatId(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -332,18 +384,15 @@ export default function Home() {
 
     const userText = inputValue.trim();
     const currentName = profile?.first_name || profile?.username || "User";
-
     let chatId = currentChatIdRef.current;
 
     const updatedHistory: Message[] = [...messages, { role: "user", content: userText }];
-
     setMessages(updatedHistory);
     setInputValue("");
     setIsLoading(true);
     isStreamingRef.current = true;
 
     abortControllerRef.current?.abort();
-
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -358,7 +407,9 @@ export default function Home() {
           .from("chats")
           .insert({
             user_id: session.user.id,
-            title: userText.substring(0, 30),
+            // STATIC TITLE: saved once from the first message, never overwritten.
+            // This fixes the "Amnesia Sidebar" where titles kept changing.
+            title: userText.substring(0, 50),
             project_name: activeTab === "projects" ? "Calculus 1" : null,
             updated_at: new Date().toISOString(),
           })
@@ -373,11 +424,14 @@ export default function Home() {
       }
 
       if (chatId && session) {
-        await supabase.from("messages").insert({ chat_id: chatId, role: "user", text: userText });
+        await supabase
+          .from("messages")
+          .insert({ chat_id: chatId, role: "user", text: userText });
 
+        // ONLY update timestamp — title is NEVER touched after creation
         await supabase
           .from("chats")
-          .update({ updated_at: new Date().toISOString(), title: userText.substring(0, 30) })
+          .update({ updated_at: new Date().toISOString() })
           .eq("id", chatId);
       }
 
@@ -397,6 +451,14 @@ export default function Home() {
       });
 
       if (!response.ok) {
+        // 401 means stale token was caught by the server auth guard
+        if (response.status === 401) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "ai", content: "Session expired. Please refresh the page and log in again." },
+          ]);
+          return;
+        }
         throw new Error(`API returned ${response.status}`);
       }
 
@@ -411,24 +473,18 @@ export default function Home() {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
             const chunk = decoder.decode(value, { stream: true });
             aiReply += chunk;
-
             setMessages((prev) => {
-              const updatedMessages = [...prev];
-              updatedMessages[updatedMessages.length - 1] = {
-                role: "ai",
-                content: aiReply,
-              };
-              return updatedMessages;
+              const updated = [...prev];
+              updated[updated.length - 1] = { role: "ai", content: aiReply };
+              return updated;
             });
           }
         } catch (streamError: any) {
           if (streamError?.name === "AbortError") {
             console.log("Reader aborted.");
           } else {
-            console.error("Reader stream failed:", streamError);
             throw streamError;
           }
         } finally {
@@ -436,41 +492,119 @@ export default function Home() {
         }
       }
 
-      console.log("Streaming Complete. Final Reply length:", aiReply.length);
-
       if (chatId && session && aiReply.length > 0) {
-        await supabase.from("messages").insert({ chat_id: chatId, role: "ai", text: aiReply });
-        await supabase.from("chats").update({ updated_at: new Date().toISOString() }).eq("id", chatId);
+        await supabase
+          .from("messages")
+          .insert({ chat_id: chatId, role: "ai", text: aiReply });
+        await supabase
+          .from("chats")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", chatId);
       }
     } catch (error: any) {
       if (error?.name === "AbortError") {
         console.log("handleSend aborted.");
       } else {
         console.error("handleSend error:", error);
-        setMessages((prev) => [...prev, { role: "ai", content: "System Error: Vault connection lost." }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: "System Error: Vault connection lost." },
+        ]);
       }
     } finally {
       window.clearTimeout(timeoutId);
       isStreamingRef.current = false;
-
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
-
       if (!isUnmountingRef.current) {
         setIsLoading(false);
       }
-
       if (session?.user?.id) fetchHistory(session.user.id);
     }
   };
 
+  // --- SIDEBAR CHAT ROW ---
+  // Shared component for both pinned and unpinned rows
+  const ChatRow = ({ chat }: { chat: any }) => (
+    <div
+      key={chat.id}
+      onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
+      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${
+        currentChatId === chat.id ? "bg-white/5 text-white" : ""
+      }`}
+    >
+      {renamingChatId === chat.id ? (
+        // Inline rename input
+        <input
+          autoFocus
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={() => commitRename(chat.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename(chat.id);
+            if (e.key === "Escape") setRenamingChatId(null);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="flex-1 bg-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none border border-white/20 mr-2"
+        />
+      ) : (
+        <span
+          className="truncate group-hover:text-white transition-colors flex-1"
+          onDoubleClick={(e) => startRename(e, chat.id, chat.title)}
+          title="Double-click to rename"
+        >
+          {chat.title}
+        </span>
+      )}
+
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <div
+          onClick={(e) => togglePin(e, chat.id, chat.is_pinned)}
+          className={`cursor-pointer transition-opacity ${
+            chat.is_pinned
+              ? `${accentColor} opacity-100`
+              : "opacity-20 hover:opacity-100 hover:text-white"
+          }`}
+        >
+          {chat.is_pinned ? "★" : "☆"}
+        </div>
+
+        {confirmDeleteId === chat.id ? (
+          <div className="flex items-center gap-2">
+            <span
+              onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
+              className="text-red-400 hover:text-red-300 cursor-pointer font-bold"
+            >
+              Delete
+            </span>
+            <span
+              onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+              className="text-slate-400 hover:text-white cursor-pointer"
+            >
+              Cancel
+            </span>
+          </div>
+        ) : (
+          <div
+            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(chat.id); }}
+            className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
+          >
+            ✕
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
+
       {/* SIDEBAR */}
       <aside
-        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
-          }`}
+        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
+          isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
+        }`}
       >
         <div className="p-4 pt-6">
           <button
@@ -484,144 +618,81 @@ export default function Home() {
           </button>
         </div>
 
+        {/* Tab switcher */}
         <div className="flex px-4 mb-6 gap-1">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
-              ? `bg-white/5 ${accentColor} ${accentBorder}`
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+              activeTab === "history"
+                ? `bg-white/5 ${accentColor} ${accentBorder}`
+                : "text-slate-500 border-transparent hover:text-slate-300"
+            }`}
           >
             History
           </button>
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
-              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+              activeTab === "projects"
+                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                : "text-slate-500 border-transparent hover:text-slate-300"
+            }`}
           >
             Projects
           </button>
         </div>
 
+        {/* Chat list */}
         <div className="flex-1 overflow-y-auto px-4 space-y-4">
           {activeTab === "history" ? (
             <div className="space-y-2">
-              <div className="flex items-center gap-2 px-2 py-2">
-                <div className={accentColor}>
-                  <PinIcon />
-                </div>
-                <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Pinned</span>
-              </div>
 
-              {chatHistory
-                .filter((c) => c.is_pinned)
-                .map((chat) => (
-                  <button
-                    key={chat.id}
-                    onClick={() => loadChat(chat.id)}
-                    className="w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-300 truncate text-xs outline-none group"
-                  >
-                    <span className="truncate group-hover:text-white transition-colors">{chat.title}</span>
-                    <div className="flex items-center gap-2">
-                      <div onClick={(e) => togglePin(e, chat.id, true)} className={`${accentColor} cursor-pointer`}>
-                        ★
-                      </div>
-                      {confirmDeleteId === chat.id ? (
-                        <div className="flex items-center gap-2">
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteChat(chat.id);
-                            }}
-                            className="text-red-400 hover:text-red-300 cursor-pointer text-xs font-bold"
-                          >
-                            Delete
-                          </span>
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmDeleteId(null);
-                            }}
-                            className="text-slate-400 hover:text-white cursor-pointer text-xs"
-                          >
-                            Cancel
-                          </span>
-                        </div>
-                      ) : (
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmDeleteId(chat.id);
-                          }}
-                          className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
-                        >
-                          ✕
-                        </div>
-                      )}
+              {/* Pinned section */}
+              {chatHistory.some((c) => c.is_pinned) && (
+                <>
+                  <div className="flex items-center gap-2 px-2 py-2">
+                    <div className={accentColor}>
+                      <PinIcon />
                     </div>
-                  </button>
-                ))}
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                      Pinned
+                    </span>
+                  </div>
+                  {chatHistory
+                    .filter((c) => c.is_pinned)
+                    .map((chat) => (
+                      <ChatRow key={chat.id} chat={chat} />
+                    ))}
+                  <div className="h-px bg-white/5 my-4" />
+                </>
+              )}
 
-              <div className="h-px bg-white/5 my-4" />
-
+              {/* Recent section */}
+              {chatHistory.filter((c) => !c.is_pinned).length > 0 && (
+                <div className="flex items-center gap-2 px-2 py-1">
+                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                    Recent
+                  </span>
+                </div>
+              )}
               {chatHistory
                 .filter((c) => !c.is_pinned)
                 .map((chat) => (
-                  <button
-                    key={chat.id}
-                    onClick={() => loadChat(chat.id)}
-                    className="w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 truncate text-xs outline-none group"
-                  >
-                    <span className="truncate group-hover:text-white transition-colors">{chat.title}</span>
-                    <div className="flex items-center gap-2">
-                      <div
-                        onClick={(e) => togglePin(e, chat.id, false)}
-                        className="hover:text-white cursor-pointer opacity-20 hover:opacity-100 transition-opacity"
-                      >
-                        ☆
-                      </div>
-                      {confirmDeleteId === chat.id ? (
-                        <div className="flex items-center gap-2">
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteChat(chat.id);
-                            }}
-                            className="text-red-400 hover:text-red-300 cursor-pointer text-xs font-bold"
-                          >
-                            Delete
-                          </span>
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmDeleteId(null);
-                            }}
-                            className="text-slate-400 hover:text-white cursor-pointer text-xs"
-                          >
-                            Cancel
-                          </span>
-                        </div>
-                      ) : (
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmDeleteId(chat.id);
-                          }}
-                          className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
-                        >
-                          ✕
-                        </div>
-                      )}
-                    </div>
-                  </button>
+                  <ChatRow key={chat.id} chat={chat} />
                 ))}
+
+              {chatHistory.length === 0 && (
+                <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
+                  No sessions yet
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
               <div className={`p-4 rounded-2xl bg-white/[0.02] border ${accentBorder}`}>
-                <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>Active Space</p>
+                <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+                  Active Space
+                </p>
                 <p className="text-xs text-slate-400 font-bold">
                   {profile?.current_unit ? `Section ${profile.current_unit}` : "Calculus 1"}
                 </p>
@@ -633,6 +704,8 @@ export default function Home() {
 
       {/* MAIN CONTENT */}
       <section className="flex-1 flex flex-col relative bg-black">
+
+        {/* HEADER */}
         <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-black/50 backdrop-blur-md z-20">
           <div className="flex items-center gap-5">
             <button
@@ -655,8 +728,8 @@ export default function Home() {
             </div>
 
             <div className="border-l border-white/10 pl-6 flex items-center gap-5">
-              {/* Show nothing until auth is checked to avoid flash */}
               {!authChecked ? (
+                // Skeleton prevents flash of wrong auth state
                 <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
               ) : session ? (
                 <button
@@ -696,26 +769,37 @@ export default function Home() {
         {/* CHAT VIEWPORT */}
         <div
           ref={scrollRef}
-          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-sm" : "pt-10 pb-44 text-xl"} px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto ${
+            profile?.compact_mode ? "pt-4 pb-32 text-sm" : "pt-10 pb-44 text-xl"
+          } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
+                className={`flex ${
+                  profile?.compact_mode ? "gap-4" : "gap-6"
+                } items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
               >
                 <div
-                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
-                    } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                    }`}
+                  className={`${
+                    profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
+                  } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${
+                    msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                  }`}
                 >
-                  {msg.role === "ai" ? "N" : profile?.first_name?.[0] || profile?.username?.[0] || "U"}
+                  {msg.role === "ai"
+                    ? "N"
+                    : profile?.first_name?.[0] || profile?.username?.[0] || "U"}
                 </div>
 
                 <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 whitespace-pre-wrap leading-7">
                   {msg.role === "ai" ? (
                     /[$\\]/.test(msg.content) ? (
-                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                      >
                         {sanitizeMathContent(msg.content)}
                       </ReactMarkdown>
                     ) : (
@@ -728,6 +812,7 @@ export default function Home() {
               </div>
             ))}
 
+            {/* Typing indicator */}
             {isLoading && (
               <div className="flex gap-6 items-start">
                 <div
@@ -745,41 +830,52 @@ export default function Home() {
           </div>
         </div>
 
-        {/* FOOTER */}
+        {/* FOOTER INPUT */}
         <footer className="absolute bottom-0 left-0 right-0 p-8 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">
           <div className="max-w-4xl mx-auto space-y-6">
+
+            {/* Mode toggle */}
             <div className="max-w-[280px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl">
               <button
                 onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                  }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
+                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                }`}
               >
                 Pure Logic
               </button>
               <button
                 onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                  }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
+                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                }`}
               >
                 Nemanja Mode
               </button>
             </div>
 
+            {/* Input bar */}
             <div className="bg-[#111] border border-white/10 rounded-[2rem] p-2 pl-8 flex items-center gap-5 shadow-2xl focus-within:border-white/30 transition-all">
               <input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 type="text"
-                placeholder={isNikiMode ? "Ask Professor Nikitovic..." : "Specify mathematical query..."}
-                className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 ${profile?.compact_mode ? "text-base py-3" : "text-lg py-4"
-                  } placeholder:text-slate-800 shadow-none`}
+                placeholder={
+                  isNikiMode
+                    ? "Ask Professor Nikitovic..."
+                    : "Specify mathematical query..."
+                }
+                className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 ${
+                  profile?.compact_mode ? "text-base py-3" : "text-lg py-4"
+                } placeholder:text-slate-800 shadow-none`}
               />
               <button
                 onClick={handleSend}
                 disabled={isLoading}
-                className={`bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black ${profile?.compact_mode ? "px-6 py-3" : "px-10 py-4"
-                  } rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
+                className={`bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black ${
+                  profile?.compact_mode ? "px-6 py-3" : "px-10 py-4"
+                } rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
               >
                 {isLoading ? "Thinking" : "Send"}
               </button>
