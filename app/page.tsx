@@ -9,6 +9,9 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import FileUploadButton from "@/components/FileUploadButton";
+import FilePreview, { type AttachedFile } from "@/components/FilePreview";
+import html2canvas from "html2canvas";
 
 // --- ICONS ---
 const PlusIcon = () => (
@@ -64,11 +67,8 @@ function sanitizeMathContent(content: string): string {
   cleaned = cleaned.replace(/\$\$\s*\$\$/g, "$$");
   cleaned = cleaned.replace(/\$\$(\S)/g, "$$\n$1");
   cleaned = cleaned.replace(/(\S)\$\$/g, "$1\n$$");
-  // Remove stray single $ next to $$ blocks
   cleaned = cleaned.replace(/\$\s*\$\$/g, "$$");
   cleaned = cleaned.replace(/\$\$\s*\$/g, "$$");
-
-  // Remove a stray single `$` on its own line, but preserve `$$` block delimiters
   cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
 
   return cleaned;
@@ -77,10 +77,7 @@ function sanitizeMathContent(content: string): string {
 function stripPartialThink(content: string): string {
   if (!content) return "";
 
-  // Remove fully completed think blocks
   let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, "");
-
-  // Remove partial opening <think> that hasn't closed yet
   const openIndex = cleaned.indexOf("<think>");
   if (openIndex !== -1) {
     cleaned = cleaned.slice(0, openIndex);
@@ -109,7 +106,9 @@ function isMathSafeToRender(text: string): boolean {
   const closeCurlies = (normalized.match(/}/g) || []).length;
   if (openCurlies !== closeCurlies) return false;
 
-  const beginCmds = (normalized.match(/\\(frac|sqrt|text|mathrm|mathbf|left|right|cdot|int|sum|lim|ln|sin|cos|tan)\b/g) || []).length;
+  const beginCmds = (
+    normalized.match(/\\(frac|sqrt|text|mathrm|mathbf|left|right|cdot|int|sum|lim|ln|sin|cos|tan)\b/g) || []
+  ).length;
   const trailingSlashCommand = /\\[a-zA-Z]*$/.test(normalized);
   if (beginCmds > 0 && trailingSlashCommand) return false;
 
@@ -127,6 +126,7 @@ function getRenderableStreamingMath(text: string): string {
 
   return candidate.trimEnd();
 }
+
 // Utility to parse <think>...</think> blocks from Qwen output
 function parseThoughtTrace(content: string): {
   steps: { label: string; detail: string }[];
@@ -135,17 +135,17 @@ function parseThoughtTrace(content: string): {
   const match = content.match(/<think>([\s\S]*?)<\/think>/);
   if (!match) return { steps: [], clean: content };
 
-  const rawSteps = match[1].trim().split(/\n+/).filter(Boolean);
-  const steps = rawSteps.map((line) => {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx > -1) {
+  const rawLines = match[1].trim().split(/\n+/).filter(Boolean);
+  const steps = rawLines
+    .map((line) => {
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) return null;
       return {
         label: line.slice(0, colonIdx).trim(),
         detail: line.slice(colonIdx + 1).trim(),
       };
-    }
-    return { label: "Step", detail: line };
-  });
+    })
+    .filter(Boolean) as { label: string; detail: string }[];
 
   return {
     steps,
@@ -171,12 +171,14 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 
   // --- RENAME STATE ---
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chatViewportRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isUnmountingRef = useRef(false);
@@ -208,7 +210,10 @@ export default function Home() {
     isUnmountingRef.current = false;
 
     const initialize = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
 
       if (!mounted) return;
 
@@ -225,7 +230,10 @@ export default function Home() {
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       setSession(session);
       setAuthChecked(true);
       lastSessionIdRef.current = user.id;
@@ -236,7 +244,9 @@ export default function Home() {
 
     initialize();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
       if (isStreamingRef.current) return;
 
@@ -248,7 +258,11 @@ export default function Home() {
       }
 
       if (newUserId) {
-        const { data: { user }, error } = await supabase.auth.getUser();
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
+
         if (error || !user) {
           setSession(null);
           setProfile(null);
@@ -260,6 +274,7 @@ export default function Home() {
           lastSessionIdRef.current = null;
           return;
         }
+
         lastSessionIdRef.current = newUserId;
         setSession(session);
         setProfileLoaded(false);
@@ -281,6 +296,7 @@ export default function Home() {
       mounted = false;
       isUnmountingRef.current = true;
       abortControllerRef.current?.abort();
+      if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
       subscription.unsubscribe();
     };
   }, []);
@@ -399,14 +415,20 @@ export default function Home() {
       .update({ is_pinned: !currentStatus, updated_at: new Date().toISOString() })
       .eq("id", chatId);
 
-    if (error) { console.log("Toggle pin error:", error); return; }
+    if (error) {
+      console.log("Toggle pin error:", error);
+      return;
+    }
     if (session?.user?.id) fetchHistory(session.user.id);
   };
 
   const deleteChat = async (chatId: string) => {
     if (!session?.user?.id) return;
     const { error } = await supabase.from("chats").delete().eq("id", chatId);
-    if (error) { console.log("Delete chat error:", error); return; }
+    if (error) {
+      console.log("Delete chat error:", error);
+      return;
+    }
 
     setChatHistory((prev) => prev.filter((chat) => chat.id !== chatId));
 
@@ -437,7 +459,9 @@ export default function Home() {
       .update({ title: trimmed, updated_at: new Date().toISOString() })
       .eq("id", chatId);
 
-    if (error) { console.log("Rename error:", error); }
+    if (error) {
+      console.log("Rename error:", error);
+    }
 
     setChatHistory((prev) =>
       prev.map((c) => (c.id === chatId ? { ...c, title: trimmed } : c))
@@ -445,11 +469,80 @@ export default function Home() {
     setRenamingChatId(null);
   };
 
+  const handleFileSelect = (file: File) => {
+    const MAX_SIZE = 25 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      alert("File too large. Maximum size is 25 MB.");
+      return;
+    }
+
+    const isImage = file.type.startsWith("image/");
+    const isText = !isImage;
+
+    if (isImage) {
+      const preview = URL.createObjectURL(file);
+      setAttachedFile({ file, preview, type: "image" });
+    } else {
+      setAttachedFile({ file, type: "text" });
+    }
+  };
+
+  const handleRemoveFile = () => {
+    if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
+    setAttachedFile(null);
+  };
+
+  const handleScreenshot = async () => {
+    const target = chatViewportRef.current;
+    if (!target) return;
+
+    try {
+      const canvas = await html2canvas(target, {
+        backgroundColor: "#000000",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+
+      const link = document.createElement("a");
+      link.download = `nikiai-chat-${Date.now()}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("Screenshot failed:", err);
+    }
+  };
+
+  const uploadFileToSupabase = async (
+    file: File,
+    chatId: string
+  ): Promise<string | null> => {
+    if (!session?.user?.id) return null;
+
+    const ext = file.name.split(".").pop();
+    const path = `${session.user.id}/${chatId}/${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from("chat-uploads")
+      .upload(path, file, { upsert: false });
+
+    if (error) {
+      console.error("Upload error:", error);
+      return null;
+    }
+
+    return path;
+  };
+
   const startNewSession = () => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     isStreamingRef.current = false;
     setIsLoading(false);
+
+    if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
+    setAttachedFile(null);
+
     setCurrentChatId(null);
     currentChatIdRef.current = null;
     setMessages(defaultGreeting);
@@ -466,17 +559,29 @@ export default function Home() {
 
   // --- CORE SEND ENGINE ---
   const handleSend = async () => {
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() && !attachedFile) return;
+    if (isLoading) return;
 
     const userText = inputValue.trim();
     const currentName = profile?.first_name || profile?.username || "User";
     let chatId = currentChatIdRef.current;
 
-    const updatedHistory: Message[] = [...messages, { role: "user", content: userText }];
+    const displayContent =
+      userText || (attachedFile ? `[${attachedFile.file.name}]` : "");
+
+    const updatedHistory: Message[] = [
+      ...messages,
+      { role: "user", content: displayContent },
+    ];
+
     setMessages(updatedHistory);
     setInputValue("");
     setIsLoading(true);
     isStreamingRef.current = true;
+
+    const currentAttached = attachedFile;
+    setAttachedFile(null);
+    if (currentAttached?.preview) URL.revokeObjectURL(currentAttached.preview);
 
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -489,11 +594,16 @@ export default function Home() {
 
     try {
       if (!chatId && session) {
+        const title =
+          userText.substring(0, 50) ||
+          currentAttached?.file.name ||
+          "File upload";
+
         const { data: newChat } = await supabase
           .from("chats")
           .insert({
             user_id: session.user.id,
-            title: userText.substring(0, 50),
+            title,
             project_name: activeTab === "projects" ? "Calculus 1" : null,
             updated_at: new Date().toISOString(),
           })
@@ -507,15 +617,36 @@ export default function Home() {
         }
       }
 
+      let storagePath: string | null = null;
+      if (currentAttached && chatId && session) {
+        storagePath = await uploadFileToSupabase(currentAttached.file, chatId);
+      }
+
       if (chatId && session) {
-        await supabase
-          .from("messages")
-          .insert({ chat_id: chatId, role: "user", text: userText });
+        await supabase.from("messages").insert({
+          chat_id: chatId,
+          role: "user",
+          text: displayContent,
+          ...(storagePath ? { attachment_path: storagePath } : {}),
+        });
 
         await supabase
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
           .eq("id", chatId);
+      }
+
+      let base64Image: string | null = null;
+      let textFileContent: string | null = null;
+
+      if (currentAttached?.type === "image") {
+        const arrayBuffer = await currentAttached.file.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = "";
+        uint8.forEach((b) => (binary += String.fromCharCode(b)));
+        base64Image = btoa(binary);
+      } else if (currentAttached?.type === "text") {
+        textFileContent = await currentAttached.file.text();
       }
 
       const response = await fetch("/api/chat", {
@@ -527,26 +658,26 @@ export default function Home() {
           isNikiMode,
           userName: currentName,
           userId: session?.user?.id,
-          chatId: chatId,
+          chatId,
           trainConsent: profile?.train_on_data,
+          base64Image: base64Image ?? undefined,
+          imageMediaType:
+            currentAttached?.type === "image"
+              ? currentAttached.file.type
+              : undefined,
+          textFileContent: textFileContent ?? undefined,
+          textFileName:
+            currentAttached?.type === "text"
+              ? currentAttached.file.name
+              : undefined,
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("API status:", response.status);
-        console.error("API body:", errorText);
-
-        if (response.status === 401) {
-          setMessages((prev) => [
-            ...prev,
-            { role: "ai", content: "Session expired. Please refresh the page and log in again." },
-          ]);
-          return;
-        }
-
-        throw new Error(`API returned ${response.status}: ${errorText}`);
+        console.error("API status:", response.status, errorText);
+        throw new Error(`API returned ${response.status}`);
       }
 
       setMessages((prev) => [...prev, { role: "ai", content: "" }]);
@@ -562,6 +693,7 @@ export default function Home() {
             if (done) break;
             const chunk = decoder.decode(value, { stream: true });
             aiReply += chunk;
+
             setMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = { role: "ai", content: aiReply };
@@ -569,11 +701,7 @@ export default function Home() {
             });
           }
         } catch (streamError: any) {
-          if (streamError?.name === "AbortError") {
-            console.log("Reader aborted.");
-          } else {
-            throw streamError;
-          }
+          if (streamError?.name !== "AbortError") throw streamError;
         } finally {
           reader.releaseLock();
         }
@@ -583,30 +711,28 @@ export default function Home() {
         await supabase
           .from("messages")
           .insert({ chat_id: chatId, role: "ai", text: aiReply });
+
         await supabase
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
           .eq("id", chatId);
       }
     } catch (error: any) {
-      if (error?.name === "AbortError") {
-        console.log("handleSend aborted.");
-      } else {
+      if (error?.name !== "AbortError") {
         console.error("handleSend error:", error);
         setMessages((prev) => [
           ...prev,
-          { role: "ai", content: `System Error: ${error?.message || "Vault connection lost."}` },
+          {
+            role: "ai",
+            content: `System Error: ${error?.message || "Vault connection lost."}`,
+          },
         ]);
       }
     } finally {
       window.clearTimeout(timeoutId);
       isStreamingRef.current = false;
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-      }
-      if (!isUnmountingRef.current) {
-        setIsLoading(false);
-      }
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      if (!isUnmountingRef.current) setIsLoading(false);
       if (session?.user?.id) fetchHistory(session.user.id);
     }
   };
@@ -616,8 +742,9 @@ export default function Home() {
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${currentChatId === chat.id ? "bg-white/5 text-white" : ""
-        }`}
+      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${
+        currentChatId === chat.id ? "bg-white/5 text-white" : ""
+      }`}
     >
       {renamingChatId === chat.id ? (
         <input
@@ -645,10 +772,11 @@ export default function Home() {
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
           onClick={(e) => togglePin(e, chat.id, chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${chat.is_pinned
-            ? `${accentColor} opacity-100`
-            : "opacity-20 hover:opacity-100 hover:text-white"
-            }`}
+          className={`cursor-pointer transition-opacity ${
+            chat.is_pinned
+              ? `${accentColor} opacity-100`
+              : "opacity-20 hover:opacity-100 hover:text-white"
+          }`}
         >
           {chat.is_pinned ? "★" : "☆"}
         </div>
@@ -656,13 +784,19 @@ export default function Home() {
         {confirmDeleteId === chat.id ? (
           <div className="flex items-center gap-2">
             <span
-              onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteChat(chat.id);
+              }}
               className="text-red-400 hover:text-red-300 cursor-pointer font-bold"
             >
               Delete
             </span>
             <span
-              onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDeleteId(null);
+              }}
               className="text-slate-400 hover:text-white cursor-pointer"
             >
               Cancel
@@ -670,7 +804,10 @@ export default function Home() {
           </div>
         ) : (
           <div
-            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(chat.id); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmDeleteId(chat.id);
+            }}
             className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
           >
             ✕
@@ -684,8 +821,9 @@ export default function Home() {
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
       {/* SIDEBAR */}
       <aside
-        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
-          }`}
+        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
+          isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
+        }`}
       >
         <div className="p-4 pt-6">
           <button
@@ -703,19 +841,21 @@ export default function Home() {
         <div className="flex px-4 mb-6 gap-1">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
-              ? `bg-white/5 ${accentColor} ${accentBorder}`
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+              activeTab === "history"
+                ? `bg-white/5 ${accentColor} ${accentBorder}`
+                : "text-slate-500 border-transparent hover:text-slate-300"
+            }`}
           >
             History
           </button>
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
-              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+              activeTab === "projects"
+                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                : "text-slate-500 border-transparent hover:text-slate-300"
+            }`}
           >
             Projects
           </button>
@@ -725,7 +865,6 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto px-4 space-y-4">
           {activeTab === "history" ? (
             <div className="space-y-2">
-              {/* Pinned section */}
               {chatHistory.some((c) => c.is_pinned) && (
                 <>
                   <div className="flex items-center gap-2 px-2 py-2">
@@ -745,7 +884,6 @@ export default function Home() {
                 </>
               )}
 
-              {/* Recent section */}
               {chatHistory.filter((c) => !c.is_pinned).length > 0 && (
                 <div className="flex items-center gap-2 px-2 py-1">
                   <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
@@ -753,6 +891,7 @@ export default function Home() {
                   </span>
                 </div>
               )}
+
               {chatHistory
                 .filter((c) => !c.is_pinned)
                 .map((chat) => (
@@ -844,23 +983,24 @@ export default function Home() {
 
         {/* CHAT VIEWPORT */}
         <div
-          ref={scrollRef}
-          className={`flex-1 overflow-y-auto ${profile?.compact_mode
-            ? "pt-4 pb-32 text-[15px]"
-            : "pt-10 pb-44 text-[17px] sm:text-[18px]"
-            } px-6 scroll-smooth`}
+          ref={(el) => {
+            scrollRef.current = el;
+            chatViewportRef.current = el;
+          }}
+          className={`flex-1 overflow-y-auto ${
+            profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+          } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${profile?.compact_mode ? "gap-4" : "gap-6"
-                  } items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
+                className={`flex ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
               >
                 <div
-                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
-                    } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                    }`}
+                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black ${
+                    msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                  }`}
                 >
                   {msg.role === "ai"
                     ? "N"
@@ -874,16 +1014,12 @@ export default function Home() {
 
                       if (isStreamingMessage) {
                         const liveContent = stripPartialThink(msg.content);
-
                         const liveMathContent = getRenderableStreamingMath(liveContent);
                         const canRenderLiveMath = /[$\\]/.test(liveContent) && liveMathContent.length > 0;
 
                         return canRenderLiveMath ? (
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
-                              rehypePlugins={[rehypeKatex]}
-                            >
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                               {liveMathContent}
                             </ReactMarkdown>
                           </div>
@@ -894,17 +1030,13 @@ export default function Home() {
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
                       const finalContent = sanitizeMathContent(clean);
-
                       const shouldRenderFinalMath = /[$\\]/.test(finalContent) && isMathSafeToRender(finalContent);
 
                       return (
                         <>
                           {shouldRenderFinalMath ? (
                             <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkMath]}
-                                rehypePlugins={[rehypeKatex]}
-                              >
+                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                                 {finalContent}
                               </ReactMarkdown>
                             </div>
@@ -928,7 +1060,6 @@ export default function Home() {
               </div>
             ))}
 
-            {/* Typing indicator */}
             {isLoading && (
               <div className="flex gap-6 items-start">
                 <div
@@ -948,44 +1079,61 @@ export default function Home() {
 
         {/* FOOTER INPUT */}
         <footer className="absolute bottom-0 left-0 right-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-6 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">
-          <div className="max-w-4xl mx-auto space-y-6">
-            {/* Mode toggle */}
+          <div className="max-w-4xl mx-auto space-y-3">
             <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">
               <button
                 onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                  }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
+                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                }`}
               >
                 Pure Logic
               </button>
               <button
                 onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                  }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
+                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                }`}
               >
                 Nemanja Mode
               </button>
             </div>
 
-            {/* Input bar */}
+            <FilePreview
+              attached={attachedFile}
+              onRemove={handleRemoveFile}
+              accentColor={profile?.theme_accent ?? "cyan"}
+            />
+
             <div className="bg-[#111] border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-2xl focus-within:border-white/30 transition-all">
               <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
+                <FileUploadButton
+                  onFileSelect={handleFileSelect}
+                  onScreenshot={handleScreenshot}
+                  accentColor={profile?.theme_accent ?? "cyan"}
+                  disabled={isLoading}
+                />
+
                 <input
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   type="text"
                   placeholder={
-                    isNikiMode
-                      ? "Ask Professor Nikitovic..."
-                      : "Specify mathematical query..."
+                    attachedFile
+                      ? `Ask about ${attachedFile.file.name}…`
+                      : isNikiMode
+                        ? "Ask Professor Nikitovic..."
+                        : "Specify mathematical query..."
                   }
-                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
-                    } placeholder:text-slate-600 shadow-none`}
+                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${
+                    profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
+                  } placeholder:text-slate-600 shadow-none`}
                 />
+
                 <button
                   onClick={handleSend}
-                  disabled={isLoading}
+                  disabled={isLoading || (!inputValue.trim() && !attachedFile)}
                   className={`shrink-0 w-full sm:w-auto bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-6 sm:px-8 py-3 sm:py-4 rounded-[1.2rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none`}
                 >
                   {isLoading ? "Thinking" : "Send"}
@@ -1002,8 +1150,35 @@ export default function Home() {
         isNikiMode={isNikiMode}
         onToggleNikiMode={() => setIsNikiMode((prev) => !prev)}
         accentColor={profile?.theme_accent ?? "cyan"}
+        hasActiveChat={!!currentChatId}
+        currentChatTitle={chatHistory.find((c) => c.id === currentChatId)?.title ?? ""}
+        onNewSession={startNewSession}
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onClearChat={() => {
+          if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
+          setAttachedFile(null);
+          setMessages(defaultGreeting);
+          setCurrentChatId(null);
+          currentChatIdRef.current = null;
+        }}
+        onRenameChat={() => {
+          if (currentChatId) {
+            setIsSidebarOpen(true);
+            setRenamingChatId(currentChatId);
+          }
+          setIsPaletteOpen(false);
+        }}
+        onPinChat={async () => {
+          if (!currentChatId) return;
+          const chat = chatHistory.find((c) => c.id === currentChatId);
+          if (!chat) return;
+          await supabase
+            .from("chats")
+            .update({ is_pinned: !chat.is_pinned, updated_at: new Date().toISOString() })
+            .eq("id", currentChatId);
+          if (session?.user?.id) fetchHistory(session.user.id);
+        }}
       />
     </main>
   );
-
 }

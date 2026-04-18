@@ -1,20 +1,4 @@
-// 1. Add this at the very top of route.ts to fix Vercel build errors
-export const dynamic = 'force-dynamic';
-
-// ... (your existing imports)
-
-// 2. Inside your POST function, ensure the fetch looks like this:
-const response = await fetch("https://imprudent-ardently-slicing.ngrok-free.dev/api/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    model: "qwen2.5:7b", // Ensure this matches exactly what is in 'ollama list'
-    messages: [
-      // ... your message history logic
-    ],
-    stream: true,
-  }),
-});
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
@@ -27,6 +11,10 @@ type ChatRequest = {
   chatId?: string;
   trainConsent?: boolean;
   history?: { role: string; content: string }[];
+  base64Image?: string;
+  imageMediaType?: string;
+  textFileContent?: string;
+  textFileName?: string;
 };
 
 function buildSystemPrompt(
@@ -35,111 +23,110 @@ function buildSystemPrompt(
   personalContext = "",
   styleInstructions = ""
 ) {
+  const sharedMathRules = `
+Math formatting rules (STRICT):
+- Use plain text for simple arithmetic and short answers.
+- Use $...$ for short inline math only.
+- Use $$...$$ for standalone equations on their own line.
+- Do not use \\( \\) or \\[ \\].
+- Never put a single $ on its own line.
+- Never output $$$ or more than two dollar signs in a row.
+- Never output incomplete or partial LaTeX commands.
+- One equation per line. Never place multiple equations on the same line.
+- If a derivation would get messy, explain it in plain text instead.
+- Always ensure all LaTeX expressions are complete before finishing a response.
+`.trim();
+
+  const sharedThoughtTraceRules = `
+Reasoning format (REQUIRED for every response):
+Before answering, wrap your reasoning in <think>...</think> tags.
+Structure it as labeled lines only. Use exactly 3 to 6 lines. No more.
+
+For math problems, use this shape:
+<think>
+Method: [name the approach, e.g. integration by parts, chain rule, substitution]
+Why: [one sentence — why this method fits this specific problem]
+Step 1: [first major move, not every algebra line]
+Step 2: [next major move]
+Key insight: [the one thing a student should understand or remember]
+Watch out: [a common mistake or edge case, only if genuinely relevant]
+</think>
+
+For non-math questions, adapt the labels to fit:
+<think>
+Type: [what kind of question this is]
+Structure: [how you will organize the answer]
+Focus: [what matters most]
+Tone: [register and style chosen]
+</think>
+
+Rules for <think> blocks:
+- Do not dump raw algebra or repeat the solution inside <think>.
+- Do not use vague filler like "thinking carefully" or "let me consider".
+- Each line is one clear, distinct idea.
+- A student reading this should understand the strategy, not re-read the answer.
+- Keep every line short. If a line needs two sentences, split it into two steps.
+- Never exceed 6 lines total.
+`.trim();
+
+  const sharedWritingRules = `
+For general writing tasks:
+- Respond in clean natural prose.
+- Do not use markdown headings unless the user asks.
+- Do not bold labels or section titles unless requested.
+- Do not split a simple paragraph into bullet points.
+`.trim();
+
   if (isNikiMode) {
     return `
 You are NikiAI in Professor Nemanja mode.
 
-Be direct, rigorous, and demanding.
-Do not sound cheerful, casual, or overly helpful.
-Do not over-praise.
-Do not say "Certainly", "Great question", or similar filler.
-Do not spoon-feed unless the user clearly asks for a full solution.
-If the student is wrong, state exactly where the logic fails.
-If the question is simple, answer briefly.
-If the question is advanced, give a structured explanation.
+Persona:
+- Direct, rigorous, and demanding.
+- Not cheerful, casual, or overly helpful.
+- No excessive praise. No filler. No "Certainly" or "Great question."
+- If the student is wrong, state exactly where the logic fails.
+- If the question is simple, answer briefly.
+- If the question is advanced, give a structured explanation.
+- You are a teacher first. Your job is to make the student understand, not just to give the answer.
 
-Math rules:
-- Keep math formatting simple and readable.
-- Use plain text for simple arithmetic and short answers.
-- Use $...$ only for short inline math that stays on one line.
-- Use $$...$$ only for short complete equations on their own line.
-- Do not use \\( \\) or \\[ \\].
-- Never put a single $ on its own line.
-- Never leave equations unfinished.
-- Never output partial LaTeX commands.
-- If a derivation would get too messy, explain it in plain text instead.
+${sharedThoughtTraceRules}
 
-Math formatting rules (STRICT):
-- Use $...$ for inline math only.
-- Use $$...$$ for standalone equations only.
-- Never output raw LaTeX without math delimiters.
-- Never output a single $ on its own line.
-- Never output $$$ or more than two dollar signs.
-- Never output incomplete LaTeX commands.
-- If an expression is not finished yet, continue in plain text until it is complete.
-- Prefer short display equations over long malformed ones.
-- Always ensure all LaTeX expressions are complete before finishing a response.
-- Do not output partial fractions, integrals, or commands.
-- If needed, rewrite the expression fully instead of continuing a broken one.
+${sharedMathRules}
 
-Formatting examples (follow this structure):
-Example:
-$$\int x^2 dx = \frac{x^3}{3} + C$$
-Steps should be clearly separated. Each major equation should be on its own line.
-Never place multiple equations on the same line.
-
-For general writing tasks:
-- Respond in clean natural prose.
-- Do not use markdown headings.
-- Do not bold labels or section titles unless requested.
-- Do not split a simple paragraph into categories.
+${sharedWritingRules}
 
 User: ${userName}
-${personalContext}
-${styleInstructions}
+${personalContext ? `\n${personalContext}` : ""}
+${styleInstructions ? `\n${styleInstructions}` : ""}
 `.trim();
   }
 
   return `
-You are a high-level mathematical assistant.
+You are a high-level mathematical assistant in Pure Logic mode.
 
-Be clear, concise, and correct.
-Focus on solving or explaining math cleanly.
-Avoid personality or roleplay.
+Persona:
+- Clear, concise, and correct.
+- No personality or roleplay.
+- Focus on solving or explaining mathematics cleanly and efficiently.
+- If the answer is short, keep the response short.
 
-Math rules:
-- Keep math formatting simple and readable.
-- Use plain text for simple arithmetic and short answers.
-- Use $...$ only for short inline math that stays on one line.
-- Use $$...$$ only for short complete equations on their own line.
-- Do not use \\( \\) or \\[ \\].
-- Never put a single $ on its own line.
-- Never leave equations unfinished.
-- Never output partial LaTeX commands.
-- If a derivation would get too messy, explain it in plain text instead.
+${sharedThoughtTraceRules}
 
-Math formatting rules (STRICT):
-- Use $...$ for inline math only.
-- Use $$...$$ for standalone equations only.
-- Never output raw LaTeX without math delimiters.
-- Never output a single $ on its own line.
-- Never output $$$ or more than two dollar signs.
-- Never output incomplete LaTeX commands.
-- If an expression is not finished yet, continue in plain text until it is complete.
-- Prefer short display equations over long malformed ones.
-- Always ensure all LaTeX expressions are complete before finishing a response.
-- Do not output partial fractions, integrals, or commands.
-- If needed, rewrite the expression fully instead of continuing a broken one.
+${sharedMathRules}
 
-Formatting examples (follow this structure):
-Example:
-$$\int x^2 dx = \frac{x^3}{3} + C$$
-Steps should be clearly separated. Each major equation should be on its own line.
-Never place multiple equations on the same line.
-
-For general writing tasks:
-- Respond in clean natural prose.
-- Do not use markdown headings.
-- Do not bold labels or section titles unless requested.
-- Do not split a simple paragraph into categories.
+${sharedWritingRules}
 
 User: ${userName}
-${personalContext}
-${styleInstructions}
+${personalContext ? `\n${personalContext}` : ""}
+${styleInstructions ? `\n${styleInstructions}` : ""}
 `.trim();
 }
 
-function extractJsonObjects(input: string): { objects: string[]; remainder: string } {
+function extractJsonObjects(input: string): {
+  objects: string[];
+  remainder: string;
+} {
   const objects: string[] = [];
 
   let depth = 0;
@@ -204,13 +191,27 @@ export async function POST(req: Request) {
     const isNikiMode = body.isNikiMode ?? true;
     const userName = body.userName?.trim() || "User";
     const userId = body.userId?.trim() || "";
+    const base64Image = body.base64Image;
+    const imageMediaType = body.imageMediaType;
+    const textFileContent = body.textFileContent;
+    const textFileName = body.textFileName;
 
-    if (!message) {
-      return NextResponse.json({ reply: "Please enter a message first." }, { status: 400 });
+    const hasImage = !!base64Image;
+    const hasTextFile = !!textFileContent;
+
+    if (!message && !hasImage && !hasTextFile) {
+      return NextResponse.json(
+        { reply: "Please enter a message or attach a file." },
+        { status: 400 }
+      );
     }
 
     console.log("\n=============================");
-    console.log(`🧠 User asked: "${message}"`);
+    console.log(`🧠 User asked: "${message || "[file only]"}"`);
+    console.log(`📎 Image: ${hasImage} | Text file: ${hasTextFile}`);
+    if (hasImage && imageMediaType) {
+      console.log(`🖼️ Image type: ${imageMediaType}`);
+    }
     console.log("🌊 STREAMING ONLINE: Connecting to Ollama...");
 
     let personalContext = "";
@@ -224,73 +225,113 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (profile) {
-        personalContext = profile.about_user ? `User context: ${profile.about_user}` : "";
-        styleInstructions = profile.response_style ? `Response style: ${profile.response_style}` : "";
+        personalContext = profile.about_user
+          ? `User context: ${profile.about_user}`
+          : "";
+        styleInstructions = profile.response_style
+          ? `Response style: ${profile.response_style}`
+          : "";
       }
     }
 
-    const systemPrompt = buildSystemPrompt(isNikiMode, userName, personalContext, styleInstructions);
+    const systemPrompt = buildSystemPrompt(
+      isNikiMode,
+      userName,
+      personalContext,
+      styleInstructions
+    );
 
-    const formattedHistory = history.map((msg) => ({
-      role: msg.role === "ai" ? "assistant" : "user",
-      content: msg.content,
-    }));
+    const formattedHistory = history
+      .slice(0, -1)
+      .map((msg) => ({
+        role: msg.role === "ai" ? "assistant" : "user",
+        content: msg.content,
+      }));
 
-    const response = await fetch("https://imprudent-ardently-slicing.ngrok-free.dev/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "qwen2.5:7b",
-        stream: true,
-        keep_alive: "2h",
-        options: {
-          num_predict: 1500,
-          temperature: 0.2,
-        },
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "assistant",
-            content:
-              "I will format all math clearly using proper LaTeX with one equation per line. I will not combine multiple equations on the same line, and I will avoid incomplete or malformed math."
+    let userMessageContent = message;
+
+    if (hasTextFile) {
+      const fileContext = `The user has attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\`\n\n${
+        message ? `User's question: ${message}` : "Please analyze this file."
+      }`;
+      userMessageContent = fileContext;
+    }
+
+    const model = hasImage ? "llava:latest" : "qwen2.5:7b";
+
+    const userMessage: Record<string, unknown> = {
+      role: "user",
+      content: userMessageContent || "Please analyze this image.",
+    };
+
+    if (hasImage) {
+      userMessage.images = [base64Image];
+    }
+
+    const ollamaMessages = [
+      { role: "system", content: systemPrompt },
+      {
+        role: "assistant",
+        content:
+          "I will always open my response with a <think> block of 3 to 6 labeled steps before answering. I will always close the block with </think> before writing my answer. I will format all math using proper LaTeX with one equation per line.",
+      },
+      ...formattedHistory,
+      userMessage,
+    ];
+
+    console.log(`🤖 Routing to model: ${model}`);
+
+    const response = await fetch(
+      "https://imprudent-ardently-slicing.ngrok-free.dev/api/chat",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          keep_alive: "2h",
+          options: {
+            num_predict: hasImage ? 1000 : 1500,
+            temperature: 0.2,
           },
-          ...formattedHistory,
-          { role: "user", content: message },
-        ],
-      }),
-    });
+          messages: ollamaMessages,
+        }),
+      }
+    );
 
     if (!response.ok) {
-      console.log("❌ Ollama request failed");
-      return NextResponse.json({ reply: "System Error: Local model request failed." });
+      console.log("❌ Ollama request failed:", response.status);
+      return NextResponse.json({
+        reply: "System Error: Local model request failed.",
+      });
     }
 
     const stream = new ReadableStream({
       async start(controller) {
         const reader = response.body?.getReader();
         if (!reader) {
-          console.log("❌ No reader found");
           controller.close();
           return;
         }
 
         const decoder = new TextDecoder();
         const encoder = new TextEncoder();
-
         let buffer = "";
+        let closed = false;
+
+        const safeClose = () => {
+          if (!closed) {
+            closed = true;
+            controller.close();
+          }
+        };
 
         try {
           while (true) {
             const { done, value } = await reader.read();
-
-            if (done) {
-              console.log("✅ Stream finished");
-              break;
-            }
+            if (done) break;
 
             const chunk = decoder.decode(value, { stream: true });
-            console.log("📦 Chunk received:", chunk);
-
             buffer += chunk;
 
             const { objects, remainder } = extractJsonObjects(buffer);
@@ -305,12 +346,11 @@ export async function POST(req: Request) {
                 }
 
                 if (parsed.done) {
-                  console.log("🏁 Ollama signaled done");
-                  controller.close();
+                  safeClose();
                   return;
                 }
-              } catch (err) {
-                console.log("⚠️ Failed to parse JSON object:", err);
+              } catch {
+                // ignore malformed partial objects
               }
             }
           }
@@ -318,7 +358,7 @@ export async function POST(req: Request) {
           console.log("❌ Stream error:", err);
         } finally {
           reader.releaseLock();
-          controller.close();
+          safeClose();
         }
       },
     });
@@ -331,7 +371,6 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     if (error?.name === "AbortError") {
-      console.log("⏱️ Timeout hit");
       return NextResponse.json({ reply: "System Error: Model timed out." });
     }
 
