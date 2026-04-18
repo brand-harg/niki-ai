@@ -70,7 +70,7 @@ function autoWrapMath(text: string): string {
   if (/\$\$|\$/.test(text)) return text;
 
   return text.replace(
-    /(\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan|ln|alpha|beta|gamma|theta)[^.\n]*)/g,
+    /(\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)[^.\n]*)/g,
     (match) => `$$\n${match}\n$$`
   );
 }
@@ -843,17 +843,31 @@ export default function Home() {
                   {msg.role === "ai" ? (
                     (() => {
                       const { steps, clean } = parseThoughtTrace(msg.content);
-                      const prepared = sanitizeMathContent(autoWrapMath(clean));
-                      const renderWithKatex = isMathSafeToRender(prepared);
+
+                      const isStreamingMessage = isLoading && i === messages.length - 1;
+
+                      if (isStreamingMessage) {
+                        return (
+                          <>
+                            <div className="whitespace-pre-wrap leading-7">{clean}</div>
+                            {steps.length > 0 && (
+                              <ThoughtTrace
+                                steps={steps}
+                                accentColor={profile?.theme_accent ?? "cyan"}
+                              />
+                            )}
+                          </>
+                        );
+                      }
 
                       return (
                         <>
-                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
+                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
                             <ReactMarkdown
-                              remarkPlugins={renderWithKatex ? [remarkMath] : []}
-                              rehypePlugins={renderWithKatex ? [rehypeKatex] : []}
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
                             >
-                              {prepared}
+                              {sanitizeMathContent(autoWrapMath(clean))}
                             </ReactMarkdown>
                           </div>
 
