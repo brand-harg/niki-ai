@@ -59,10 +59,11 @@ body {
   display: flex;
   justify-content: center;
   margin: 1rem 0 !important;
+  overflow-x: auto;
 }
 
 .katex {
-  font-size: 1.05em;
+  font-size: 1em;
 }
 
 .katex-display > .katex {

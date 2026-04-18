@@ -833,8 +833,10 @@ export default function Home() {
         {/* CHAT VIEWPORT */}
         <div
           ref={scrollRef}
-          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-3 pb-40 text-sm" : "pt-5 sm:pt-8 pb-52 sm:pb-44 text-base sm:text-xl"
-            } px-3 sm:px-5 lg:px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto ${profile?.compact_mode
+              ? "pt-4 pb-32 text-[15px]"
+              : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+            } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
@@ -853,7 +855,7 @@ export default function Home() {
                     : profile?.first_name?.[0] || profile?.username?.[0] || "U"}
                 </div>
 
-                <div className="max-w-none text-slate-200 pt-1 text-base sm:text-lg leading-7 sm:leading-8">
+                <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 leading-6 sm:leading-7 sm:leading-8 text-sm sm:text-base overflow-hidden">
                   {msg.role === "ai" ? (
                     (() => {
                       const isStreamingMessage = isLoading && i === messages.length - 1;
@@ -862,12 +864,13 @@ export default function Home() {
                         const liveContent = stripPartialThink(msg.content);
 
                         return /[$\\]/.test(liveContent) ? (
-                          <div className="prose prose-invert max-w-none text-[15px] sm:text-[17px] leading-7 sm:leading-8">                            <ReactMarkdown
-                            remarkPlugins={[remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
-                          >
-                            {sanitizeMathContent(liveContent)}
-                          </ReactMarkdown>
+                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
+                            >
+                              {sanitizeMathContent(liveContent)}
+                            </ReactMarkdown>
                           </div>
                         ) : (
                           <div>{liveContent}</div>
@@ -880,12 +883,13 @@ export default function Home() {
                       return (
                         <>
                           {/[$\\]/.test(finalContent) ? (
-                            <div className="prose prose-invert max-w-none text-[15px] sm:text-[17px] leading-7 sm:leading-8">                              <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
-                              rehypePlugins={[rehypeKatex]}
-                            >
-                              {finalContent}
-                            </ReactMarkdown>
+                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                              >
+                                {finalContent}
+                              </ReactMarkdown>
                             </div>
                           ) : (
                             <div>{clean}</div>
