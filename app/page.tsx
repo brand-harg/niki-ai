@@ -78,15 +78,17 @@ function stripPartialThink(content: string): string {
   return cleaned;
 }
 
-function autoWrapMath(text: string): string {
-  if (!text) return "";
+function maybeAutoWrapMath(text: string): string {
+  if (!text || typeof text !== "string") return text;
 
-  if (/\$\$|\$/.test(text)) return text;
+  const hasDelimiters = /\$\$|\$/.test(text);
+  const hasLatexCommands = /\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)/.test(text);
 
-  return text.replace(
-    /(\\int[\s\S]*?dx)/g,
-    (match) => `\n$$${match}$$\n`
-  );
+  if (!hasDelimiters && hasLatexCommands) {
+    return maybeAutoWrapMath(text);
+  }
+
+  return text;
 }
 
 function isMathSafeToRender(text: string): boolean {
@@ -834,8 +836,8 @@ export default function Home() {
         <div
           ref={scrollRef}
           className={`flex-1 overflow-y-auto ${profile?.compact_mode
-              ? "pt-4 pb-32 text-[15px]"
-              : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+            ? "pt-4 pb-32 text-[15px]"
+            : "pt-10 pb-44 text-[17px] sm:text-[18px]"
             } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
@@ -878,8 +880,7 @@ export default function Home() {
                       }
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
-                      const finalContent = sanitizeMathContent(autoWrapMath(clean));
-
+                      const finalContent = sanitizeMathContent(maybeAutoWrapMath(clean));
                       return (
                         <>
                           {/[$\\]/.test(finalContent) ? (

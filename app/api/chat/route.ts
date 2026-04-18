@@ -68,6 +68,9 @@ Math formatting rules (STRICT):
 - Never output incomplete LaTeX commands.
 - If an expression is not finished yet, continue in plain text until it is complete.
 - Prefer short display equations over long malformed ones.
+- Always ensure all LaTeX expressions are complete before finishing a response.
+- Do not output partial fractions, integrals, or commands.
+- If needed, rewrite the expression fully instead of continuing a broken one.
 
 For general writing tasks:
 - Respond in clean natural prose.
@@ -108,6 +111,9 @@ Math formatting rules (STRICT):
 - Never output incomplete LaTeX commands.
 - If an expression is not finished yet, continue in plain text until it is complete.
 - Prefer short display equations over long malformed ones.
+- Always ensure all LaTeX expressions are complete before finishing a response.
+- Do not output partial fractions, integrals, or commands.
+- If needed, rewrite the expression fully instead of continuing a broken one.
 
 For general writing tasks:
 - Respond in clean natural prose.
