@@ -38,28 +38,27 @@ type Message = {
 function sanitizeMathContent(content: string): string {
   if (!content || typeof content !== "string") return "";
 
-  let cleaned = content
-    .replace(/\\\[/g, "$$\n")
-    .replace(/\\\]/g, "\n$$")
+  let cleaned = content;
+
+  cleaned = cleaned
+    .replace(/\\\[/g, "$$")
+    .replace(/\\\]/g, "$$")
     .replace(/\\\(/g, "$")
     .replace(/\\\)/g, "$");
 
-  const ddCount = (cleaned.match(/\$\$/g) || []).length;
-  if (ddCount % 2 !== 0) {
-    const lastIdx = cleaned.lastIndexOf("$$");
-    cleaned = cleaned.slice(0, lastIdx) + cleaned.slice(lastIdx + 2);
-  }
-
-  const normalized = cleaned.replace(/\$\$/g, "");
-  const sdCount = (normalized.match(/\$/g) || []).length;
-  if (sdCount % 2 !== 0) {
-    const lastIdx = cleaned.lastIndexOf("$");
-    if (cleaned[lastIdx - 1] !== "$" && cleaned[lastIdx + 1] !== "$") {
-      cleaned = cleaned.slice(0, lastIdx) + cleaned.slice(lastIdx + 1);
-    }
-  }
-
+  cleaned = cleaned.replace(/\${3,}/g, "$$");
   cleaned = cleaned.replace(/^\$\s*$/gm, "");
+
+  const doubleCount = (cleaned.match(/\$\$/g) || []).length;
+  if (doubleCount % 2 !== 0) {
+    cleaned = cleaned.replace(/\$\$(?![\s\S]*\$\$)/, "");
+  }
+
+  const withoutDouble = cleaned.replace(/\$\$/g, "");
+  const singleCount = (withoutDouble.match(/\$/g) || []).length;
+  if (singleCount % 2 !== 0) {
+    cleaned = cleaned.replace(/\$(?![\s\S]*\$)/, "");
+  }
 
   return cleaned;
 }
@@ -71,7 +70,7 @@ function autoWrapMath(text: string): string {
 
   return text.replace(
     /(\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)[^.\n]*)/g,
-    (match) => `$$\n${match}\n$$`
+    (match) => `$$${match}$$`
   );
 }
 
@@ -843,31 +842,17 @@ export default function Home() {
                   {msg.role === "ai" ? (
                     (() => {
                       const { steps, clean } = parseThoughtTrace(msg.content);
-
+                      const prepared = sanitizeMathContent(autoWrapMath(clean));
                       const isStreamingMessage = isLoading && i === messages.length - 1;
-
-                      if (isStreamingMessage) {
-                        return (
-                          <>
-                            <div className="whitespace-pre-wrap leading-7">{clean}</div>
-                            {steps.length > 0 && (
-                              <ThoughtTrace
-                                steps={steps}
-                                accentColor={profile?.theme_accent ?? "cyan"}
-                              />
-                            )}
-                          </>
-                        );
-                      }
 
                       return (
                         <>
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
                             <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
-                              rehypePlugins={[rehypeKatex]}
+                              remarkPlugins={isStreamingMessage ? [] : [remarkMath]}
+                              rehypePlugins={isStreamingMessage ? [] : [rehypeKatex]}
                             >
-                              {sanitizeMathContent(autoWrapMath(clean))}
+                              {prepared}
                             </ReactMarkdown>
                           </div>
 

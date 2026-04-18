@@ -60,18 +60,14 @@ Math rules:
 - If a derivation would get too messy, explain it in plain text instead.
 
 Math formatting rules (STRICT):
+- Use $...$ for inline math only.
+- Use $$...$$ for standalone equations only.
+- Never output raw LaTeX without math delimiters.
 - Never output a single $ on its own line.
-- Never wrap multi-line math with $.
-- Only use $$...$$ for full standalone equations.
-- Only use $...$ for short inline math.
-- Do NOT mix plain text and LaTeX in the same line.
-- Do NOT include commas inside integrals like "\int f(x), dx"
-- Always write integrals like: \int f(x) \, dx
-- If formatting becomes complex, use plain text instead of LaTeX.
-- Always wrap math in $...$ or $$...$$
-- Never output raw LaTeX like \frac without wrapping it
-- Use $$ for full equations
-- Use $ for inline expressions
+- Never output $$$ or more than two dollar signs.
+- Never output incomplete LaTeX commands.
+- If an expression is not finished yet, continue in plain text until it is complete.
+- Prefer short display equations over long malformed ones.
 
 For general writing tasks:
 - Respond in clean natural prose.
@@ -104,18 +100,14 @@ Math rules:
 - If a derivation would get too messy, explain it in plain text instead.
 
 Math formatting rules (STRICT):
+- Use $...$ for inline math only.
+- Use $$...$$ for standalone equations only.
+- Never output raw LaTeX without math delimiters.
 - Never output a single $ on its own line.
-- Never wrap multi-line math with $.
-- Only use $$...$$ for full standalone equations.
-- Only use $...$ for short inline math.
-- Do NOT mix plain text and LaTeX in the same line.
-- Do NOT include commas inside integrals like "\int f(x), dx"
-- Always write integrals like: \int f(x) \, dx
-- If formatting becomes complex, use plain text instead of LaTeX.
-- Always wrap math in $...$ or $$...$$
-- Never output raw LaTeX like \frac without wrapping it
-- Use $$ for full equations
-- Use $ for inline expressions
+- Never output $$$ or more than two dollar signs.
+- Never output incomplete LaTeX commands.
+- If an expression is not finished yet, continue in plain text until it is complete.
+- Prefer short display equations over long malformed ones.
 
 For general writing tasks:
 - Respond in clean natural prose.
