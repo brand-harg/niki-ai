@@ -89,39 +89,6 @@ function stripPartialThink(content: string): string {
   return cleaned;
 }
 
-function autoWrapMath(text: string): string {
-  if (!text || typeof text !== "string") return "";
-
-  const lines = text.split("\n");
-
-  const wrappedLines = lines.map((line) => {
-    const trimmed = line.trim();
-
-    if (!trimmed) return line;
-
-    if (trimmed.includes("$")) return line;
-    if (/^\s*\$\$.*\$\$\s*$/.test(trimmed)) return line;
-    if (trimmed.includes("\\(") || trimmed.includes("\\)")) return line;
-    if (trimmed.includes("\\[") || trimmed.includes("\\]")) return line;
-
-    const looksLikeStandaloneMath =
-      /\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan|arctan)\b/.test(trimmed) ||
-      /^[=+\-*/()x0-9\s.^{}\\,]+$/.test(trimmed);
-
-    const looksLikeSentence =
-      /[A-Za-z]{3,}.*[A-Za-z]{3,}/.test(trimmed) &&
-      !/\\(int|frac|sum|lim|cdot|sqrt|ln|sin|cos|tan|arctan)\b/.test(trimmed);
-
-    if (looksLikeStandaloneMath && !looksLikeSentence) {
-      return `\n$$\n${trimmed}\n$$\n`;
-    }
-
-    return line;
-  });
-
-  return wrappedLines.join("\n");
-}
-
 function isMathSafeToRender(text: string): boolean {
   if (!text || typeof text !== "string") return true;
 
@@ -147,6 +114,18 @@ function isMathSafeToRender(text: string): boolean {
   if (beginCmds > 0 && trailingSlashCommand) return false;
 
   return true;
+}
+
+function getRenderableStreamingMath(text: string): string {
+  const sanitized = sanitizeMathContent(text);
+  if (isMathSafeToRender(sanitized)) return sanitized;
+
+  let candidate = sanitized;
+  while (candidate.length > 0 && !isMathSafeToRender(candidate)) {
+    candidate = candidate.slice(0, -1);
+  }
+
+  return candidate.trimEnd();
 }
 // Utility to parse <think>...</think> blocks from Qwen output
 function parseThoughtTrace(content: string): {
@@ -896,8 +875,8 @@ export default function Home() {
                       if (isStreamingMessage) {
                         const liveContent = stripPartialThink(msg.content);
 
-                        const liveMathContent = sanitizeMathContent(liveContent);
-                        const canRenderLiveMath = /[$\\]/.test(liveMathContent) && isMathSafeToRender(liveMathContent);
+                        const liveMathContent = getRenderableStreamingMath(liveContent);
+                        const canRenderLiveMath = /[$\\]/.test(liveContent) && liveMathContent.length > 0;
 
                         return canRenderLiveMath ? (
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
@@ -1026,5 +1005,5 @@ export default function Home() {
       />
     </main>
   );
-  
+
 }
