@@ -2,6 +2,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import ThoughtTrace from "@/components/ThoughtTrace";
+import CommandPalette from "@/components/CommandPalette";
 
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
@@ -60,6 +62,32 @@ function sanitizeMathContent(content: string): string {
   return cleaned;
 }
 
+// Utility to parse <think>...</think> blocks from Qwen output
+function parseThoughtTrace(content: string): {
+  steps: { label: string; detail: string }[];
+  clean: string;
+} {
+  const match = content.match(/<think>([\s\S]*?)<\/think>/);
+  if (!match) return { steps: [], clean: content };
+
+  const rawSteps = match[1].trim().split(/\n+/).filter(Boolean);
+  const steps = rawSteps.map((line) => {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx > -1) {
+      return {
+        label: line.slice(0, colonIdx).trim(),
+        detail: line.slice(colonIdx + 1).trim(),
+      };
+    }
+    return { label: "Step", detail: line };
+  });
+
+  return {
+    steps,
+    clean: content.replace(/<think>[\s\S]*?<\/think>/, "").trim(),
+  };
+}
+
 export default function Home() {
   const router = useRouter();
 
@@ -73,6 +101,7 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isNikiMode, setIsNikiMode] = useState(true);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
   const [isLoading, setIsLoading] = useState(false);
@@ -114,15 +143,11 @@ export default function Home() {
     isUnmountingRef.current = false;
 
     const initialize = async () => {
-      // STRICT AUTH: getUser() validates against Supabase server every time.
-      // This rejects stale/expired tokens from old deployments that caused
-      // the "revolving door" refresh loop on desktop.
       const { data: { user }, error } = await supabase.auth.getUser();
 
       if (!mounted) return;
 
       if (error || !user) {
-        // No valid session — clear everything and show logged-out state
         setSession(null);
         setProfile(null);
         setProfileLoaded(true);
@@ -135,7 +160,6 @@ export default function Home() {
         return;
       }
 
-      // Valid session confirmed by server
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setAuthChecked(true);
@@ -153,17 +177,14 @@ export default function Home() {
 
       const newUserId = session?.user?.id ?? null;
 
-      // Same user — token refresh only, skip full re-init to avoid UI flicker
       if (newUserId && newUserId === lastSessionIdRef.current) {
         setSession(session);
         return;
       }
 
-      // Different user or logout — re-validate strictly
       if (newUserId) {
         const { data: { user }, error } = await supabase.auth.getUser();
         if (error || !user) {
-          // getUser failed — treat as logged out, don't loop
           setSession(null);
           setProfile(null);
           setProfileLoaded(true);
@@ -223,25 +244,26 @@ export default function Home() {
     }
   }, [messages, isLoading]);
 
-  // Prevent browser from freezing stream when tab is hidden
+  // Visibility + Ctrl/Cmd + K
   useEffect(() => {
     const handleVisibilityChange = () => {
       console.log("Visibility changed:", document.visibilityState);
     };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
 
-  // Ctrl+K command palette hook (ready for CommandPalette component)
-  useEffect(() => {
     const handleCmdK = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        // Wire up: setIsPaletteOpen(prev => !prev)
+        setIsPaletteOpen((prev) => !prev);
       }
     };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("keydown", handleCmdK);
-    return () => window.removeEventListener("keydown", handleCmdK);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("keydown", handleCmdK);
+    };
   }, []);
 
   // --- DATABASE ACTIONS ---
@@ -352,7 +374,6 @@ export default function Home() {
 
     if (error) { console.log("Rename error:", error); }
 
-    // Optimistic update — no need to re-fetch entire history
     setChatHistory((prev) =>
       prev.map((c) => (c.id === chatId ? { ...c, title: trimmed } : c))
     );
@@ -407,8 +428,6 @@ export default function Home() {
           .from("chats")
           .insert({
             user_id: session.user.id,
-            // STATIC TITLE: saved once from the first message, never overwritten.
-            // This fixes the "Amnesia Sidebar" where titles kept changing.
             title: userText.substring(0, 50),
             project_name: activeTab === "projects" ? "Calculus 1" : null,
             updated_at: new Date().toISOString(),
@@ -428,7 +447,6 @@ export default function Home() {
           .from("messages")
           .insert({ chat_id: chatId, role: "user", text: userText });
 
-        // ONLY update timestamp — title is NEVER touched after creation
         await supabase
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
@@ -451,7 +469,6 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        // 401 means stale token was caught by the server auth guard
         if (response.status === 401) {
           setMessages((prev) => [
             ...prev,
@@ -525,7 +542,6 @@ export default function Home() {
   };
 
   // --- SIDEBAR CHAT ROW ---
-  // Shared component for both pinned and unpinned rows
   const ChatRow = ({ chat }: { chat: any }) => (
     <div
       key={chat.id}
@@ -535,7 +551,6 @@ export default function Home() {
       }`}
     >
       {renamingChatId === chat.id ? (
-        // Inline rename input
         <input
           autoFocus
           value={renameValue}
@@ -599,7 +614,6 @@ export default function Home() {
 
   return (
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
-
       {/* SIDEBAR */}
       <aside
         className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
@@ -646,7 +660,6 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto px-4 space-y-4">
           {activeTab === "history" ? (
             <div className="space-y-2">
-
               {/* Pinned section */}
               {chatHistory.some((c) => c.is_pinned) && (
                 <>
@@ -704,7 +717,6 @@ export default function Home() {
 
       {/* MAIN CONTENT */}
       <section className="flex-1 flex flex-col relative bg-black">
-
         {/* HEADER */}
         <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-black/50 backdrop-blur-md z-20">
           <div className="flex items-center gap-5">
@@ -729,7 +741,6 @@ export default function Home() {
 
             <div className="border-l border-white/10 pl-6 flex items-center gap-5">
               {!authChecked ? (
-                // Skeleton prevents flash of wrong auth state
                 <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
               ) : session ? (
                 <button
@@ -795,16 +806,25 @@ export default function Home() {
 
                 <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 whitespace-pre-wrap leading-7">
                   {msg.role === "ai" ? (
-                    /[$\\]/.test(msg.content) ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkMath]}
-                        rehypePlugins={[rehypeKatex]}
-                      >
-                        {sanitizeMathContent(msg.content)}
-                      </ReactMarkdown>
-                    ) : (
-                      <div>{msg.content}</div>
-                    )
+                    (() => {
+                      const { steps, clean } = parseThoughtTrace(msg.content);
+                      return (
+                        <>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
+                          >
+                            {sanitizeMathContent(clean)}
+                          </ReactMarkdown>
+                          {steps.length > 0 && (
+                            <ThoughtTrace
+                              steps={steps}
+                              accentColor={profile?.theme_accent ?? "cyan"}
+                            />
+                          )}
+                        </>
+                      );
+                    })()
                   ) : (
                     <div>{msg.content}</div>
                   )}
@@ -833,7 +853,6 @@ export default function Home() {
         {/* FOOTER INPUT */}
         <footer className="absolute bottom-0 left-0 right-0 p-8 pt-0 bg-gradient-to-t from-black via-black/95 to-transparent">
           <div className="max-w-4xl mx-auto space-y-6">
-
             {/* Mode toggle */}
             <div className="max-w-[280px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl">
               <button
@@ -883,6 +902,14 @@ export default function Home() {
           </div>
         </footer>
       </section>
+
+      <CommandPalette
+        isOpen={isPaletteOpen}
+        onClose={() => setIsPaletteOpen(false)}
+        isNikiMode={isNikiMode}
+        onToggleNikiMode={() => setIsNikiMode((prev) => !prev)}
+        accentColor={profile?.theme_accent ?? "cyan"}
+      />
     </main>
   );
 }
