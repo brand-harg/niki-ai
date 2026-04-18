@@ -79,13 +79,13 @@ function stripPartialThink(content: string): string {
 }
 
 function autoWrapMath(text: string): string {
-  if (!text || typeof text !== "string") return "";
+  if (!text) return "";
 
   if (/\$\$|\$/.test(text)) return text;
 
   return text.replace(
-    /(\\(frac|int|sum|lim|cdot|sqrt|ln|sin|cos|tan)[^.\n]*)/g,
-    (match) => `$$${match}$$`
+    /(\\int[\s\S]*?dx)/g,
+    (match) => `\n$$${match}$$\n`
   );
 }
 
@@ -862,7 +862,7 @@ export default function Home() {
                         const liveContent = stripPartialThink(msg.content);
 
                         return /[$\\]/.test(liveContent) ? (
-                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1">
+                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
                             <ReactMarkdown
                               remarkPlugins={[remarkMath]}
                               rehypePlugins={[rehypeKatex]}
@@ -876,17 +876,22 @@ export default function Home() {
                       }
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
+                      const finalContent = sanitizeMathContent(autoWrapMath(clean));
 
                       return (
                         <>
-                          <div className="prose prose-invert max-w-none prose-p:my-2">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
-                              rehypePlugins={[rehypeKatex]}
-                            >
-                              {sanitizeMathContent(clean)}
-                            </ReactMarkdown>
-                          </div>
+                          {/[$\\]/.test(finalContent) ? (
+                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                              >
+                                {finalContent}
+                              </ReactMarkdown>
+                            </div>
+                          ) : (
+                            <div>{clean}</div>
+                          )}
 
                           {steps.length > 0 && (
                             <ThoughtTrace
