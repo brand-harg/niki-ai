@@ -1,15 +1,40 @@
-export const dynamic = "force-dynamic";
+// 1. Add this at the very top of route.ts to fix Vercel build errors
+export const dynamic = 'force-dynamic';
+
+// ... (your existing imports)
+
+// 2. Inside your POST function, ensure the fetch looks like this:
+const response = await fetch("https://imprudent-ardently-slicing.ngrok-free.dev/api/chat", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    model: "qwen2.5:7b", // Ensure this matches exactly what is in 'ollama list'
+    messages: [
+       // ... your message history logic
+    ],
+    stream: true,
+  }),
+});
 
 import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseClient";
 
 type ChatRequest = {
   message?: string;
   isNikiMode?: boolean;
   userName?: string;
+  userId?: string;
+  chatId?: string;
+  trainConsent?: boolean;
   history?: { role: string; content: string }[];
 };
 
-function buildSystemPrompt(isNikiMode: boolean, userName: string) {
+function buildSystemPrompt(
+  isNikiMode: boolean,
+  userName: string,
+  personalContext = "",
+  styleInstructions = ""
+) {
   if (isNikiMode) {
     return `
 You are NikiAI in Professor Nemanja mode.
@@ -34,16 +59,9 @@ Math rules:
 - Never output partial LaTeX commands.
 - If a derivation would get too messy, explain it in plain text instead.
 
-Thought trace rules:
-- If helpful, output a short <think>...</think> block before the final answer.
-- Inside <think>, write short labeled lines like:
-  Plan: ...
-  Step 1: ...
-  Step 2: ...
-- Keep the <think> block concise.
-- After </think>, give the normal answer for the user.
-
 User: ${userName}
+${personalContext}
+${styleInstructions}
 `.trim();
   }
 
@@ -65,24 +83,15 @@ Math rules:
 - Never output partial LaTeX commands.
 - If a derivation would get too messy, explain it in plain text instead.
 
-Thought trace rules:
-- If helpful, output a short <think>...</think> block before the final answer.
-- Inside <think>, write short labeled lines like:
-  Plan: ...
-  Step 1: ...
-  Step 2: ...
-- Keep the <think> block concise.
-- After </think>, give the normal answer for the user.
-
 User: ${userName}
+${personalContext}
+${styleInstructions}
 `.trim();
 }
 
-function extractJsonObjects(input: string): {
-  objects: string[];
-  remainder: string;
-} {
+function extractJsonObjects(input: string): { objects: string[]; remainder: string } {
   const objects: string[] = [];
+
   let depth = 0;
   let inString = false;
   let escapeNext = false;
@@ -109,10 +118,13 @@ function extractJsonObjects(input: string): {
     if (inString) continue;
 
     if (char === "{") {
-      if (depth === 0) startIndex = i;
+      if (depth === 0) {
+        startIndex = i;
+      }
       depth++;
     } else if (char === "}") {
       depth--;
+
       if (depth === 0 && startIndex !== -1) {
         objects.push(input.slice(startIndex, i + 1));
         startIndex = -1;
@@ -120,9 +132,16 @@ function extractJsonObjects(input: string): {
     }
   }
 
+  if (depth > 0 && startIndex !== -1) {
+    return {
+      objects,
+      remainder: input.slice(startIndex),
+    };
+  }
+
   return {
     objects,
-    remainder: depth > 0 && startIndex !== -1 ? input.slice(startIndex) : "",
+    remainder: "",
   };
 }
 
@@ -134,24 +153,40 @@ export async function POST(req: Request) {
     const history = body.history || [];
     const isNikiMode = body.isNikiMode ?? true;
     const userName = body.userName?.trim() || "User";
+    const userId = body.userId?.trim() || "";
 
     if (!message) {
-      return NextResponse.json(
-        { reply: "Please enter a message first." },
-        { status: 400 }
-      );
+      return NextResponse.json({ reply: "Please enter a message first." }, { status: 400 });
     }
 
-    const systemPrompt = buildSystemPrompt(isNikiMode, userName);
+    console.log("\n=============================");
+    console.log(`🧠 User asked: "${message}"`);
+    console.log("🌊 STREAMING ONLINE: Connecting to Ollama...");
+
+    let personalContext = "";
+    let styleInstructions = "";
+
+    if (userId) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("about_user, response_style")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (profile) {
+        personalContext = profile.about_user ? `User context: ${profile.about_user}` : "";
+        styleInstructions = profile.response_style ? `Response style: ${profile.response_style}` : "";
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(isNikiMode, userName, personalContext, styleInstructions);
 
     const formattedHistory = history.map((msg) => ({
       role: msg.role === "ai" ? "assistant" : "user",
       content: msg.content,
     }));
 
-    const ollamaUrl = "http://127.0.0.1:11434";
-
-    const response = await fetch(`${ollamaUrl}/api/chat`, {
+    const response = await fetch("https://imprudent-ardently-slicing.ngrok-free.dev/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -171,34 +206,37 @@ export async function POST(req: Request) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.log("❌ Ollama request failed:", errorText);
-
-      return NextResponse.json(
-        { reply: `System Error: Local model request failed. ${errorText}` },
-        { status: 500 }
-      );
+      console.log("❌ Ollama request failed");
+      return NextResponse.json({ reply: "System Error: Local model request failed." });
     }
 
     const stream = new ReadableStream({
       async start(controller) {
         const reader = response.body?.getReader();
-
         if (!reader) {
+          console.log("❌ No reader found");
           controller.close();
           return;
         }
 
         const decoder = new TextDecoder();
         const encoder = new TextEncoder();
+
         let buffer = "";
 
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
+            if (done) {
+              console.log("✅ Stream finished");
+              break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            console.log("📦 Chunk received:", chunk);
+
+            buffer += chunk;
 
             const { objects, remainder } = extractJsonObjects(buffer);
             buffer = remainder;
@@ -212,19 +250,20 @@ export async function POST(req: Request) {
                 }
 
                 if (parsed.done) {
+                  console.log("🏁 Ollama signaled done");
                   controller.close();
                   return;
                 }
-              } catch (chunkError) {
-                console.log("⚠️ Skipping malformed chunk:", chunkError);
+              } catch (err) {
+                console.log("⚠️ Failed to parse JSON object:", err);
               }
             }
           }
-        } catch (streamError) {
-          console.log("❌ Stream error:", streamError);
-          controller.error(streamError);
+        } catch (err) {
+          console.log("❌ Stream error:", err);
         } finally {
           reader.releaseLock();
+          controller.close();
         }
       },
     });
@@ -237,17 +276,11 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     if (error?.name === "AbortError") {
-      return NextResponse.json(
-        { reply: "System Error: Model timed out." },
-        { status: 504 }
-      );
+      console.log("⏱️ Timeout hit");
+      return NextResponse.json({ reply: "System Error: Model timed out." });
     }
 
     console.log("❌ Fatal error:", error);
-
-    return NextResponse.json(
-      { reply: `System Error: ${error?.message || "Vault is jammed."}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ reply: "System Error: Vault is jammed." });
   }
 }
