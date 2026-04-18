@@ -149,7 +149,7 @@ export async function POST(req: Request) {
       content: msg.content,
     }));
 
-    const ollamaUrl = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
+    const ollamaUrl = "http://127.0.0.1:11434";
 
     const response = await fetch(`${ollamaUrl}/api/chat`, {
       method: "POST",
