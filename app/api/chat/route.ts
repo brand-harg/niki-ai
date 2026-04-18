@@ -171,16 +171,9 @@ export async function POST(req: Request) {
       content: msg.content,
     }));
 
-    const ngrokUrl = process.env.NGROK_URL || "";
+    const ollamaUrl = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 
-    if (!ngrokUrl) {
-      return NextResponse.json(
-        { reply: "System Error: Inference engine not configured." },
-        { status: 503 }
-      );
-    }
-
-    const response = await fetch(`${ngrokUrl}/api/chat`, {
+    const response = await fetch(`${ollamaUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
