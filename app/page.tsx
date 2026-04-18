@@ -50,25 +50,7 @@ function sanitizeMathContent(content: string): string {
     .replace(/\\\)/g, "$");
 
   cleaned = cleaned.replace(/\${3,}/g, "$$");
-  cleaned = cleaned.replace(/^\$\s*$/gm, "");
 
-  const doubleCount = (cleaned.match(/\$\$/g) || []).length;
-  if (doubleCount % 2 !== 0) {
-    cleaned = cleaned.replace(/\$\$(?![\s\S]*\$\$)/, "");
-  }
-
-  const withoutDouble = cleaned.replace(/\$\$/g, "");
-  const singleCount = (withoutDouble.match(/\$/g) || []).length;
-  if (singleCount % 2 !== 0) {
-    cleaned = cleaned.replace(/\$(?![\s\S]*\$)/, "");
-  }
-
-  cleaned = cleaned.replace(/^\$\s*$/gm, "");
-  cleaned = cleaned.replace(/\$\$\s*\$\$/g, "$$");
-  cleaned = cleaned.replace(/\$\$(\S)/g, "$$\n$1");
-  cleaned = cleaned.replace(/(\S)\$\$/g, "$1\n$$");
-  cleaned = cleaned.replace(/\$\s*\$\$/g, "$$");
-  cleaned = cleaned.replace(/\$\$\s*\$/g, "$$");
   cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
 
   return cleaned;
@@ -84,47 +66,6 @@ function stripPartialThink(content: string): string {
   }
 
   return cleaned;
-}
-
-function isMathSafeToRender(text: string): boolean {
-  if (!text || typeof text !== "string") return true;
-
-  const normalized = text
-    .replace(/\\\[/g, "$$")
-    .replace(/\\\]/g, "$$")
-    .replace(/\\\(/g, "$")
-    .replace(/\\\)/g, "$");
-
-  const doubleCount = (normalized.match(/\$\$/g) || []).length;
-  if (doubleCount % 2 !== 0) return false;
-
-  const withoutDouble = normalized.replace(/\$\$/g, "");
-  const singleCount = (withoutDouble.match(/\$/g) || []).length;
-  if (singleCount % 2 !== 0) return false;
-
-  const openCurlies = (normalized.match(/{/g) || []).length;
-  const closeCurlies = (normalized.match(/}/g) || []).length;
-  if (openCurlies !== closeCurlies) return false;
-
-  const beginCmds = (
-    normalized.match(/\\(frac|sqrt|text|mathrm|mathbf|left|right|cdot|int|sum|lim|ln|sin|cos|tan)\b/g) || []
-  ).length;
-  const trailingSlashCommand = /\\[a-zA-Z]*$/.test(normalized);
-  if (beginCmds > 0 && trailingSlashCommand) return false;
-
-  return true;
-}
-
-function getRenderableStreamingMath(text: string): string {
-  const sanitized = sanitizeMathContent(text);
-  if (isMathSafeToRender(sanitized)) return sanitized;
-
-  let candidate = sanitized;
-  while (candidate.length > 0 && !isMathSafeToRender(candidate)) {
-    candidate = candidate.slice(0, -1);
-  }
-
-  return candidate.trimEnd();
 }
 
 // Utility to parse <think>...</think> blocks from Qwen output
@@ -496,9 +437,43 @@ export default function Home() {
     const target = chatViewportRef.current;
     if (!target) return;
 
+    const colorProps = [
+      "color",
+      "background-color",
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color",
+      "outline-color",
+      "text-decoration-color",
+      "caret-color",
+      "box-shadow",
+    ] as const;
+
+    const patches: Array<{
+      el: HTMLElement;
+      prop: (typeof colorProps)[number];
+      prev: string;
+    }> = [];
+
     try {
+      const nodes = [target, ...Array.from(target.querySelectorAll("*"))];
+      for (const node of nodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        const computed = window.getComputedStyle(node);
+        for (const prop of colorProps) {
+          const next = computed.getPropertyValue(prop);
+          if (!next) continue;
+          patches.push({
+            el: node,
+            prop,
+            prev: node.style.getPropertyValue(prop),
+          });
+          node.style.setProperty(prop, next);
+        }
+      }
+
       const canvas = await html2canvas(target, {
-        backgroundColor: "#000000",
         scale: 2,
         useCORS: true,
         logging: false,
@@ -510,6 +485,14 @@ export default function Home() {
       link.click();
     } catch (err) {
       console.error("Screenshot failed:", err);
+    } finally {
+      for (const patch of patches) {
+        if (patch.prev) {
+          patch.el.style.setProperty(patch.prop, patch.prev);
+        } else {
+          patch.el.style.removeProperty(patch.prop);
+        }
+      }
     }
   };
 
@@ -676,8 +659,18 @@ export default function Home() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("API status:", response.status, errorText);
-        throw new Error(`API returned ${response.status}`);
+
+        let apiMessage = `System Error: API returned ${response.status}.`;
+        try {
+          const parsed = JSON.parse(errorText) as { reply?: string };
+          if (parsed?.reply) apiMessage = parsed.reply;
+        } catch {
+          if (errorText.trim()) apiMessage = errorText;
+        }
+
+        console.warn("API status:", response.status, apiMessage);
+        setMessages((prev) => [...prev, { role: "ai", content: apiMessage }]);
+        return;
       }
 
       setMessages((prev) => [...prev, { role: "ai", content: "" }]);
@@ -742,9 +735,8 @@ export default function Home() {
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${
-        currentChatId === chat.id ? "bg-white/5 text-white" : ""
-      }`}
+      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${currentChatId === chat.id ? "bg-white/5 text-white" : ""
+        }`}
     >
       {renamingChatId === chat.id ? (
         <input
@@ -772,11 +764,10 @@ export default function Home() {
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
           onClick={(e) => togglePin(e, chat.id, chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${
-            chat.is_pinned
-              ? `${accentColor} opacity-100`
-              : "opacity-20 hover:opacity-100 hover:text-white"
-          }`}
+          className={`cursor-pointer transition-opacity ${chat.is_pinned
+            ? `${accentColor} opacity-100`
+            : "opacity-20 hover:opacity-100 hover:text-white"
+            }`}
         >
           {chat.is_pinned ? "★" : "☆"}
         </div>
@@ -821,9 +812,8 @@ export default function Home() {
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
       {/* SIDEBAR */}
       <aside
-        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
-          isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
-        }`}
+        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
+          }`}
       >
         <div className="p-4 pt-6">
           <button
@@ -841,21 +831,19 @@ export default function Home() {
         <div className="flex px-4 mb-6 gap-1">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
-              activeTab === "history"
-                ? `bg-white/5 ${accentColor} ${accentBorder}`
-                : "text-slate-500 border-transparent hover:text-slate-300"
-            }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
+              ? `bg-white/5 ${accentColor} ${accentBorder}`
+              : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
           >
             History
           </button>
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
-              activeTab === "projects"
-                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                : "text-slate-500 border-transparent hover:text-slate-300"
-            }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
           >
             Projects
           </button>
@@ -987,9 +975,8 @@ export default function Home() {
             scrollRef.current = el;
             chatViewportRef.current = el;
           }}
-          className={`flex-1 overflow-y-auto ${
-            profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
-          } px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+            } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
@@ -998,9 +985,8 @@ export default function Home() {
                 className={`flex ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
               >
                 <div
-                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black ${
-                    msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                  }`}
+                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                    }`}
                 >
                   {msg.role === "ai"
                     ? "N"
@@ -1014,8 +1000,9 @@ export default function Home() {
 
                       if (isStreamingMessage) {
                         const liveContent = stripPartialThink(msg.content);
-                        const liveMathContent = getRenderableStreamingMath(liveContent);
-                        const canRenderLiveMath = /[$\\]/.test(liveContent) && liveMathContent.length > 0;
+                        const liveMathContent = sanitizeMathContent(liveContent);
+                        const canRenderLiveMath = /[$\\]/.test(liveMathContent) && liveMathContent.length > 0;
+
 
                         return canRenderLiveMath ? (
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
@@ -1030,19 +1017,24 @@ export default function Home() {
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
                       const finalContent = sanitizeMathContent(clean);
-                      const shouldRenderFinalMath = /[$\\]/.test(finalContent) && isMathSafeToRender(finalContent);
+                      const shouldRenderFinalMath = /[$\\]/.test(finalContent);
+                      const finalAnswerBoxClass =
+                        "mt-1 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 sm:px-5 sm:py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 
                       return (
                         <>
-                          {shouldRenderFinalMath ? (
-                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
-                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                                {finalContent}
-                              </ReactMarkdown>
-                            </div>
-                          ) : (
-                            <div className="whitespace-pre-wrap">{clean}</div>
-                          )}
+                          <div className={finalAnswerBoxClass}>
+                            {shouldRenderFinalMath ? (
+                              <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                  {finalContent}
+                                </ReactMarkdown>
+                              </div>
+                            ) : (
+                              <div className="whitespace-pre-wrap">{clean}</div>
+                            )}
+                          </div>
+
 
                           {steps.length > 0 && (
                             <ThoughtTrace
@@ -1083,17 +1075,15 @@ export default function Home() {
             <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">
               <button
                 onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
-                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                  }`}
               >
                 Pure Logic
               </button>
               <button
                 onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
-                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                  }`}
               >
                 Nemanja Mode
               </button>
@@ -1126,9 +1116,8 @@ export default function Home() {
                         ? "Ask Professor Nikitovic..."
                         : "Specify mathematical query..."
                   }
-                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${
-                    profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
-                  } placeholder:text-slate-600 shadow-none`}
+                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
+                    } placeholder:text-slate-600 shadow-none`}
                 />
 
                 <button

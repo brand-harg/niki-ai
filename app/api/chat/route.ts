@@ -20,6 +20,9 @@ type ChatRequest = {
 function buildSystemPrompt(
   isNikiMode: boolean,
   userName: string,
+    forceStepByStep: boolean,
+  wantsDeeperExplanation: boolean,
+  includeThoughtTrace: boolean,
   personalContext = "",
   styleInstructions = ""
 ) {
@@ -35,11 +38,28 @@ Math formatting rules (STRICT):
 - One equation per line. Never place multiple equations on the same line.
 - If a derivation would get messy, explain it in plain text instead.
 - Always ensure all LaTeX expressions are complete before finishing a response.
+
+Math response structure:
+${forceStepByStep
+    ? `- Use explicit numbered steps: Step 1, Step 2, Step 3, ...
+- Use at least ${wantsDeeperExplanation ? "5" : "3"} steps, and continue with additional steps whenever needed for clarity.
+- Put each step on its own line.
+- In each step, show both the operation and the intermediate result.
+- Explain briefly why the step is valid (rule used, substitution, or simplification).
+- Do not skip arithmetic. Write out evaluations explicitly.
+- If the student asks for more help, expand the walkthrough with more steps instead of compressing.
+- End with a separate line: Final Answer: [result].
+- Do not skip directly to only the final result.`
+    : `- Prefer clean explanatory prose (not rigid numbered steps).
+- Show key equations on their own lines with $$...$$.
+- Briefly state the rule used, then apply it.
+- End with a standalone concluding equation/result line.
+- Only use explicit Step 1/Step 2 labels if the user asks for step-by-step.`}
 `.trim();
 
   const sharedThoughtTraceRules = `
-Reasoning format (REQUIRED for every response):
-Before answering, wrap your reasoning in <think>...</think> tags.
+Reasoning format (only when thought trace is requested):
+When requested, add one <think>...</think> block before the answer.
 Structure it as labeled lines only. Use exactly 3 to 6 lines. No more.
 
 For math problems, use this shape:
@@ -90,7 +110,9 @@ Persona:
 - If the question is advanced, give a structured explanation.
 - You are a teacher first. Your job is to make the student understand, not just to give the answer.
 
-${sharedThoughtTraceRules}
+${includeThoughtTrace
+      ? sharedThoughtTraceRules
+      : "Do not output any <think>...</think> tags unless the user explicitly asks for thought trace/reasoning trace."}
 
 ${sharedMathRules}
 
@@ -109,7 +131,8 @@ Persona:
 - Clear, concise, and correct.
 - No personality or roleplay.
 - Focus on solving or explaining mathematics cleanly and efficiently.
-- If the answer is short, keep the response short.
+- Even if the problem is simple, still provide clear step-by-step structure.
+- Match the user's requested level of detail.
 
 ${sharedThoughtTraceRules}
 
@@ -121,6 +144,24 @@ User: ${userName}
 ${personalContext ? `\n${personalContext}` : ""}
 ${styleInstructions ? `\n${styleInstructions}` : ""}
 `.trim();
+}
+
+function wantsStepByStep(message: string): boolean {
+  return /(step[-\s]?by[-\s]?step|show every step|all steps|detailed steps|walk me through)/i.test(
+    message
+  );
+}
+
+function wantsDeeperExplanation(message: string): boolean {
+  return /(i do(n't| not) understand|explain more|how did you get|why|break it down|teach me|show work)/i.test(
+    message
+  );
+}
+
+function wantsThoughtTrace(message: string): boolean {
+  return /(thought trace|reasoning trace|show reasoning|show thought process|show your reasoning)/i.test(
+    message
+  );
 }
 
 function extractJsonObjects(input: string): {
@@ -195,6 +236,9 @@ export async function POST(req: Request) {
     const imageMediaType = body.imageMediaType;
     const textFileContent = body.textFileContent;
     const textFileName = body.textFileName;
+    const wantsMoreDetail = wantsDeeperExplanation(message);
+    const forceStepByStep = wantsStepByStep(message) || wantsMoreDetail;
+    const includeThoughtTrace = wantsThoughtTrace(message);
 
     const hasImage = !!base64Image;
     const hasTextFile = !!textFileContent;
@@ -237,7 +281,9 @@ export async function POST(req: Request) {
     const systemPrompt = buildSystemPrompt(
       isNikiMode,
       userName,
-      personalContext,
+      forceStepByStep,
+      wantsMoreDetail,
+      includeThoughtTrace,
       styleInstructions
     );
 
@@ -251,9 +297,8 @@ export async function POST(req: Request) {
     let userMessageContent = message;
 
     if (hasTextFile) {
-      const fileContext = `The user has attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\`\n\n${
-        message ? `User's question: ${message}` : "Please analyze this file."
-      }`;
+      const fileContext = `The user has attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\`\n\n${message ? `User's question: ${message}` : "Please analyze this file."
+        }`;
       userMessageContent = fileContext;
     }
 
@@ -281,8 +326,10 @@ export async function POST(req: Request) {
 
     console.log(`🤖 Routing to model: ${model}`);
 
+    const ollamaBaseUrl =
+      process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434";
     const response = await fetch(
-      "https://imprudent-ardently-slicing.ngrok-free.dev/api/chat",
+      `${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -300,10 +347,20 @@ export async function POST(req: Request) {
     );
 
     if (!response.ok) {
-      console.log("❌ Ollama request failed:", response.status);
-      return NextResponse.json({
-        reply: "System Error: Local model request failed.",
-      });
+      const responseText = await response.text().catch(() => "");
+      console.log(
+        "❌ Ollama request failed:",
+        response.status,
+        response.statusText,
+        responseText
+      );
+      return NextResponse.json(
+        {
+          reply:
+            "System Error: Local model request failed. Check OLLAMA_API_URL and model availability.",
+        },
+        { status: 502 }
+      );
     }
 
     const stream = new ReadableStream({
@@ -375,6 +432,12 @@ export async function POST(req: Request) {
     }
 
     console.log("❌ Fatal error:", error);
-    return NextResponse.json({ reply: "System Error: Vault is jammed." });
+    return NextResponse.json(
+      {
+        reply:
+          "System Error: Could not reach model backend. Verify OLLAMA_API_URL and server connectivity.",
+      },
+      { status: 500 }
+    );
   }
 }
