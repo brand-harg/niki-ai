@@ -58,14 +58,14 @@ ${forceStepByStep
 
 Output template (STRICT):
 ${forceStepByStep
-    ? `Given: [what is known]
+      ? `Given: [what is known]
 Goal: [what to find]
 Step 1: ...
 Step 2: ...
 ...
 Final Answer: [result only]
 Optional: Alternative form or quick check (only if useful).`
-    : `Start with one short setup sentence.
+      : `Start with one short setup sentence.
 Step 1: [choose method/rule]
 - [short bullet if needed]
 Step 2: [apply the method]
@@ -287,25 +287,22 @@ export async function POST(req: Request) {
     }
     console.log("🌊 STREAMING ONLINE: Connecting to Ollama...");
 
-    let personalContext = "";
-    let styleInstructions = "";
+    const profile = userId
+      ? (
+        await supabase
+          .from("profiles")
+          .select("about_user, response_style")
+          .eq("id", userId)
+          .maybeSingle()
+      ).data
+      : null;
 
-    if (userId) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("about_user, response_style")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (profile) {
-        personalContext = profile.about_user
-          ? `User context: ${profile.about_user}`
-          : "";
-        styleInstructions = profile.response_style
-          ? `Response style: ${profile.response_style}`
-          : "";
-      }
-    }
+    const personalContext = profile?.about_user
+      ? `User context: ${profile.about_user}`
+      : "";
+    const styleInstructions = profile?.response_style
+      ? `Response style: ${profile.response_style}`
+      : "";
 
     const systemPrompt = buildSystemPrompt(
       isNikiMode,
@@ -313,6 +310,7 @@ export async function POST(req: Request) {
       forceStepByStep,
       wantsMoreDetail,
       includeThoughtTrace,
+      personalContext,
       styleInstructions
     );
 
@@ -376,7 +374,7 @@ export async function POST(req: Request) {
     );
 
     if (!response.ok) {
-const responseText = await response.text().catch(() => "");
+      const responseText = await response.text().catch(() => "");
       console.log(
         "❌ Ollama request failed:",
         response.status,

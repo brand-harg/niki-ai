@@ -77,6 +77,10 @@ function sanitizeMathContent(content: string): string {
   return cleaned;
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Vault connection lost.";
+}
+
 function stripPartialThink(content: string): string {
   if (!content) return "";
 
@@ -269,14 +273,16 @@ export default function Home() {
   }, []);
 
   // Set default greeting and niki mode once profile loads
+  const messageCount = messages.length;
+
   useEffect(() => {
-    if (messages.length > 0) return;
+    if (messageCount > 0) return;
     if (session && !profileLoaded) return;
     setMessages(DEFAULT_GREETING);
     if (profile?.default_niki_mode !== undefined) {
       setIsNikiMode(profile.default_niki_mode);
     }
-  }, [session, profileLoaded, profile]);
+  }, [messageCount, profile?.default_niki_mode, profileLoaded, session]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -728,14 +734,14 @@ export default function Home() {
           .update({ updated_at: new Date().toISOString() })
           .eq("id", chatId);
       }
-    } catch (error: any) {
-      if (error?.name !== "AbortError") {
+    } catch (error: unknown) {
+      if (!(error instanceof Error) || error.name !== "AbortError") {
         console.error("handleSend error:", error);
         setMessages((prev) => [
           ...prev,
           {
             role: "ai",
-            content: `System Error: ${(error as Error).message || "Vault connection lost."}`,
+            content: `System Error: ${getErrorMessage(error)}`,
           },
         ]);
       }
@@ -960,7 +966,7 @@ export default function Home() {
                   <div
                     className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}                  >
                     {profile?.avatar_url ? (
-                     <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
+                      <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
                     ) : (
                       profile?.first_name?.[0] || profile?.username?.[0] || "U"
                     )}

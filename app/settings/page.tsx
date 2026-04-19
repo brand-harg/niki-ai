@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Image from "next/image";
@@ -40,14 +40,7 @@ export default function SettingsPage() {
     theme_accent?: "cyan" | "green" | "amber";
   } | null>(null);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) return router.push('/login');
-      fetchProfile(session.user.id);
-    });
-  }, [router]);
-
-  const fetchProfile = async (id: string) => {
+  const fetchProfile = useCallback(async (id: string) => {
     const { data, error } = await supabase
       .from('profiles')
       .select('first_name, username, subscription_tier, avatar_url, theme_accent')
@@ -60,7 +53,17 @@ export default function SettingsPage() {
     }
 
     if (data) setProfile(data);
-  };
+  }, []);
+
+  useEffect(() => {
+    const run = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return router.push('/login');
+
+      await fetchProfile(session.user.id);
+    };
+    run();
+  }, [fetchProfile, router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

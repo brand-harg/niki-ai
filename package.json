@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:format": "node scripts/check-math-format.mjs"
+    "test:format": "node scripts/check-math-format.mjs",
+    "test:prompt": "node scripts/check-prompt-regression.mjs",
+    "test:api-route": "node scripts/check-api-route-contract.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",
