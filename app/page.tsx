@@ -8,6 +8,7 @@ import CommandPalette from "@/components/CommandPalette";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import Image from "next/image";
 import "katex/dist/katex.min.css";
 import FileUploadButton from "@/components/FileUploadButton";
 import FilePreview, { type AttachedFile } from "@/components/FilePreview";
@@ -36,6 +37,26 @@ type Message = {
   role: "ai" | "user";
   content: string;
 };
+
+type AppSession = { user: { id: string } } | null;
+type AppProfile = {
+  id?: string;
+  first_name?: string;
+  username?: string;
+  theme_accent?: "cyan" | "green" | "amber";
+  default_niki_mode?: boolean;
+  train_on_data?: boolean;
+  avatar_url?: string;
+  current_unit?: string;
+  compact_mode?: boolean;
+};
+type ChatItem = {
+  id: string;
+  title: string;
+  is_pinned?: boolean;
+};
+const DEFAULT_GREETING: Message[] = [{ role: "ai", content: "What do you need help with?" }];
+
 
 // Safe sanitizer — cleans up malformed LaTeX delimiters
 function sanitizeMathContent(content: string): string {
@@ -98,12 +119,12 @@ export default function Home() {
   const router = useRouter();
 
   // --- STATE ---
-  const [session, setSession] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [session, setSession] = useState<AppSession>(null);
+  const [profile, setProfile] = useState<AppProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatHistory, setChatHistory] = useState<any[]>([]);
+  const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isNikiMode, setIsNikiMode] = useState(true);
@@ -143,7 +164,6 @@ export default function Home() {
       ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
       : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
 
-  const defaultGreeting: Message[] = [{ role: "ai", content: "What do you need help with?" }];
 
   // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
@@ -165,7 +185,7 @@ export default function Home() {
         setChatHistory([]);
         setCurrentChatId(null);
         currentChatIdRef.current = null;
-        setMessages(defaultGreeting);
+        setMessages(DEFAULT_GREETING);
         lastSessionIdRef.current = null;
         setAuthChecked(true);
         return;
@@ -211,7 +231,7 @@ export default function Home() {
           setChatHistory([]);
           setCurrentChatId(null);
           currentChatIdRef.current = null;
-          setMessages(defaultGreeting);
+          setMessages(DEFAULT_GREETING);
           lastSessionIdRef.current = null;
           return;
         }
@@ -229,7 +249,7 @@ export default function Home() {
         setChatHistory([]);
         setCurrentChatId(null);
         currentChatIdRef.current = null;
-        setMessages(defaultGreeting);
+        setMessages(DEFAULT_GREETING);
       }
     });
 
@@ -237,7 +257,6 @@ export default function Home() {
       mounted = false;
       isUnmountingRef.current = true;
       abortControllerRef.current?.abort();
-      if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
       subscription.unsubscribe();
     };
   }, []);
@@ -253,7 +272,7 @@ export default function Home() {
   useEffect(() => {
     if (messages.length > 0) return;
     if (session && !profileLoaded) return;
-    setMessages(defaultGreeting);
+    setMessages(DEFAULT_GREETING);
     if (profile?.default_niki_mode !== undefined) {
       setIsNikiMode(profile.default_niki_mode);
     }
@@ -343,7 +362,7 @@ export default function Home() {
         }));
       setMessages(formatted);
     } else {
-      setMessages(defaultGreeting);
+      setMessages(DEFAULT_GREETING);
     }
 
     if (session?.user?.id) fetchHistory(session.user.id);
@@ -376,7 +395,7 @@ export default function Home() {
     if (currentChatId === chatId) {
       setCurrentChatId(null);
       currentChatIdRef.current = null;
-      setMessages(defaultGreeting);
+      setMessages(DEFAULT_GREETING);
     }
     setConfirmDeleteId(null);
   };
@@ -418,7 +437,6 @@ export default function Home() {
     }
 
     const isImage = file.type.startsWith("image/");
-    const isText = !isImage;
 
     if (isImage) {
       const preview = URL.createObjectURL(file);
@@ -528,7 +546,7 @@ export default function Home() {
 
     setCurrentChatId(null);
     currentChatIdRef.current = null;
-    setMessages(defaultGreeting);
+    setMessages(DEFAULT_GREETING);
     setConfirmDeleteId(null);
     setRenamingChatId(null);
   };
@@ -693,8 +711,8 @@ export default function Home() {
               return updated;
             });
           }
-        } catch (streamError: any) {
-          if (streamError?.name !== "AbortError") throw streamError;
+        } catch (streamError: unknown) {
+          if (!(streamError instanceof Error) || streamError.name !== "AbortError") throw streamError;
         } finally {
           reader.releaseLock();
         }
@@ -717,7 +735,7 @@ export default function Home() {
           ...prev,
           {
             role: "ai",
-            content: `System Error: ${error?.message || "Vault connection lost."}`,
+            content: `System Error: ${(error as Error).message || "Vault connection lost."}`,
           },
         ]);
       }
@@ -731,7 +749,7 @@ export default function Home() {
   };
 
   // --- SIDEBAR CHAT ROW ---
-  const ChatRow = ({ chat }: { chat: any }) => (
+  const ChatRow = ({ chat }: { chat: ChatItem }) => (
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
@@ -763,7 +781,7 @@ export default function Home() {
 
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
-          onClick={(e) => togglePin(e, chat.id, chat.is_pinned)}
+          onClick={(e) => togglePin(e, chat.id, !!chat.is_pinned)}
           className={`cursor-pointer transition-opacity ${chat.is_pinned
             ? `${accentColor} opacity-100`
             : "opacity-20 hover:opacity-100 hover:text-white"
@@ -940,10 +958,9 @@ export default function Home() {
                   className="group flex items-center gap-3 p-1 pr-3 rounded-full hover:bg-white/5 transition-all border border-transparent hover:border-white/10 outline-none"
                 >
                   <div
-                    className={`w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}
-                  >
+                    className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}                  >
                     {profile?.avatar_url ? (
-                      <img src={profile.avatar_url} alt="User" className="w-full h-full object-cover" />
+                     <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
                     ) : (
                       profile?.first_name?.[0] || profile?.username?.[0] || "U"
                     )}
@@ -1146,7 +1163,7 @@ export default function Home() {
         onClearChat={() => {
           if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
           setAttachedFile(null);
-          setMessages(defaultGreeting);
+          setMessages(DEFAULT_GREETING);
           setCurrentChatId(null);
           currentChatIdRef.current = null;
         }}

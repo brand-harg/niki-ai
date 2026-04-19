@@ -1,4 +1,5 @@
 "use client";
+import NextImage from "next/image";
 
 type AttachedFile = {
   file: File;
@@ -26,8 +27,8 @@ export default function FilePreview({ attached, onRemove, accentColor = "cyan" }
     <div className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border ${a.border} ${a.bg} mb-2`}>
       {/* Thumbnail or icon */}
       {attached.type === "image" && attached.preview ? (
-        <div className="w-10 h-10 rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
-          <img src={attached.preview} alt="preview" className="w-full h-full object-cover" />
+       <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+          <NextImage src={attached.preview} alt="preview" fill className="object-cover" />
         </div>
       ) : (
         <div className="w-10 h-10 rounded-lg bg-white/[0.04] border border-white/8 flex items-center justify-center flex-shrink-0">

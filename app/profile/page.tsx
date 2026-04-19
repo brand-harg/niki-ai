@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 // --- ICONS ---
 const LockIcon = () => (
@@ -42,7 +43,7 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("profile");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<{ user?: { id: string; email?: string } } | null>(null);
   const [vaultStatus, setVaultStatus] = useState<string | null>(null);
 
   const [profile, setProfile] = useState<ProfileData>({
@@ -58,9 +59,6 @@ export default function ProfilePage() {
     theme_accent: "cyan",
   });
 
-  useEffect(() => {
-    fetchVaultData();
-  }, []);
 
   const isGreen = profile.theme_accent === "green";
   const isAmber = profile.theme_accent === "amber";
@@ -142,8 +140,8 @@ export default function ProfilePage() {
     setTimeout(() => setVaultStatus(null), 3000);
   };
 
-  const fetchVaultData = async () => {
-    try {
+  const fetchVaultData = useCallback(async () => {
+        try {
       setLoading(true);
 
       const {
@@ -188,7 +186,11 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    fetchVaultData();
+  }, [fetchVaultData]);
 
   const uploadAvatar = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -348,10 +350,11 @@ export default function ProfilePage() {
                 <div className="relative group w-28 h-28">
                   <div className="w-full h-full rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-2xl">
                     {profile.avatar_url ? (
-                      <img
+                      <Image
                         src={profile.avatar_url}
                         alt="Profile avatar"
-                        className="w-full h-full object-cover"
+                        fill
+                        className="object-cover"
                       />
                     ) : (
                       <span className="text-3xl font-black text-slate-800">
