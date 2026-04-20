@@ -43,6 +43,12 @@ function cleanText(text) {
 }
 
 function chunkSegments(segments, maxChars = 900) {
+    segments = segments.map(s => ({
+        ...s,
+        start: Math.floor(Number(s.start) || 0),
+        end: Math.floor(Number(s.end) || Number(s.start) || 0),
+    }));
+
     const chunks = [];
     let buffer = [];
     let charCount = 0;
@@ -71,8 +77,8 @@ function chunkSegments(segments, maxChars = 900) {
         chunks.push({
             raw_text: buffer.map((x) => x.raw).join(" "),
             clean_text: buffer.map((x) => x.clean).join(" "),
-            timestamp_start_seconds: first.start,
-            timestamp_end_seconds: Math.max(last.end, first.start),
+            timestamp_start_seconds: Math.floor(first.start),
+            timestamp_end_seconds: Math.floor(Math.max(last.end, first.start)),
             section_hint: buffer[0].clean.slice(0, 90),
         });
         buffer = [];
@@ -85,8 +91,8 @@ function chunkSegments(segments, maxChars = 900) {
         chunks.push({
             raw_text: buffer.map((x) => x.raw).join(" "),
             clean_text: buffer.map((x) => x.clean).join(" "),
-            timestamp_start_seconds: first.start,
-            timestamp_end_seconds: Math.max(last.end, first.start),
+            timestamp_start_seconds: Math.floor(first.start),
+            timestamp_end_seconds: Math.floor(Math.max(last.end, first.start)),
             section_hint: buffer[0].clean.slice(0, 90),
         });
     }
@@ -146,8 +152,8 @@ function splitIntoSentenceSegments(text) {
     let t = 0;
     return sentences.map((sentence) => {
         const words = sentence.split(/\s+/).filter(Boolean).length;
-        const duration = Math.max(2, Math.round(words * secondsPerWord));
-        const seg = { start: t, end: t + duration, text: sentence };
+        const duration = Math.floor(Math.max(2, Math.round(words * secondsPerWord)));
+        const seg = { start: Math.floor(t), end: Math.floor(t + duration), text: sentence };
         t += duration;
         return seg;
     });
@@ -254,16 +260,19 @@ async function ingestOneLecture({
             section_hint: chunk.section_hint,
             timestamp_start_seconds: chunk.timestamp_start_seconds,
             timestamp_end_seconds: chunk.timestamp_end_seconds,
-            token_count: chunk.clean_text.length / 4,
+            token_count: Math.floor(chunk.clean_text.length / 4),
             embedding: chunkEmbeddings[i],
         }));
 
-        const { error: chunkErr } = await supabase
-            .from("lecture_chunks")
-            .upsert(chunkRows, { onConflict: "source_id,chunk_index" });
-
-        if (chunkErr) {
-            throw new Error(`Failed to upsert lecture chunks: ${chunkErr.message}`);
+        const BATCH_SIZE = 100;
+        for (let b = 0; b < chunkRows.length; b += BATCH_SIZE) {
+            const batch = chunkRows.slice(b, b + BATCH_SIZE);
+            const { error: chunkErr } = await supabase
+                .from("lecture_chunks")
+                .upsert(batch, { onConflict: "source_id,chunk_index" });
+            if (chunkErr) {
+                throw new Error(`Failed to upsert lecture chunks: ${chunkErr.message}`);
+            }
         }
 
         const persona = extractPersonaSnippets(chunks);
@@ -281,11 +290,14 @@ async function ingestOneLecture({
                 embedding: personaEmbeddings[i],
             }));
 
-            const { error: personaErr } = await supabase
-                .from("persona_snippets")
-                .insert(personaRows);
-            if (personaErr) {
-                throw new Error(`Failed to insert persona snippets: ${personaErr.message}`);
+            for (let b = 0; b < personaRows.length; b += BATCH_SIZE) {
+                const batch = personaRows.slice(b, b + BATCH_SIZE);
+                const { error: personaErr } = await supabase
+                    .from("persona_snippets")
+                    .insert(batch);
+                if (personaErr) {
+                    throw new Error(`Failed to insert persona snippets: ${personaErr.message}`);
+                }
             }
         }
 
