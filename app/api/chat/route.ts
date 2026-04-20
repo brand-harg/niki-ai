@@ -15,6 +15,15 @@ type ChatRequest = {
   imageMediaType?: string;
   textFileContent?: string;
   textFileName?: string;
+  lectureMode?: boolean;
+  ragContext?: string[];
+  ragStyleSnippets?: { text: string; personaTag?: string }[];
+  ragCitations?: {
+    lectureTitle?: string;
+    professor?: string;
+    timestampStartSeconds?: number;
+    timestampUrl?: string | null;
+  }[];
 };
 
 function buildSystemPrompt(
@@ -265,6 +274,10 @@ export async function POST(req: Request) {
     const imageMediaType = body.imageMediaType;
     const textFileContent = body.textFileContent;
     const textFileName = body.textFileName;
+    const lectureMode = body.lectureMode ?? false;
+    const ragContext = body.ragContext ?? [];
+    const ragStyleSnippets = body.ragStyleSnippets ?? [];
+    const ragCitations = body.ragCitations ?? [];
     const wantsMoreDetail = wantsDeeperExplanation(message);
     const forceStepByStep = wantsStepByStep(message) || wantsMoreDetail;
     const includeThoughtTrace = wantsThoughtTrace(message);
@@ -322,6 +335,42 @@ export async function POST(req: Request) {
       }));
 
     let userMessageContent = message;
+
+    if (lectureMode && ragContext.length > 0) {
+      const factual = ragContext
+        .slice(0, 6)
+        .map((chunk, i) => `Context ${i + 1}:\n${chunk}`)
+        .join("\n\n");
+      const style = ragStyleSnippets
+        .slice(0, 3)
+        .map((snippet, i) => `Style ${i + 1} (${snippet.personaTag ?? "teaching_style"}):\n${snippet.text}`)
+        .join("\n\n");
+      const citations = ragCitations
+        .slice(0, 6)
+        .map((cite, i) => {
+          const ts = typeof cite.timestampStartSeconds === "number" ? `${cite.timestampStartSeconds}s` : "unknown time";
+          return `${i + 1}. ${cite.lectureTitle ?? "Unknown lecture"} (${cite.professor ?? "Unknown professor"}) @ ${ts}${cite.timestampUrl ? ` -> ${cite.timestampUrl}` : ""}`;
+        })
+        .join("\n");
+
+      userMessageContent = `
+Lecture Mode is ON.
+Use the provided retrieval context for grounded teaching.
+If context is insufficient, say so clearly.
+
+Retrieved factual context:
+${factual || "No retrieved chunks."}
+
+Retrieved style context:
+${style || "No style snippets."}
+
+Citations:
+${citations || "No citations."}
+
+User question:
+${message}
+`.trim();
+    }
 
     if (hasTextFile) {
       const fileContext = `The user has attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\`\n\n${message ? `User's question: ${message}` : "Please analyze this file."

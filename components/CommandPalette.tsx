@@ -23,6 +23,8 @@ type Props = {
   onClose: () => void;
   isNikiMode: boolean;
   onToggleNikiMode: () => void;
+  lectureMode?: boolean;
+  onToggleLectureMode?: () => void;
   accentColor?: string;
   hasActiveChat?: boolean;
   currentChatTitle?: string;
@@ -84,6 +86,8 @@ export default function CommandPalette({
   onClose,
   isNikiMode,
   onToggleNikiMode,
+  lectureMode = false,
+  onToggleLectureMode,
   accentColor = "cyan",
   hasActiveChat = false,
   currentChatTitle = "Current Chat",
@@ -183,6 +187,15 @@ export default function CommandPalette({
         description: "Wipe the current session messages",
         action: () => onClearChat?.(),
       },
+      {
+        id: "toggle-lecture-mode",
+        icon: lectureMode ? "📚" : "🧠",
+        label: lectureMode ? "Disable Lecture Mode" : "Enable Lecture Mode",
+        description: lectureMode
+          ? "Return to normal chat behavior"
+          : "Use retrieval context and source citations",
+        action: () => onToggleLectureMode?.(),
+      },
     ];
 
     const contextual: Command[] = hasActiveChat
@@ -212,8 +225,7 @@ export default function CommandPalette({
       { label: "Actions", commands: actions },
       ...(contextual.length > 0 ? [{ label: "This Chat", commands: contextual }] : []),
     ];
-  }, [isNikiMode, hasActiveChat, currentChatTitle, onNewSession, onToggleSidebar, onClearChat, onRenameChat, onPinChat, onToggleNikiMode, router]);
-
+  }, [isNikiMode, lectureMode, hasActiveChat, currentChatTitle, onNewSession, onToggleSidebar, onClearChat, onRenameChat, onPinChat, onToggleNikiMode, onToggleLectureMode, router]);
   // --- FLAT LIST FOR KEYBOARD NAV ---
   const groups = buildGroups();
   const allCommands = groups.flatMap((g) => g.commands);

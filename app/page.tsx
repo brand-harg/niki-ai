@@ -55,6 +55,18 @@ type ChatItem = {
   title: string;
   is_pinned?: boolean;
 };
+type RagCitation = {
+  lectureTitle?: string;
+  professor?: string;
+  timestampStartSeconds?: number;
+  timestampUrl?: string | null;
+};
+type RagResponse = {
+  context?: string[];
+  styleSnippets?: { text: string; personaTag?: string }[];
+  citations?: RagCitation[];
+  error?: string;
+};
 const DEFAULT_GREETING: Message[] = [{ role: "ai", content: "What do you need help with?" }];
 
 
@@ -132,6 +144,7 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isNikiMode, setIsNikiMode] = useState(true);
+  const [lectureMode, setLectureMode] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
@@ -458,8 +471,13 @@ export default function Home() {
   };
 
   const handleScreenshot = async () => {
-    const target = chatViewportRef.current;
-    if (!target) return;
+    const target =
+      chatViewportRef.current ??
+      (document.querySelector("[data-chat-capture]") as HTMLDivElement | null);
+    if (!target) {
+      alert("Screenshot target not found. Please reload and try again.");
+      return;
+    }
 
     const colorProps = [
       "color",
@@ -506,9 +524,14 @@ export default function Home() {
       const link = document.createElement("a");
       link.download = `nikiai-chat-${Date.now()}.png`;
       link.href = canvas.toDataURL("image/png");
+      document.body.appendChild(link);
       link.click();
+      link.remove();
     } catch (err) {
       console.error("Screenshot failed:", err);
+      alert(
+        "Screenshot failed. If you use external avatars/images, try hiding them or using a local image and retry."
+      );
     } finally {
       for (const patch of patches) {
         if (patch.prev) {
@@ -563,6 +586,36 @@ export default function Home() {
       handleSend();
     }
   };
+
+  const fetchRag = async (question: string): Promise<RagResponse | null> => {
+    if (!lectureMode || !question.trim()) return null;
+
+    try {
+      const res = await fetch("/api/rag/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          lectureMode: true,
+          courseFilter: profile?.current_unit ?? undefined,
+          maxChunks: 8,
+          maxStyleSnippets: 3,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.warn("RAG status:", res.status, text);
+        return null;
+      }
+
+      return (await res.json()) as RagResponse;
+    } catch (error) {
+      console.warn("RAG fetch failed:", error);
+      return null;
+    }
+  };
+
 
   // --- CORE SEND ENGINE ---
   const handleSend = async () => {
@@ -645,6 +698,7 @@ export default function Home() {
 
       let base64Image: string | null = null;
       let textFileContent: string | null = null;
+      const rag = await fetchRag(userText);
 
       if (currentAttached?.type === "image") {
         const arrayBuffer = await currentAttached.file.arrayBuffer();
@@ -667,6 +721,10 @@ export default function Home() {
           userId: session?.user?.id,
           chatId,
           trainConsent: profile?.train_on_data,
+          lectureMode,
+          ragContext: rag?.context ?? [],
+          ragStyleSnippets: rag?.styleSnippets ?? [],
+          ragCitations: rag?.citations ?? [],
           base64Image: base64Image ?? undefined,
           imageMediaType:
             currentAttached?.type === "image"
@@ -725,9 +783,31 @@ export default function Home() {
       }
 
       if (chatId && session && aiReply.length > 0) {
+        const lectureCitations = rag?.citations ?? [];
+        const citationFooter =
+          lectureMode && lectureCitations.length > 0
+            ? `\n\nSources:\n${lectureCitations
+              .slice(0, 4)
+              .map((c, i) => {
+                const ts = typeof c.timestampStartSeconds === "number" ? `${c.timestampStartSeconds}s` : "unknown";
+                const head = `${i + 1}. ${c.lectureTitle ?? "Unknown lecture"} (${c.professor ?? "Unknown professor"}) @ ${ts}`;
+                return c.timestampUrl ? `${head} — ${c.timestampUrl}` : head;
+              })
+              .join("\n")}`
+            : "";
+        const finalReply = aiReply + citationFooter;
+
+        setMessages((prev) => {
+          const updated = [...prev];
+          if (updated.length > 0 && updated[updated.length - 1]?.role === "ai") {
+            updated[updated.length - 1] = { role: "ai", content: finalReply };
+          }
+          return updated;
+        });
+
         await supabase
           .from("messages")
-          .insert({ chat_id: chatId, role: "ai", text: aiReply });
+          .insert({ chat_id: chatId, role: "ai", text: finalReply });
 
         await supabase
           .from("chats")
@@ -998,6 +1078,7 @@ export default function Home() {
             scrollRef.current = el;
             chatViewportRef.current = el;
           }}
+          data-chat-capture
           className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
             } px-6 scroll-smooth`}
         >
@@ -1127,6 +1208,19 @@ export default function Home() {
                   disabled={isLoading}
                 />
 
+                <button
+                  onClick={() => setLectureMode((prev) => !prev)}
+                  disabled={isLoading}
+                  className={`shrink-0 h-10 sm:h-12 px-3 sm:px-4 rounded-xl border text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all outline-none ${lectureMode
+                    ? `${accentBorder} ${accentColor} bg-white/5`
+                    : "border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 bg-white/[0.02]"
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  title="Toggle Lecture Mode retrieval context"
+                  aria-pressed={lectureMode}
+                >
+                  {lectureMode ? "Lecture On" : "Lecture Off"}
+                </button>
+
                 <input
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
@@ -1135,9 +1229,11 @@ export default function Home() {
                   placeholder={
                     attachedFile
                       ? `Ask about ${attachedFile.file.name}…`
-                      : isNikiMode
-                        ? "Ask Professor Nikitovic..."
-                        : "Specify mathematical query..."
+                      : lectureMode
+                        ? "Lecture Mode: ask with retrieval context..."
+                        : isNikiMode
+                          ? "Ask Professor Nikitovic..."
+                          : "Specify mathematical query..."
                   }
                   className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
                     } placeholder:text-slate-600 shadow-none`}
@@ -1161,6 +1257,8 @@ export default function Home() {
         onClose={() => setIsPaletteOpen(false)}
         isNikiMode={isNikiMode}
         onToggleNikiMode={() => setIsNikiMode((prev) => !prev)}
+        lectureMode={lectureMode}
+        onToggleLectureMode={() => setLectureMode((prev) => !prev)}
         accentColor={profile?.theme_accent ?? "cyan"}
         hasActiveChat={!!currentChatId}
         currentChatTitle={chatHistory.find((c) => c.id === currentChatId)?.title ?? ""}
