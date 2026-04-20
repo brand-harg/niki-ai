@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import ThoughtTrace from "@/components/ThoughtTrace";
@@ -48,6 +49,7 @@ type Message = {
 };
 
 type AppSession = { user: { id: string } } | null;
+
 type AppProfile = {
   id?: string;
   first_name?: string;
@@ -59,11 +61,13 @@ type AppProfile = {
   current_unit?: string;
   compact_mode?: boolean;
 };
+
 type ChatItem = {
   id: string;
   title: string;
   is_pinned?: boolean;
 };
+
 type RagResponse = {
   context?: string[];
   styleSnippets?: { text: string; personaTag?: string }[];
@@ -71,7 +75,38 @@ type RagResponse = {
   error?: string;
 };
 
-const DEFAULT_GREETING: Message[] = [{ role: "ai", content: "What do you need help with?" }];
+const DEFAULT_GREETING: Message[] = [
+  { role: "ai", content: "What do you need help with?" },
+];
+
+function formatTimestamp(seconds?: number) {
+  if (typeof seconds !== "number" || Number.isNaN(seconds)) return "";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function dedupeCitations(citations: RagCitation[] = []) {
+  const seen = new Set<string>();
+  const out: RagCitation[] = [];
+
+  for (const c of citations) {
+    const key = [
+      c.lectureTitle ?? "",
+      c.course ?? "",
+      c.professor ?? "",
+      c.timestampStartSeconds ?? "",
+      c.timestampUrl ?? "",
+    ].join("|");
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(c);
+    }
+  }
+
+  return out;
+}
 
 const CitationCard = ({
   citations,
@@ -86,27 +121,30 @@ const CitationCard = ({
   const accentBorder = isGreen ? "border-green-500/20" : isAmber ? "border-amber-500/20" : "border-cyan-500/20";
   const accentBg = isGreen ? "bg-green-500/5" : isAmber ? "bg-amber-500/5" : "bg-cyan-500/5";
 
-  if (!citations.length) return null;
+  const unique = useMemo(() => dedupeCitations(citations).slice(0, 4), [citations]);
+
+  if (!unique.length) return null;
 
   return (
     <div className={`mt-4 rounded-2xl border ${accentBorder} ${accentBg} p-4`}>
-      <p className={`text-[9px] font-black uppercase tracking-widest ${accentText} mb-3`}>
+      <p className={`mb-3 text-[9px] font-black uppercase tracking-widest ${accentText}`}>
         Sources
       </p>
+
       <div className="space-y-2">
-        {citations.slice(0, 4).map((c, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <span className={`text-[9px] font-black ${accentText} mt-0.5`}>{i + 1}</span>
+        {unique.map((c, i) => (
+          <div key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`} className="flex items-start gap-2">
+            <span className={`mt-0.5 text-[9px] font-black ${accentText}`}>{i + 1}</span>
+
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-slate-300 truncate">
+              <p className="truncate text-[11px] font-bold text-slate-300">
                 {c.lectureTitle ?? "Unknown lecture"}
               </p>
-              <p className="text-[10px] text-slate-600">
+
+              <p className="text-[10px] text-slate-500">
                 {c.course ?? "Unknown course"}
                 {typeof c.timestampStartSeconds === "number"
-                  ? ` · ${Math.floor(c.timestampStartSeconds / 60)}:${String(
-                      c.timestampStartSeconds % 60
-                    ).padStart(2, "0")}`
+                  ? ` · ${formatTimestamp(c.timestampStartSeconds)}`
                   : ""}
                 {c.timestampUrl && (
                   <a
@@ -127,7 +165,6 @@ const CitationCard = ({
   );
 };
 
-// Safe sanitizer — cleans up malformed LaTeX delimiters
 function sanitizeMathContent(content: string): string {
   if (!content || typeof content !== "string") return "";
 
@@ -140,8 +177,15 @@ function sanitizeMathContent(content: string): string {
     .replace(/\\\)/g, "$");
 
   cleaned = cleaned.replace(/\${3,}/g, "$$");
-
   cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
+
+  cleaned = cleaned.replace(/\\boxed\((.*?)\)/g, "\\boxed{$1}");
+  cleaned = cleaned.replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}");
+
+  const blockCount = (cleaned.match(/\$\$/g) || []).length;
+  if (blockCount % 2 !== 0) {
+    cleaned += "$$";
+  }
 
   return cleaned;
 }
@@ -162,7 +206,6 @@ function stripPartialThink(content: string): string {
   return cleaned;
 }
 
-// Utility to parse <think>...</think> blocks from Qwen output
 function parseThoughtTrace(content: string): {
   steps: { label: string; detail: string }[];
   clean: string;
@@ -175,6 +218,7 @@ function parseThoughtTrace(content: string): {
     .map((line) => {
       const colonIdx = line.indexOf(":");
       if (colonIdx === -1) return null;
+
       return {
         label: line.slice(0, colonIdx).trim(),
         detail: line.slice(colonIdx + 1).trim(),
@@ -188,10 +232,24 @@ function parseThoughtTrace(content: string): {
   };
 }
 
+function renderMarkdown(content: string) {
+  try {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  } catch {
+    return <div className="whitespace-pre-wrap">{content}</div>;
+  }
+}
+
 export default function Home() {
   const router = useRouter();
 
-  // --- STATE ---
   const [session, setSession] = useState<AppSession>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -209,7 +267,6 @@ export default function Home() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 
-  // --- RENAME STATE ---
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -221,7 +278,6 @@ export default function Home() {
   const isStreamingRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(null);
 
-  // --- DYNAMIC THEME ENGINE ---
   const isGreen = profile?.theme_accent === "green";
   const isAmber = profile?.theme_accent === "amber";
 
@@ -235,10 +291,9 @@ export default function Home() {
   const aiBubbleBg = isGreen
     ? "bg-gradient-to-br from-green-400 to-green-600 text-white"
     : isAmber
-    ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
-    : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
+      ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
+      : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
 
-  // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
     let mounted = true;
     isUnmountingRef.current = false;
@@ -334,33 +389,31 @@ export default function Home() {
     };
   }, []);
 
-  // Close delete confirm on outside click
   useEffect(() => {
     const handleWindowClick = () => setConfirmDeleteId(null);
     window.addEventListener("click", handleWindowClick);
     return () => window.removeEventListener("click", handleWindowClick);
   }, []);
 
-  // Set default greeting and niki mode once profile loads
   const messageCount = messages.length;
 
   useEffect(() => {
     if (messageCount > 0) return;
     if (session && !profileLoaded) return;
+
     setMessages(DEFAULT_GREETING);
+
     if (profile?.default_niki_mode !== undefined) {
       setIsNikiMode(profile.default_niki_mode);
     }
   }, [messageCount, profile?.default_niki_mode, profileLoaded, session]);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
 
-  // Visibility + Ctrl/Cmd + K
   useEffect(() => {
     const handleVisibilityChange = () => {
       console.log("Visibility changed:", document.visibilityState);
@@ -382,7 +435,6 @@ export default function Home() {
     };
   }, []);
 
-  // --- DATABASE ACTIONS ---
   const fetchProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("profiles")
@@ -434,8 +486,9 @@ export default function Home() {
         .map((msg) => ({
           role: msg.role as Message["role"],
           content: msg.text || "",
-          citations: msg.role === "ai" ? msg.citations ?? [] : undefined,
+          citations: msg.role === "ai" ? dedupeCitations(msg.citations ?? []) : undefined,
         }));
+
       setMessages(formatted);
     } else {
       setMessages(DEFAULT_GREETING);
@@ -446,6 +499,7 @@ export default function Home() {
 
   const togglePin = async (e: React.MouseEvent, chatId: string, currentStatus: boolean) => {
     e.stopPropagation();
+
     const { error } = await supabase
       .from("chats")
       .update({ is_pinned: !currentStatus, updated_at: new Date().toISOString() })
@@ -455,11 +509,13 @@ export default function Home() {
       console.log("Toggle pin error:", error);
       return;
     }
+
     if (session?.user?.id) fetchHistory(session.user.id);
   };
 
   const deleteChat = async (chatId: string) => {
     if (!session?.user?.id) return;
+
     const { error } = await supabase.from("chats").delete().eq("id", chatId);
     if (error) {
       console.log("Delete chat error:", error);
@@ -473,10 +529,10 @@ export default function Home() {
       currentChatIdRef.current = null;
       setMessages(DEFAULT_GREETING);
     }
+
     setConfirmDeleteId(null);
   };
 
-  // --- RENAME ACTIONS ---
   const startRename = (e: React.MouseEvent, chatId: string, currentTitle: string) => {
     e.stopPropagation();
     setConfirmDeleteId(null);
@@ -490,6 +546,7 @@ export default function Home() {
       setRenamingChatId(null);
       return;
     }
+
     const { error } = await supabase
       .from("chats")
       .update({ title: trimmed, updated_at: new Date().toISOString() })
@@ -502,6 +559,7 @@ export default function Home() {
     setChatHistory((prev) =>
       prev.map((c) => (c.id === chatId ? { ...c, title: trimmed } : c))
     );
+
     setRenamingChatId(null);
   };
 
@@ -531,6 +589,7 @@ export default function Home() {
     const target =
       chatViewportRef.current ??
       (document.querySelector("[data-chat-capture]") as HTMLDivElement | null);
+
     if (!target) {
       alert("Screenshot target not found. Please reload and try again.");
       return;
@@ -557,17 +616,21 @@ export default function Home() {
 
     try {
       const nodes = [target, ...Array.from(target.querySelectorAll("*"))];
+
       for (const node of nodes) {
         if (!(node instanceof HTMLElement)) continue;
         const computed = window.getComputedStyle(node);
+
         for (const prop of colorProps) {
           const next = computed.getPropertyValue(prop);
           if (!next) continue;
+
           patches.push({
             el: node,
             prop,
             prev: node.style.getPropertyValue(prop),
           });
+
           node.style.setProperty(prop, next);
         }
       }
@@ -586,9 +649,7 @@ export default function Home() {
       link.remove();
     } catch (err) {
       console.error("Screenshot failed:", err);
-      alert(
-        "Screenshot failed. If you use external avatars/images, try hiding them or using a local image and retry."
-      );
+      alert("Screenshot failed. If you use external avatars/images, try hiding them or using a local image and retry.");
     } finally {
       for (const patch of patches) {
         if (patch.prev) {
@@ -600,10 +661,7 @@ export default function Home() {
     }
   };
 
-  const uploadFileToSupabase = async (
-    file: File,
-    chatId: string
-  ): Promise<string | null> => {
+  const uploadFileToSupabase = async (file: File, chatId: string): Promise<string | null> => {
     if (!session?.user?.id) return null;
 
     const ext = file.name.split(".").pop();
@@ -640,7 +698,7 @@ export default function Home() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -666,14 +724,17 @@ export default function Home() {
         return null;
       }
 
-      return (await res.json()) as RagResponse;
+      const json = (await res.json()) as RagResponse;
+      return {
+        ...json,
+        citations: dedupeCitations(json.citations ?? []),
+      };
     } catch (error) {
       console.warn("RAG fetch failed:", error);
       return null;
     }
   };
 
-  // --- CORE SEND ENGINE ---
   const handleSend = async () => {
     if (!inputValue.trim() && !attachedFile) return;
     if (isLoading) return;
@@ -682,8 +743,7 @@ export default function Home() {
     const currentName = profile?.first_name || profile?.username || "User";
     let chatId = currentChatIdRef.current;
 
-    const displayContent =
-      userText || (attachedFile ? `[${attachedFile.file.name}]` : "");
+    const displayContent = userText || (attachedFile ? `[${attachedFile.file.name}]` : "");
 
     const updatedHistory: Message[] = [
       ...messages,
@@ -710,10 +770,7 @@ export default function Home() {
 
     try {
       if (!chatId && session) {
-        const title =
-          userText.substring(0, 50) ||
-          currentAttached?.file.name ||
-          "File upload";
+        const title = userText.substring(0, 50) || currentAttached?.file.name || "File upload";
 
         const { data: newChat } = await supabase
           .from("chats")
@@ -760,7 +817,9 @@ export default function Home() {
         const arrayBuffer = await currentAttached.file.arrayBuffer();
         const uint8 = new Uint8Array(arrayBuffer);
         let binary = "";
-        uint8.forEach((b) => (binary += String.fromCharCode(b)));
+        uint8.forEach((b) => {
+          binary += String.fromCharCode(b);
+        });
         base64Image = btoa(binary);
       } else if (currentAttached?.type === "text") {
         textFileContent = await currentAttached.file.text();
@@ -771,7 +830,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userText,
-          history: updatedHistory,
+          history: updatedHistory.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
           isNikiMode,
           userName: currentName,
           userId: session?.user?.id,
@@ -782,15 +844,9 @@ export default function Home() {
           ragStyleSnippets: rag?.styleSnippets ?? [],
           ragCitations: rag?.citations ?? [],
           base64Image: base64Image ?? undefined,
-          imageMediaType:
-            currentAttached?.type === "image"
-              ? currentAttached.file.type
-              : undefined,
+          imageMediaType: currentAttached?.type === "image" ? currentAttached.file.type : undefined,
           textFileContent: textFileContent ?? undefined,
-          textFileName:
-            currentAttached?.type === "text"
-              ? currentAttached.file.name
-              : undefined,
+          textFileName: currentAttached?.type === "text" ? currentAttached.file.name : undefined,
         }),
         signal: controller.signal,
       });
@@ -811,62 +867,74 @@ export default function Home() {
         return;
       }
 
-      setMessages((prev) => [...prev, { role: "ai", content: "", citations: [] }]);
+      if (!response.body) {
+        throw new Error("No stream body");
+      }
 
-      const reader = response.body?.getReader();
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          content: "",
+          citations: rag?.citations ?? [],
+        },
+      ]);
+
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let aiReply = "";
 
-      if (reader) {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            aiReply += chunk;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                role: "ai",
-                content: aiReply,
-                citations: [],
-              };
-              return updated;
-            });
-          }
-        } catch (streamError: unknown) {
-          if (!(streamError instanceof Error) || streamError.name !== "AbortError") throw streamError;
-        } finally {
-          reader.releaseLock();
+          const chunk = decoder.decode(value, { stream: true });
+          aiReply += chunk;
+
+          setMessages((prev) => {
+            const updated = [...prev];
+            const existing = updated[updated.length - 1];
+
+            updated[updated.length - 1] = {
+              role: "ai",
+              content: aiReply,
+              citations: existing?.citations || rag?.citations || [],
+            };
+
+            return updated;
+          });
         }
+      } catch (streamError: unknown) {
+        if (!(streamError instanceof Error) || streamError.name !== "AbortError") {
+          throw streamError;
+        }
+      } finally {
+        reader.releaseLock();
       }
 
-      if (chatId && session && aiReply.length > 0) {
-        const lectureCitations = rag?.citations ?? [];
-        const citationFooter = "";
-        const finalReply = aiReply;
+      if (chatId && session && aiReply.trim().length > 0) {
+        const lectureCitations = dedupeCitations(rag?.citations ?? []);
+        const finalReply = aiReply.trim();
 
         setMessages((prev) => {
           const updated = [...prev];
           if (updated.length > 0 && updated[updated.length - 1]?.role === "ai") {
             updated[updated.length - 1] = {
               role: "ai",
-              content: aiReply,
+              content: finalReply,
               citations: lectureCitations,
             };
           }
           return updated;
         });
 
-        await supabase
-          .from("messages")
-          .insert({
-            chat_id: chatId,
-            role: "ai",
-            text: finalReply,
-            citations: lectureCitations,
-          });
+        await supabase.from("messages").insert({
+          chat_id: chatId,
+          role: "ai",
+          text: finalReply,
+          citations: lectureCitations,
+        });
 
         await supabase
           .from("chats")
@@ -893,12 +961,11 @@ export default function Home() {
     }
   };
 
-  // --- SIDEBAR CHAT ROW ---
   const ChatRow = ({ chat }: { chat: ChatItem }) => (
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${
+      className={`w-full cursor-pointer rounded-xl p-3 text-xs text-slate-400 transition-all hover:bg-white/5 group flex items-center justify-between ${
         currentChatId === chat.id ? "bg-white/5 text-white" : ""
       }`}
     >
@@ -909,15 +976,15 @@ export default function Home() {
           onChange={(e) => setRenameValue(e.target.value)}
           onBlur={() => commitRename(chat.id)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename(chat.id);
+            if (e.key === "Enter") void commitRename(chat.id);
             if (e.key === "Escape") setRenamingChatId(null);
           }}
           onClick={(e) => e.stopPropagation()}
-          className="flex-1 bg-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none border border-white/20 mr-2"
+          className="mr-2 flex-1 rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs text-white outline-none"
         />
       ) : (
         <span
-          className="truncate group-hover:text-white transition-colors flex-1"
+          className="flex-1 truncate transition-colors group-hover:text-white"
           onDoubleClick={(e) => startRename(e, chat.id, chat.title)}
           title="Double-click to rename"
         >
@@ -925,13 +992,13 @@ export default function Home() {
         </span>
       )}
 
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center gap-2">
         <div
           onClick={(e) => togglePin(e, chat.id, !!chat.is_pinned)}
           className={`cursor-pointer transition-opacity ${
             chat.is_pinned
               ? `${accentColor} opacity-100`
-              : "opacity-20 hover:opacity-100 hover:text-white"
+              : "opacity-20 hover:text-white hover:opacity-100"
           }`}
         >
           {chat.is_pinned ? "★" : "☆"}
@@ -942,9 +1009,9 @@ export default function Home() {
             <span
               onClick={(e) => {
                 e.stopPropagation();
-                deleteChat(chat.id);
+                void deleteChat(chat.id);
               }}
-              className="text-red-400 hover:text-red-300 cursor-pointer font-bold"
+              className="cursor-pointer font-bold text-red-400 hover:text-red-300"
             >
               Delete
             </span>
@@ -953,7 +1020,7 @@ export default function Home() {
                 e.stopPropagation();
                 setConfirmDeleteId(null);
               }}
-              className="text-slate-400 hover:text-white cursor-pointer"
+              className="cursor-pointer text-slate-400 hover:text-white"
             >
               Cancel
             </span>
@@ -964,7 +1031,7 @@ export default function Home() {
               e.stopPropagation();
               setConfirmDeleteId(chat.id);
             }}
-            className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
+            className="cursor-pointer text-red-400 opacity-70 hover:text-red-300 hover:opacity-100"
           >
             ✕
           </div>
@@ -974,51 +1041,49 @@ export default function Home() {
   );
 
   return (
-    <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
-      {/* SIDEBAR */}
+    <main className="flex h-screen overflow-hidden bg-black font-sans antialiased text-white">
       <aside
-        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
+        className={`z-30 flex h-full flex-col border-r border-white/5 bg-[#080808] transition-all duration-300 ${
           isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
         }`}
       >
         <div className="p-4 pt-6">
           <button
             onClick={startNewSession}
-            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all group outline-none"
+            className="group flex w-full items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/5 px-4 py-3 outline-none transition-all hover:bg-white/10"
           >
             <span className="text-sm font-bold text-slate-200">New Session</span>
-            <div className={`bg-white/5 p-1 rounded-md ${accentGroupHoverBg} group-hover:text-white transition-all`}>
+            <div className={`rounded-md bg-white/5 p-1 ${accentGroupHoverBg} transition-all group-hover:text-white`}>
               <PlusIcon />
             </div>
           </button>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex px-4 mb-6 gap-1">
+        <div className="mb-6 flex gap-1 px-4">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+            className={`flex-1 rounded-lg border py-2 text-[10px] font-black uppercase tracking-widest outline-none transition-all ${
               activeTab === "history"
                 ? `bg-white/5 ${accentColor} ${accentBorder}`
-                : "text-slate-500 border-transparent hover:text-slate-300"
+                : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
             History
           </button>
+
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+            className={`flex-1 rounded-lg border py-2 text-[10px] font-black uppercase tracking-widest outline-none transition-all ${
               activeTab === "projects"
-                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                : "text-slate-500 border-transparent hover:text-slate-300"
+                ? "border-blue-500/20 bg-blue-500/10 text-blue-400"
+                : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
             Projects
           </button>
         </div>
 
-        {/* Chat list */}
-        <div className="flex-1 overflow-y-auto px-4 space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto px-4">
           {activeTab === "history" ? (
             <div className="space-y-2">
               {chatHistory.some((c) => c.is_pinned) && (
@@ -1027,22 +1092,24 @@ export default function Home() {
                     <div className={accentColor}>
                       <PinIcon />
                     </div>
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                       Pinned
                     </span>
                   </div>
+
                   {chatHistory
                     .filter((c) => c.is_pinned)
                     .map((chat) => (
                       <ChatRow key={chat.id} chat={chat} />
                     ))}
-                  <div className="h-px bg-white/5 my-4" />
+
+                  <div className="my-4 h-px bg-white/5" />
                 </>
               )}
 
               {chatHistory.filter((c) => !c.is_pinned).length > 0 && (
                 <div className="flex items-center gap-2 px-2 py-1">
-                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                     Recent
                   </span>
                 </div>
@@ -1055,18 +1122,18 @@ export default function Home() {
                 ))}
 
               {chatHistory.length === 0 && (
-                <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
+                <p className="py-8 text-center text-[10px] uppercase tracking-widest text-slate-700">
                   No sessions yet
                 </p>
               )}
             </div>
           ) : (
             <div className="space-y-4">
-              <div className={`p-4 rounded-2xl bg-white/[0.02] border ${accentBorder}`}>
-                <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+                <p className={`mb-1 text-[10px] font-black uppercase ${accentColor}`}>
                   Active Space
                 </p>
-                <p className="text-xs text-slate-400 font-bold">
+                <p className="text-xs font-bold text-slate-400">
                   {profile?.current_unit ? `Section ${profile.current_unit}` : "Calculus 1"}
                 </p>
               </div>
@@ -1075,40 +1142,39 @@ export default function Home() {
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
-      <section className="flex-1 flex flex-col relative bg-black">
-        {/* HEADER */}
-        <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-black/50 backdrop-blur-md z-20">
+      <section className="relative flex flex-1 flex-col bg-black">
+        <header className="z-20 flex h-16 items-center justify-between border-b border-white/5 bg-black/50 px-8 backdrop-blur-md">
           <div className="flex items-center gap-5">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none`}
+              className={`rounded-lg p-2 text-slate-500 outline-none transition-colors hover:bg-white/5 ${accentHoverText}`}
             >
               <MenuIcon />
             </button>
-            <h1 className="text-xl font-black text-white tracking-tighter uppercase">
+
+            <h1 className="text-xl font-black uppercase tracking-tighter text-white">
               Niki<span className={accentColor}>Ai</span>
             </h1>
           </div>
 
-          <div className="flex gap-6 items-center">
-            <div className="hidden md:flex font-mono text-[10px] tracking-tight text-slate-500 uppercase gap-5 items-center">
-              <div className="flex items-center gap-2 px-3 py-1 rounded bg-white/5 border border-white/5">
-                <div className={`w-1.5 h-1.5 rounded-full ${accentBg} animate-pulse`} />
+          <div className="flex items-center gap-6">
+            <div className="hidden items-center gap-5 font-mono text-[10px] uppercase tracking-tight text-slate-500 md:flex">
+              <div className="flex items-center gap-2 rounded border border-white/5 bg-white/5 px-3 py-1">
+                <div className={`h-1.5 w-1.5 animate-pulse rounded-full ${accentBg}`} />
                 <span>RTX 5070 Ti Active</span>
               </div>
             </div>
 
-            <div className="border-l border-white/10 pl-6 flex items-center gap-5">
+            <div className="flex items-center gap-5 border-l border-white/10 pl-6">
               {!authChecked ? (
-                <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
+                <div className="h-8 w-8 animate-pulse rounded-full bg-white/5" />
               ) : session ? (
                 <button
                   onClick={() => router.push("/settings")}
-                  className="group flex items-center gap-3 p-1 pr-3 rounded-full hover:bg-white/5 transition-all border border-transparent hover:border-white/10 outline-none"
+                  className="group flex items-center gap-3 rounded-full border border-transparent p-1 pr-3 outline-none transition-all hover:border-white/10 hover:bg-white/5"
                 >
                   <div
-                    className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}
+                    className={`relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-white/10 ${accentBg} text-[10px] font-black text-white shadow-lg`}
                   >
                     {profile?.avatar_url ? (
                       <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
@@ -1116,11 +1182,12 @@ export default function Home() {
                       profile?.first_name?.[0] || profile?.username?.[0] || "U"
                     )}
                   </div>
+
                   <div className="flex flex-col items-start leading-none">
                     <span className={`text-[10px] font-black uppercase tracking-widest text-white ${accentGroupHoverText}`}>
                       {profile?.first_name || profile?.username || "User"}
                     </span>
-                    <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">
+                    <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-500">
                       {profile?.username ? `@${profile.username}` : "@vault"}
                     </span>
                   </div>
@@ -1128,7 +1195,7 @@ export default function Home() {
               ) : (
                 <button
                   onClick={() => router.push("/login")}
-                  className={`px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest ${accentHoverBg} hover:text-white transition-all outline-none`}
+                  className={`rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-white outline-none transition-all ${accentHoverBg} hover:text-white`}
                 >
                   Log In
                 </button>
@@ -1137,16 +1204,15 @@ export default function Home() {
           </div>
         </header>
 
-        {/* CHAT VIEWPORT */}
         <div
           ref={(el) => {
             scrollRef.current = el;
             chatViewportRef.current = el;
           }}
           data-chat-capture
-          className={`flex-1 overflow-y-auto ${
-            profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
-          } px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto px-6 scroll-smooth ${
+            profile?.compact_mode ? "pb-32 pt-4 text-[15px]" : "pb-44 pt-10 text-[17px] sm:text-[18px]"
+          }`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
