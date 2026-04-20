@@ -17,10 +17,12 @@ const fixtures = [
   },
   {
     name: "has-gemini-style-layout-rule",
-    pattern: /Gemini[- ]like math layout \(REQUIRED\):|Math response structure:/,  },
+    pattern: /Gemini[- ]like math layout \(REQUIRED\):|Math response structure:/,
+  },
   {
     name: "has-multi-method-formatting-rule",
-    pattern: /Method-specific formatting \(REQUIRED for all calculus methods\):/,
+    pattern:
+      /Method-specific formatting \(REQUIRED for all calculus methods(?: in walkthrough mode)?\):|Method formatting:/,
   },
   {
     name: "includes-integration-by-parts-example",

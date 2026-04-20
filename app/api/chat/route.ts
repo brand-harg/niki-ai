@@ -21,14 +21,13 @@ type ChatRequest = {
   ragCitations?: {
     lectureTitle?: string;
     professor?: string;
+    course?: string;
     timestampStartSeconds?: number;
     timestampUrl?: string | null;
-    course?: string;
   }[];
 };
 
 type LectureCitation = NonNullable<ChatRequest["ragCitations"]>[number];
-
 type LectureSourceRow = {
   lecture_title: string | null;
   course: string | null;
@@ -46,6 +45,46 @@ function buildSystemPrompt(
   styleInstructions = "",
   lectureMode = false
 ) {
+  const detailedMathLayoutRules = `
+Detailed math layout (REQUIRED when user asks for full walkthrough):
+- Start with a short title line naming the problem type (plain text, not markdown heading syntax).
+- Add one short method sentence before the steps.
+- Add a formula-intro line near the top in this pattern:
+  "The formula/rule used is:"
+  $$...$$
+- Use explicit sections in this order:
+  Step 1: ...
+  Step 2: ...
+  Step 3: ...
+  (Step 4/5/etc when needed)
+- Under Step 1 and Step 2, always include bullet points for the setup sub-work (for example choosing variables, derivatives, substitutions, constants).
+- Under later steps, use bullet points whenever there are multiple sub-calculations.- Put major equations on their own lines using $$...$$.
+- After the main derivation, include "Alternative Form" only if it adds value.
+- End with:
+  Final Answer:
+  $$...$$
+
+Method-specific formatting (REQUIRED for all calculus methods in walkthrough mode):
+- Keep the same visual style across methods: numbered Step sections + bullet sub-lines + display equations.
+- Adapt Step 1/Step 2 labels to the method being used:
+  - u-substitution: choose substitution, compute $du$, rewrite integral.
+  - integration by parts: choose $u$ and $dv$, compute $du$ and $v$.
+  - partial fractions: factor denominator, decompose, solve constants.
+  - trig identities/substitution: choose identity/substitution, rewrite, integrate.
+- For any method, explicitly show "Let:" (or equivalent setup line) and use bullets for derived helper pieces.
+- Never collapse setup details into one long sentence; keep the same structured step style.
+- Add a blank line between major sections to keep spacing readable.
+- Keep equations in standalone $$...$$ blocks whenever possible so they appear centered and visually separated.
+`.trim();
+
+  const conciseMathLayoutRules = `
+Concise math layout (default):
+- Give a short plain-language setup line.
+- Show only key equations (not every intermediate arithmetic line).
+- Use numbered steps only when the user asks for step-by-step.
+- End with a clear standalone final result line.
+`.trim();
+
   const sharedMathRules = `
 Math formatting rules (STRICT):
 - Use plain text for simple arithmetic and short answers.
@@ -58,48 +97,65 @@ Math formatting rules (STRICT):
 - One equation per line. Never place multiple equations on the same line.
 - If a derivation would get messy, explain it in plain text instead.
 - Always ensure all LaTeX expressions are complete before finishing a response.
-- Do NOT use \boxed{} in answers.
+- Do NOT use \\boxed{} in answers.
 
 Math response structure:
-${
-  forceStepByStep
-    ? `- Use explicit numbered steps: Step 1, Step 2, Step 3, ...
-- Use at least ${wantsDeeperExplanation ? "5" : "3"} steps, and continue when needed.
+${forceStepByStep
+      ? `- Use explicit numbered steps: Step 1, Step 2, Step 3, ...
+- Use at least ${wantsDeeperExplanation ? "5" : "3"} steps, and continue with additional steps whenever needed for clarity.
 - Put each step on its own line.
-- Show both the operation and intermediate result.
-- Explain briefly why the step is valid.
-- End with: Final Answer: [result].`
-    : `- Prefer clean explanatory prose unless the user asked for steps.
+- In each step, show both the operation and the intermediate result.
+- Explain briefly why the step is valid (rule used, substitution, or simplification).
+- Do not skip arithmetic. Write out evaluations explicitly.
+- If the student asks for more help, expand the walkthrough with more steps instead of compressing.
+- End with a separate line: Final Answer: [result].
+- Do not skip directly to only the final result.`
+      : `- Prefer clean explanatory prose (not rigid numbered steps).
 - Show key equations on their own lines with $$...$$.
-- End with Final Answer: [result only].`
-}
-
-Method formatting:
-- For substitution, show the substitution and rewritten integral.
-- For integration by parts, show u, dv, du, and v.
-- For partial fractions, show factorization and constants.
-- For trig identities or substitution, show the chosen identity first.
+- Briefly state the rule used, then apply it.
+- End with a standalone concluding equation/result line.
+- Only use explicit Step 1/Step 2 labels if the user asks for step-by-step.`}
+${forceStepByStep ? detailedMathLayoutRules : conciseMathLayoutRules}
 `.trim();
 
   const sharedThoughtTraceRules = `
-Reasoning format (only when requested):
+Reasoning format (only when thought trace is requested):
 When requested, add one <think>...</think> block before the answer.
-Use exactly 3 to 6 labeled lines.
+Structure it as labeled lines only. Use exactly 3 to 6 lines. No more.
 
-For math:
+For math problems, use this shape:
 <think>
-Method: [approach]
-Why: [why it fits]
-Step 1: [major move]
-Step 2: [next move]
-Key insight: [main takeaway]
-Watch out: [common mistake if relevant]
+Method: [name the approach, e.g. integration by parts, chain rule, substitution]
+Why: [one sentence — why this method fits this specific problem]
+Step 1: [first major move, not every algebra line]
+Step 2: [next major move]
+Key insight: [the one thing a student should understand or remember]
+Watch out: [a common mistake or edge case, only if genuinely relevant]
 </think>
 
-Rules:
-- Do not dump raw algebra inside <think>.
-- Do not repeat the full solution there.
-- Keep each line short.
+For non-math questions, adapt the labels to fit:
+<think>
+Type: [what kind of question this is]
+Structure: [how you will organize the answer]
+Focus: [what matters most]
+Tone: [register and style chosen]
+</think>
+
+Rules for <think> blocks:
+- Do not dump raw algebra or repeat the solution inside <think>.
+- Do not use vague filler like "thinking carefully" or "let me consider".
+- Each line is one clear, distinct idea.
+- A student reading this should understand the strategy, not re-read the answer.
+- Keep every line short. If a line needs two sentences, split it into two steps.
+- Never exceed 6 lines total.
+`.trim();
+
+  const sharedWritingRules = `
+For general writing tasks:
+- Respond in clean natural prose.
+- Do not use markdown headings unless the user asks.
+- Do not bold labels or section titles unless requested.
+- Do not split a simple paragraph into bullet points.
 `.trim();
 
   const lectureRules = lectureMode
@@ -118,19 +174,22 @@ You are NikiAI in Professor Nemanja mode.
 
 Persona:
 - Direct, rigorous, and demanding.
-- No filler.
+- Not cheerful, casual, or overly helpful.
+- No excessive praise. No filler. No "Certainly" or "Great question."
 - If the student is wrong, state exactly where the logic fails.
-- Teach for understanding, not just answers.
+- If the question is simple, answer briefly.
+- If the question is advanced, give a structured explanation.
+- You are a teacher first. Your job is to make the student understand, not just to give the answer.
 
-${
-  includeThoughtTrace
-    ? sharedThoughtTraceRules
-    : "Do not output <think>...</think> unless explicitly requested."
-}
+${includeThoughtTrace
+        ? sharedThoughtTraceRules
+        : "Do not output any <think>...</think> tags unless the user explicitly asks for thought trace/reasoning trace."}
 
 ${sharedMathRules}
 
 ${lectureRules}
+
+${sharedWritingRules}
 
 User: ${userName}
 ${personalContext ? `\n${personalContext}` : ""}
@@ -142,15 +201,20 @@ ${styleInstructions ? `\n${styleInstructions}` : ""}
 You are a high-level mathematical assistant in Pure Logic mode.
 
 Persona:
-- Clear, concise, correct.
-- No roleplay.
+- Clear, concise, and correct.
+- No personality or roleplay.
+- Focus on solving or explaining mathematics cleanly and efficiently.
 - Match the user's requested level of detail.
 
-${includeThoughtTrace ? sharedThoughtTraceRules : ""}
+${includeThoughtTrace
+      ? sharedThoughtTraceRules
+      : "Do not output any <think>...</think> tags unless the user explicitly asks for thought trace/reasoning trace."}
 
 ${sharedMathRules}
 
 ${lectureRules}
+
+${sharedWritingRules}
 
 User: ${userName}
 ${personalContext ? `\n${personalContext}` : ""}
@@ -208,10 +272,13 @@ function extractJsonObjects(input: string): {
     if (inString) continue;
 
     if (char === "{") {
-      if (depth === 0) startIndex = i;
+      if (depth === 0) {
+        startIndex = i;
+      }
       depth++;
     } else if (char === "}") {
       depth--;
+
       if (depth === 0 && startIndex !== -1) {
         objects.push(input.slice(startIndex, i + 1));
         startIndex = -1;
@@ -220,10 +287,16 @@ function extractJsonObjects(input: string): {
   }
 
   if (depth > 0 && startIndex !== -1) {
-    return { objects, remainder: input.slice(startIndex) };
+    return {
+      objects,
+      remainder: input.slice(startIndex),
+    };
   }
 
-  return { objects, remainder: "" };
+  return {
+    objects,
+    remainder: "",
+  };
 }
 
 function formatSeconds(seconds?: number): string {
@@ -276,19 +349,19 @@ function uniqueLectures(citations: LectureCitation[]): LectureCitation[] {
 }
 
 function isLectureListIntent(message: string): boolean {
-  return /(what lectures do you have|list .*lectures|list me .*lectures|all the calc 1 lectures|all calc 1 lectures|all calculus 1 lectures|list all calc 1 lectures|list all calculus 1 lectures)/i.test(
+  return /(what lectures do you have|list .*lectures|list me .*lectures|all .*lectures)/i.test(
     message
   );
-}
-
-function isCalc1LectureListIntent(message: string): boolean {
-  return /(calc 1|calculus 1)/i.test(message) && /(list|lectures|all)/i.test(message);
 }
 
 function isVideoLookupIntent(message: string): boolean {
   return /(what is the youtube video|what's the youtube video|youtube video|video link|what is the video|what's the video)/i.test(
     message
   );
+}
+
+function isCalc1LectureListIntent(message: string): boolean {
+  return /(calc 1|calculus 1)/i.test(message) && /(list|lectures|all)/i.test(message);
 }
 
 async function getAllCalc1Lectures(): Promise<LectureSourceRow[]> {
@@ -302,7 +375,6 @@ async function getAllCalc1Lectures(): Promise<LectureSourceRow[]> {
 
   const seen = new Set<string>();
   const deduped: LectureSourceRow[] = [];
-
   for (const row of (data ?? []) as LectureSourceRow[]) {
     const key = [
       row.lecture_title ?? "",
@@ -310,7 +382,6 @@ async function getAllCalc1Lectures(): Promise<LectureSourceRow[]> {
       row.professor ?? "",
       row.video_url ?? "",
     ].join("|");
-
     if (!seen.has(key)) {
       seen.add(key);
       deduped.push(row);
@@ -320,13 +391,15 @@ async function getAllCalc1Lectures(): Promise<LectureSourceRow[]> {
   return deduped;
 }
 
-function buildCitationLectureReply(message: string, citations: LectureCitation[]): string | null {
+function buildCitationLectureReply(
+  message: string,
+  citations: LectureCitation[]
+): string | null {
   if (!isLectureListIntent(message) && !isVideoLookupIntent(message)) {
     return null;
   }
 
   const deduped = uniqueLectures(dedupeCitations(citations));
-
   if (deduped.length === 0) {
     return "I don’t have any matching lecture metadata in my database for that request.";
   }
@@ -372,13 +445,13 @@ export async function POST(req: Request) {
     const ragContext = body.ragContext ?? [];
     const ragStyleSnippets = body.ragStyleSnippets ?? [];
     const ragCitations = dedupeCitations(body.ragCitations ?? []);
-
     const wantsMoreDetail = wantsDeeperExplanation(message);
     const forceStepByStep = wantsStepByStep(message) || wantsMoreDetail;
     const includeThoughtTrace = wantsThoughtTrace(message);
 
     const hasImage = !!base64Image;
     const hasTextFile = !!textFileContent;
+    const isDevLog = process.env.NODE_ENV !== "production";
 
     if (!message && !hasImage && !hasTextFile) {
       return NextResponse.json(
@@ -387,18 +460,24 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log("\n=============================");
-    console.log(`🧠 User asked: "${message || "[file only]"}"`);
-    console.log(`📎 Image: ${hasImage} | Text file: ${hasTextFile}`);
+    if (isDevLog) {
+      console.log("\n=============================");
+      console.log(`🧠 User asked: "${message || "[file only]"}"`);
+      console.log(`📎 Image: ${hasImage} | Text file: ${hasTextFile}`);
+      if (hasImage && imageMediaType) {
+        console.log(`🖼️ Image type: ${imageMediaType}`);
+      }
+      console.log("🌊 STREAMING ONLINE: Connecting to Ollama...");
+    }
 
     const profile = userId
       ? (
-          await supabase
-            .from("profiles")
-            .select("about_user, response_style")
-            .eq("id", userId)
-            .maybeSingle()
-        ).data
+        await supabase
+          .from("profiles")
+          .select("about_user, response_style")
+          .eq("id", userId)
+          .maybeSingle()
+      ).data
       : null;
 
     const personalContext = profile?.about_user
@@ -421,7 +500,6 @@ export async function POST(req: Request) {
 
     if (lectureMode && isCalc1LectureListIntent(message)) {
       const lectures = await getAllCalc1Lectures();
-
       if (!lectures.length) {
         return new Response("I don’t have any Calculus 1 lectures in the database.", {
           headers: {
@@ -464,58 +542,44 @@ export async function POST(req: Request) {
       }
     }
 
-    const formattedHistory = history.slice(0, -1).map((msg) => ({
-      role: msg.role === "ai" ? "assistant" : "user",
-      content: msg.content,
-    }));
+    const formattedHistory = history
+      .slice(0, -1)
+      .map((msg) => ({
+        role: msg.role === "ai" ? "assistant" : "user",
+        content: msg.content,
+      }));
 
     let userMessageContent = message;
 
-    if (lectureMode) {
+    if (lectureMode && ragContext.length > 0) {
       const factual = ragContext
-        .slice(0, 8)
+        .slice(0, 6)
         .map((chunk, i) => `Context ${i + 1}:\n${chunk}`)
         .join("\n\n");
-
       const style = ragStyleSnippets
         .slice(0, 3)
-        .map(
-          (snippet, i) =>
-            `Style ${i + 1} (${snippet.personaTag ?? "teaching_style"}):\n${snippet.text}`
-        )
+        .map((snippet, i) => `Style ${i + 1} (${snippet.personaTag ?? "teaching_style"}):\n${snippet.text}`)
         .join("\n\n");
-
       const citations = ragCitations
-        .slice(0, 8)
+        .slice(0, 6)
         .map((cite, i) => {
-          const title = cite.lectureTitle ?? "Unknown lecture";
-          const professor = cite.professor ?? "Unknown professor";
-          const course = cite.course ?? "Unknown course";
           const ts = formatSeconds(cite.timestampStartSeconds);
-          const url = cite.timestampUrl ? `URL: ${cite.timestampUrl}` : "URL: unavailable";
-          return `Source ${i + 1}:
-Title: ${title}
-Course: ${course}
-Professor: ${professor}
-Time: ${ts}
-${url}`;
+          return `${i + 1}. ${cite.lectureTitle ?? "Unknown lecture"} (${cite.course ?? "Unknown course"} · ${cite.professor ?? "Unknown professor"}) @ ${ts}${cite.timestampUrl ? ` -> ${cite.timestampUrl}` : ""}`;
         })
-        .join("\n\n");
+        .join("\n");
 
       userMessageContent = `
 Lecture Mode is ON.
-
-Use only the provided retrieval context and citations.
-Do not invent lecture titles, section numbers, or video links.
-If the answer is not supported by the provided sources, say so clearly.
+Use the provided retrieval context for grounded teaching.
+If context is insufficient, say so clearly.
 
 Retrieved factual context:
 ${factual || "No retrieved chunks."}
 
-Retrieved teaching style examples:
+Retrieved style context:
 ${style || "No style snippets."}
 
-Available citations:
+Citations:
 ${citations || "No citations."}
 
 User question:
@@ -524,14 +588,11 @@ ${message}
     }
 
     if (hasTextFile) {
-      userMessageContent = `The user attached a file named "${textFileName}".
-
-File contents:
-\`\`\`
-${textFileContent}
-\`\`\`
-
-${message ? `User question: ${message}` : "Please analyze this file."}`;
+      const fileContext = `The user has attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\`\n\n${message ? `User's question: ${message}` : "Please analyze this file."
+        }`;
+      userMessageContent = userMessageContent
+        ? `${userMessageContent}\n\nAttached file context:\n${fileContext}`
+        : fileContext;
     }
 
     const model = hasImage ? "llava:latest" : "qwen2.5:7b";
@@ -549,41 +610,47 @@ ${message ? `User question: ${message}` : "Please analyze this file."}`;
       { role: "system", content: systemPrompt },
       {
         role: "assistant",
-        content: lectureMode
-          ? "I will answer using only the provided lecture context and citations when available. I will not invent lectures or links."
-          : "I will format all math using proper LaTeX with one equation per line.",
+        content:
+          "I will format all math using proper LaTeX with one equation per line.",
       },
       ...formattedHistory,
       userMessage,
     ];
 
+    if (isDevLog) {
+      console.log(`🤖 Routing to model: ${model}`);
+    }
+
     const ollamaBaseUrl =
       process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434";
-
-    const response = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        keep_alive: "2h",
-        options: {
-          num_predict: hasImage ? 1000 : 1500,
-          temperature: lectureMode ? 0.1 : 0.2,
-        },
-        messages: ollamaMessages,
-      }),
-    });
+    const response = await fetch(
+      `${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          keep_alive: "2h",
+          options: {
+            num_predict: hasImage ? 1000 : 1500,
+            temperature: 0.2,
+          },
+          messages: ollamaMessages,
+        }),
+      }
+    );
 
     if (!response.ok) {
       const responseText = await response.text().catch(() => "");
-      console.log(
-        "❌ Ollama request failed:",
-        response.status,
-        response.statusText,
-        responseText
-      );
-
+      if (isDevLog) {
+        console.log(
+          "❌ Ollama request failed:",
+          response.status,
+          response.statusText,
+          responseText
+        );
+      }
       return NextResponse.json(
         {
           reply:
@@ -642,7 +709,9 @@ ${message ? `User question: ${message}` : "Please analyze this file."}`;
             }
           }
         } catch (err) {
-          console.log("❌ Stream error:", err);
+          if (isDevLog) {
+            console.log("❌ Stream error:", err);
+          }
         } finally {
           reader.releaseLock();
           safeClose();
@@ -661,8 +730,9 @@ ${message ? `User question: ${message}` : "Please analyze this file."}`;
       return NextResponse.json({ reply: "System Error: Model timed out." });
     }
 
-    console.log("❌ Fatal error:", error);
-
+    if (process.env.NODE_ENV !== "production") {
+      console.log("❌ Fatal error:", error);
+    }
     return NextResponse.json(
       {
         reply:

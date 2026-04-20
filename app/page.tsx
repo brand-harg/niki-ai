@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
@@ -34,14 +33,6 @@ const MenuIcon = () => (
   </svg>
 );
 
-type RagCitation = {
-  lectureTitle?: string;
-  professor?: string;
-  timestampStartSeconds?: number;
-  timestampUrl?: string | null;
-  course?: string;
-};
-
 type Message = {
   role: "ai" | "user";
   content: string;
@@ -49,7 +40,6 @@ type Message = {
 };
 
 type AppSession = { user: { id: string } } | null;
-
 type AppProfile = {
   id?: string;
   first_name?: string;
@@ -61,23 +51,25 @@ type AppProfile = {
   current_unit?: string;
   compact_mode?: boolean;
 };
-
 type ChatItem = {
   id: string;
   title: string;
   is_pinned?: boolean;
 };
-
+type RagCitation = {
+  lectureTitle?: string;
+  professor?: string;
+  timestampStartSeconds?: number;
+  timestampUrl?: string | null;
+  course?: string;
+};
 type RagResponse = {
   context?: string[];
   styleSnippets?: { text: string; personaTag?: string }[];
   citations?: RagCitation[];
   error?: string;
 };
-
-const DEFAULT_GREETING: Message[] = [
-  { role: "ai", content: "What do you need help with?" },
-];
+const DEFAULT_GREETING: Message[] = [{ role: "ai", content: "What do you need help with?" }];
 
 function formatTimestamp(seconds?: number) {
   if (typeof seconds !== "number" || Number.isNaN(seconds)) return "";
@@ -120,7 +112,6 @@ const CitationCard = ({
   const accentText = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
   const accentBorder = isGreen ? "border-green-500/20" : isAmber ? "border-amber-500/20" : "border-cyan-500/20";
   const accentBg = isGreen ? "bg-green-500/5" : isAmber ? "bg-amber-500/5" : "bg-cyan-500/5";
-
   const unique = useMemo(() => dedupeCitations(citations).slice(0, 4), [citations]);
 
   if (!unique.length) return null;
@@ -130,17 +121,14 @@ const CitationCard = ({
       <p className={`mb-3 text-[9px] font-black uppercase tracking-widest ${accentText}`}>
         Sources
       </p>
-
       <div className="space-y-2">
         {unique.map((c, i) => (
           <div key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`} className="flex items-start gap-2">
             <span className={`mt-0.5 text-[9px] font-black ${accentText}`}>{i + 1}</span>
-
             <div className="min-w-0">
               <p className="truncate text-[11px] font-bold text-slate-300">
                 {c.lectureTitle ?? "Unknown lecture"}
               </p>
-
               <p className="text-[10px] text-slate-500">
                 {c.course ?? "Unknown course"}
                 {typeof c.timestampStartSeconds === "number"
@@ -165,6 +153,7 @@ const CitationCard = ({
   );
 };
 
+// Safe sanitizer — cleans up malformed LaTeX delimiters
 function sanitizeMathContent(content: string): string {
   if (!content || typeof content !== "string") return "";
 
@@ -178,14 +167,8 @@ function sanitizeMathContent(content: string): string {
 
   cleaned = cleaned.replace(/\${3,}/g, "$$");
   cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
-
-  cleaned = cleaned.replace(/\\boxed\((.*?)\)/g, "\\boxed{$1}");
-  cleaned = cleaned.replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}");
-
-  const blockCount = (cleaned.match(/\$\$/g) || []).length;
-  if (blockCount % 2 !== 0) {
-    cleaned += "$$";
-  }
+  cleaned = cleaned.replace(/\\boxed\s*\{([^}]*)\}/g, "$1");
+  cleaned = cleaned.replace(/\\text\{([^}]*)\}/g, "$1");
 
   return cleaned;
 }
@@ -206,6 +189,7 @@ function stripPartialThink(content: string): string {
   return cleaned;
 }
 
+// Utility to parse <think>...</think> blocks from Qwen output
 function parseThoughtTrace(content: string): {
   steps: { label: string; detail: string }[];
   clean: string;
@@ -218,7 +202,6 @@ function parseThoughtTrace(content: string): {
     .map((line) => {
       const colonIdx = line.indexOf(":");
       if (colonIdx === -1) return null;
-
       return {
         label: line.slice(0, colonIdx).trim(),
         detail: line.slice(colonIdx + 1).trim(),
@@ -232,24 +215,10 @@ function parseThoughtTrace(content: string): {
   };
 }
 
-function renderMarkdown(content: string) {
-  try {
-    return (
-      <ReactMarkdown
-        remarkPlugins={[remarkMath]}
-        rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
-      >
-        {content}
-      </ReactMarkdown>
-    );
-  } catch {
-    return <div className="whitespace-pre-wrap">{content}</div>;
-  }
-}
-
 export default function Home() {
   const router = useRouter();
 
+  // --- STATE ---
   const [session, setSession] = useState<AppSession>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -267,6 +236,7 @@ export default function Home() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 
+  // --- RENAME STATE ---
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -278,6 +248,7 @@ export default function Home() {
   const isStreamingRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(null);
 
+  // --- DYNAMIC THEME ENGINE ---
   const isGreen = profile?.theme_accent === "green";
   const isAmber = profile?.theme_accent === "amber";
 
@@ -294,6 +265,7 @@ export default function Home() {
       ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
       : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
 
+  // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
     let mounted = true;
     isUnmountingRef.current = false;
@@ -616,21 +588,17 @@ export default function Home() {
 
     try {
       const nodes = [target, ...Array.from(target.querySelectorAll("*"))];
-
       for (const node of nodes) {
         if (!(node instanceof HTMLElement)) continue;
         const computed = window.getComputedStyle(node);
-
         for (const prop of colorProps) {
           const next = computed.getPropertyValue(prop);
           if (!next) continue;
-
           patches.push({
             el: node,
             prop,
             prev: node.style.getPropertyValue(prop),
           });
-
           node.style.setProperty(prop, next);
         }
       }
@@ -644,12 +612,9 @@ export default function Home() {
       const link = document.createElement("a");
       link.download = `nikiai-chat-${Date.now()}.png`;
       link.href = canvas.toDataURL("image/png");
-      document.body.appendChild(link);
       link.click();
-      link.remove();
     } catch (err) {
       console.error("Screenshot failed:", err);
-      alert("Screenshot failed. If you use external avatars/images, try hiding them or using a local image and retry.");
     } finally {
       for (const patch of patches) {
         if (patch.prev) {
@@ -661,7 +626,10 @@ export default function Home() {
     }
   };
 
-  const uploadFileToSupabase = async (file: File, chatId: string): Promise<string | null> => {
+  const uploadFileToSupabase = async (
+    file: File,
+    chatId: string
+  ): Promise<string | null> => {
     if (!session?.user?.id) return null;
 
     const ext = file.name.split(".").pop();
@@ -698,7 +666,7 @@ export default function Home() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      void handleSend();
+      handleSend();
     }
   };
 
@@ -735,6 +703,7 @@ export default function Home() {
     }
   };
 
+  // --- CORE SEND ENGINE ---
   const handleSend = async () => {
     if (!inputValue.trim() && !attachedFile) return;
     if (isLoading) return;
@@ -743,7 +712,8 @@ export default function Home() {
     const currentName = profile?.first_name || profile?.username || "User";
     let chatId = currentChatIdRef.current;
 
-    const displayContent = userText || (attachedFile ? `[${attachedFile.file.name}]` : "");
+    const displayContent =
+      userText || (attachedFile ? `[${attachedFile.file.name}]` : "");
 
     const updatedHistory: Message[] = [
       ...messages,
@@ -770,7 +740,10 @@ export default function Home() {
 
     try {
       if (!chatId && session) {
-        const title = userText.substring(0, 50) || currentAttached?.file.name || "File upload";
+        const title =
+          userText.substring(0, 50) ||
+          currentAttached?.file.name ||
+          "File upload";
 
         const { data: newChat } = await supabase
           .from("chats")
@@ -817,9 +790,7 @@ export default function Home() {
         const arrayBuffer = await currentAttached.file.arrayBuffer();
         const uint8 = new Uint8Array(arrayBuffer);
         let binary = "";
-        uint8.forEach((b) => {
-          binary += String.fromCharCode(b);
-        });
+        uint8.forEach((b) => (binary += String.fromCharCode(b)));
         base64Image = btoa(binary);
       } else if (currentAttached?.type === "text") {
         textFileContent = await currentAttached.file.text();
@@ -830,10 +801,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userText,
-          history: updatedHistory.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          history: updatedHistory,
           isNikiMode,
           userName: currentName,
           userId: session?.user?.id,
@@ -844,9 +812,15 @@ export default function Home() {
           ragStyleSnippets: rag?.styleSnippets ?? [],
           ragCitations: rag?.citations ?? [],
           base64Image: base64Image ?? undefined,
-          imageMediaType: currentAttached?.type === "image" ? currentAttached.file.type : undefined,
+          imageMediaType:
+            currentAttached?.type === "image"
+              ? currentAttached.file.type
+              : undefined,
           textFileContent: textFileContent ?? undefined,
-          textFileName: currentAttached?.type === "text" ? currentAttached.file.name : undefined,
+          textFileName:
+            currentAttached?.type === "text"
+              ? currentAttached.file.name
+              : undefined,
         }),
         signal: controller.signal,
       });
@@ -867,53 +841,42 @@ export default function Home() {
         return;
       }
 
-      if (!response.body) {
-        throw new Error("No stream body");
-      }
-
       setMessages((prev) => [
         ...prev,
-        {
-          role: "ai",
-          content: "",
-          citations: rag?.citations ?? [],
-        },
+        { role: "ai", content: "", citations: dedupeCitations(rag?.citations ?? []) },
       ]);
 
-      const reader = response.body.getReader();
+      const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let aiReply = "";
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            aiReply += chunk;
 
-          const chunk = decoder.decode(value, { stream: true });
-          aiReply += chunk;
-
-          setMessages((prev) => {
-            const updated = [...prev];
-            const existing = updated[updated.length - 1];
-
-            updated[updated.length - 1] = {
-              role: "ai",
-              content: aiReply,
-              citations: existing?.citations || rag?.citations || [],
-            };
-
-            return updated;
-          });
+            setMessages((prev) => {
+              const updated = [...prev];
+              const existing = updated[updated.length - 1];
+              updated[updated.length - 1] = {
+                role: "ai",
+                content: aiReply,
+                citations: existing?.citations ?? dedupeCitations(rag?.citations ?? []),
+              };
+              return updated;
+            });
+          }
+        } catch (streamError: unknown) {
+          if (!(streamError instanceof Error) || streamError.name !== "AbortError") throw streamError;
+        } finally {
+          reader.releaseLock();
         }
-      } catch (streamError: unknown) {
-        if (!(streamError instanceof Error) || streamError.name !== "AbortError") {
-          throw streamError;
-        }
-      } finally {
-        reader.releaseLock();
       }
 
-      if (chatId && session && aiReply.trim().length > 0) {
+      if (chatId && session && aiReply.length > 0) {
         const lectureCitations = dedupeCitations(rag?.citations ?? []);
         const finalReply = aiReply.trim();
 
@@ -929,12 +892,14 @@ export default function Home() {
           return updated;
         });
 
-        await supabase.from("messages").insert({
-          chat_id: chatId,
-          role: "ai",
-          text: finalReply,
-          citations: lectureCitations,
-        });
+        await supabase
+          .from("messages")
+          .insert({
+            chat_id: chatId,
+            role: "ai",
+            text: finalReply,
+            citations: lectureCitations,
+          });
 
         await supabase
           .from("chats")
@@ -961,13 +926,13 @@ export default function Home() {
     }
   };
 
+  // --- SIDEBAR CHAT ROW ---
   const ChatRow = ({ chat }: { chat: ChatItem }) => (
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full cursor-pointer rounded-xl p-3 text-xs text-slate-400 transition-all hover:bg-white/5 group flex items-center justify-between ${
-        currentChatId === chat.id ? "bg-white/5 text-white" : ""
-      }`}
+      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${currentChatId === chat.id ? "bg-white/5 text-white" : ""
+        }`}
     >
       {renamingChatId === chat.id ? (
         <input
@@ -976,15 +941,15 @@ export default function Home() {
           onChange={(e) => setRenameValue(e.target.value)}
           onBlur={() => commitRename(chat.id)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void commitRename(chat.id);
+            if (e.key === "Enter") commitRename(chat.id);
             if (e.key === "Escape") setRenamingChatId(null);
           }}
           onClick={(e) => e.stopPropagation()}
-          className="mr-2 flex-1 rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs text-white outline-none"
+          className="flex-1 bg-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none border border-white/20 mr-2"
         />
       ) : (
         <span
-          className="flex-1 truncate transition-colors group-hover:text-white"
+          className="truncate group-hover:text-white transition-colors flex-1"
           onDoubleClick={(e) => startRename(e, chat.id, chat.title)}
           title="Double-click to rename"
         >
@@ -992,14 +957,13 @@ export default function Home() {
         </span>
       )}
 
-      <div className="flex flex-shrink-0 items-center gap-2">
+      <div className="flex items-center gap-2 flex-shrink-0">
         <div
           onClick={(e) => togglePin(e, chat.id, !!chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${
-            chat.is_pinned
+          className={`cursor-pointer transition-opacity ${chat.is_pinned
               ? `${accentColor} opacity-100`
-              : "opacity-20 hover:text-white hover:opacity-100"
-          }`}
+              : "opacity-20 hover:opacity-100 hover:text-white"
+            }`}
         >
           {chat.is_pinned ? "★" : "☆"}
         </div>
@@ -1009,9 +973,9 @@ export default function Home() {
             <span
               onClick={(e) => {
                 e.stopPropagation();
-                void deleteChat(chat.id);
+                deleteChat(chat.id);
               }}
-              className="cursor-pointer font-bold text-red-400 hover:text-red-300"
+              className="text-red-400 hover:text-red-300 cursor-pointer font-bold"
             >
               Delete
             </span>
@@ -1020,7 +984,7 @@ export default function Home() {
                 e.stopPropagation();
                 setConfirmDeleteId(null);
               }}
-              className="cursor-pointer text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-white cursor-pointer"
             >
               Cancel
             </span>
@@ -1031,7 +995,7 @@ export default function Home() {
               e.stopPropagation();
               setConfirmDeleteId(chat.id);
             }}
-            className="cursor-pointer text-red-400 opacity-70 hover:text-red-300 hover:opacity-100"
+            className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
           >
             ✕
           </div>
@@ -1042,48 +1006,48 @@ export default function Home() {
 
   return (
     <main className="flex h-screen overflow-hidden bg-black font-sans antialiased text-white">
+      {/* SIDEBAR */}
       <aside
-        className={`z-30 flex h-full flex-col border-r border-white/5 bg-[#080808] transition-all duration-300 ${
-          isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
-        }`}
+        className={`h-full bg-[#080808] border-r border-white/5 z-30 flex flex-col transition-all duration-300 ${isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
+          }`}
       >
         <div className="p-4 pt-6">
           <button
             onClick={startNewSession}
-            className="group flex w-full items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/5 px-4 py-3 outline-none transition-all hover:bg-white/10"
+            className="w-full flex items-center justify-between gap-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl px-4 py-3 transition-all group outline-none"
           >
-            <span className="text-sm font-bold text-slate-200">New Session</span>
-            <div className={`rounded-md bg-white/5 p-1 ${accentGroupHoverBg} transition-all group-hover:text-white`}>
+            <span className="text-sm font-bold text-slate-200">
+              New Session
+            </span>
+            <div className={`p-1 rounded-md bg-white/5 ${accentGroupHoverBg} transition-all group-hover:text-white`}>
               <PlusIcon />
             </div>
           </button>
         </div>
 
-        <div className="mb-6 flex gap-1 px-4">
+        <div className="px-4 mb-6 flex gap-1">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 rounded-lg border py-2 text-[10px] font-black uppercase tracking-widest outline-none transition-all ${
-              activeTab === "history"
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
                 ? `bg-white/5 ${accentColor} ${accentBorder}`
-                : "border-transparent text-slate-500 hover:text-slate-300"
-            }`}
+                : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
           >
             History
           </button>
-
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 rounded-lg border py-2 text-[10px] font-black uppercase tracking-widest outline-none transition-all ${
-              activeTab === "projects"
-                ? "border-blue-500/20 bg-blue-500/10 text-blue-400"
-                : "border-transparent text-slate-500 hover:text-slate-300"
-            }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
+                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
           >
             Projects
           </button>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-4">
+        {/* Chat list */}
+        <div className="flex-1 overflow-y-auto px-4 space-y-4">
           {activeTab === "history" ? (
             <div className="space-y-2">
               {chatHistory.some((c) => c.is_pinned) && (
@@ -1092,24 +1056,22 @@ export default function Home() {
                     <div className={accentColor}>
                       <PinIcon />
                     </div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
                       Pinned
                     </span>
                   </div>
-
                   {chatHistory
                     .filter((c) => c.is_pinned)
                     .map((chat) => (
                       <ChatRow key={chat.id} chat={chat} />
                     ))}
-
-                  <div className="my-4 h-px bg-white/5" />
+                  <div className="h-px bg-white/5 my-4" />
                 </>
               )}
 
               {chatHistory.filter((c) => !c.is_pinned).length > 0 && (
                 <div className="flex items-center gap-2 px-2 py-1">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
                     Recent
                   </span>
                 </div>
@@ -1122,18 +1084,18 @@ export default function Home() {
                 ))}
 
               {chatHistory.length === 0 && (
-                <p className="py-8 text-center text-[10px] uppercase tracking-widest text-slate-700">
+                <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
                   No sessions yet
                 </p>
               )}
             </div>
           ) : (
             <div className="space-y-4">
-              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
-                <p className={`mb-1 text-[10px] font-black uppercase ${accentColor}`}>
+              <div className={`p-4 rounded-2xl bg-white/[0.02] border ${accentBorder}`}>
+                <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
                   Active Space
                 </p>
-                <p className="text-xs font-bold text-slate-400">
+                <p className="text-xs text-slate-400 font-bold">
                   {profile?.current_unit ? `Section ${profile.current_unit}` : "Calculus 1"}
                 </p>
               </div>
@@ -1142,39 +1104,40 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className="relative flex flex-1 flex-col bg-black">
-        <header className="z-20 flex h-16 items-center justify-between border-b border-white/5 bg-black/50 px-8 backdrop-blur-md">
+      {/* MAIN CONTENT */}
+      <section className="flex-1 flex flex-col relative bg-black">
+        {/* HEADER */}
+        <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-black/50 backdrop-blur-md z-20">
           <div className="flex items-center gap-5">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`rounded-lg p-2 text-slate-500 outline-none transition-colors hover:bg-white/5 ${accentHoverText}`}
+              className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none`}
             >
               <MenuIcon />
             </button>
-
-            <h1 className="text-xl font-black uppercase tracking-tighter text-white">
+            <h1 className="text-xl font-black text-white tracking-tighter uppercase">
               Niki<span className={accentColor}>Ai</span>
             </h1>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="hidden items-center gap-5 font-mono text-[10px] uppercase tracking-tight text-slate-500 md:flex">
-              <div className="flex items-center gap-2 rounded border border-white/5 bg-white/5 px-3 py-1">
-                <div className={`h-1.5 w-1.5 animate-pulse rounded-full ${accentBg}`} />
+          <div className="flex gap-6 items-center">
+            <div className="hidden md:flex font-mono text-[10px] tracking-tight text-slate-500 uppercase gap-5 items-center">
+              <div className="flex items-center gap-2 px-3 py-1 rounded bg-white/5 border border-white/5">
+                <div className={`w-1.5 h-1.5 rounded-full ${accentBg} animate-pulse`} />
                 <span>RTX 5070 Ti Active</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-5 border-l border-white/10 pl-6">
+            <div className="border-l border-white/10 pl-6 flex items-center gap-5">
               {!authChecked ? (
-                <div className="h-8 w-8 animate-pulse rounded-full bg-white/5" />
+                <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
               ) : session ? (
                 <button
                   onClick={() => router.push("/settings")}
-                  className="group flex items-center gap-3 rounded-full border border-transparent p-1 pr-3 outline-none transition-all hover:border-white/10 hover:bg-white/5"
+                  className="group flex items-center gap-3 p-1 pr-3 rounded-full hover:bg-white/5 transition-all border border-transparent hover:border-white/10 outline-none"
                 >
                   <div
-                    className={`relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-white/10 ${accentBg} text-[10px] font-black text-white shadow-lg`}
+                    className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}
                   >
                     {profile?.avatar_url ? (
                       <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
@@ -1182,12 +1145,11 @@ export default function Home() {
                       profile?.first_name?.[0] || profile?.username?.[0] || "U"
                     )}
                   </div>
-
                   <div className="flex flex-col items-start leading-none">
                     <span className={`text-[10px] font-black uppercase tracking-widest text-white ${accentGroupHoverText}`}>
                       {profile?.first_name || profile?.username || "User"}
                     </span>
-                    <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-500">
+                    <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">
                       {profile?.username ? `@${profile.username}` : "@vault"}
                     </span>
                   </div>
@@ -1195,7 +1157,7 @@ export default function Home() {
               ) : (
                 <button
                   onClick={() => router.push("/login")}
-                  className={`rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-white outline-none transition-all ${accentHoverBg} hover:text-white`}
+                  className={`px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest ${accentHoverBg} hover:text-white transition-all outline-none`}
                 >
                   Log In
                 </button>
@@ -1204,37 +1166,36 @@ export default function Home() {
           </div>
         </header>
 
+        {/* CHAT VIEWPORT */}
         <div
           ref={(el) => {
             scrollRef.current = el;
             chatViewportRef.current = el;
           }}
           data-chat-capture
-          className={`flex-1 overflow-y-auto px-6 scroll-smooth ${
-            profile?.compact_mode ? "pb-32 pt-4 text-[15px]" : "pb-44 pt-10 text-[17px] sm:text-[18px]"
-          }`}
+          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+            } px-6 scroll-smooth`}
         >
-          <div className="max-w-3xl mx-auto space-y-10">
+          <div className="max-w-5xl mx-auto space-y-10">
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${
-                  profile?.compact_mode ? "gap-4" : "gap-6"
-                } items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
+                className={`flex w-full ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500 ${msg.role === "user" ? "text-right ml-auto" : "text-left mr-auto"
+                  }`}
               >
                 <div
-                  className={`${
-                    profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
-                  } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${
-                    msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                  }`}
+                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                    }`}
                 >
                   {msg.role === "ai"
                     ? "N"
                     : profile?.first_name?.[0] || profile?.username?.[0] || "U"}
                 </div>
 
-                <div className="max-w-none text-slate-200 pt-1 select-text selection:bg-white/20 leading-6 sm:leading-7 sm:leading-8 text-sm sm:text-base overflow-hidden">
+                <div
+                  className={`max-w-[85%] sm:max-w-[80%] text-slate-200 pt-1 select-text selection:bg-white/20 leading-6 sm:leading-7 text-sm sm:text-base overflow-hidden ${msg.role === "user" ? "text-right" : "text-left"
+                    }`}
+                >
                   {msg.role === "ai" ? (
                     (() => {
                       const isStreamingMessage = isLoading && i === messages.length - 1;
@@ -1242,38 +1203,30 @@ export default function Home() {
                       if (isStreamingMessage) {
                         const liveContent = stripPartialThink(msg.content);
                         const liveMathContent = sanitizeMathContent(liveContent);
-                        const canRenderLiveMath =
-                          /[$\\]/.test(liveMathContent) && liveMathContent.length > 0;
 
-                        return canRenderLiveMath ? (
+                        return (
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
                             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                               {liveMathContent}
                             </ReactMarkdown>
                           </div>
-                        ) : (
-                          <div className="whitespace-pre-wrap">{liveContent}</div>
+
                         );
                       }
 
                       const { steps, clean } = parseThoughtTrace(msg.content);
                       const finalContent = sanitizeMathContent(clean);
-                      const shouldRenderFinalMath = /[$\\]/.test(finalContent);
                       const finalAnswerBoxClass =
                         "mt-1 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 sm:px-5 sm:py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 
                       return (
                         <>
                           <div className={finalAnswerBoxClass}>
-                            {shouldRenderFinalMath ? (
-                              <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
-                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                                  {finalContent}
-                                </ReactMarkdown>
-                              </div>
-                            ) : (
-                              <div className="whitespace-pre-wrap">{clean}</div>
-                            )}
+                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                {finalContent}
+                              </ReactMarkdown>
+                            </div>
                           </div>
 
                           {steps.length > 0 && (
@@ -1293,7 +1246,9 @@ export default function Home() {
                       );
                     })()
                   ) : (
-                    <div>{msg.content}</div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 sm:px-5 sm:py-4 whitespace-pre-wrap">
+                      {msg.content}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1322,17 +1277,15 @@ export default function Home() {
             <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">
               <button
                 onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
-                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                  }`}
               >
                 Pure Logic
               </button>
               <button
                 onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
-                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                  }`}
               >
                 Nemanja Mode
               </button>
@@ -1356,11 +1309,10 @@ export default function Home() {
                 <button
                   onClick={() => setLectureMode((prev) => !prev)}
                   disabled={isLoading}
-                  className={`shrink-0 h-10 sm:h-12 px-3 sm:px-4 rounded-xl border text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all outline-none ${
-                    lectureMode
+                  className={`shrink-0 h-10 sm:h-12 px-3 sm:px-4 rounded-xl border text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all outline-none ${lectureMode
                       ? `${accentBorder} ${accentColor} bg-white/5`
                       : "border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 bg-white/[0.02]"
-                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
                   title="Toggle Lecture Mode retrieval context"
                   aria-pressed={lectureMode}
                 >
@@ -1376,14 +1328,13 @@ export default function Home() {
                     attachedFile
                       ? `Ask about ${attachedFile.file.name}…`
                       : lectureMode
-                      ? "Lecture Mode: ask with retrieval context..."
-                      : isNikiMode
-                      ? "Ask Professor Nikitovic..."
-                      : "Specify mathematical query..."
+                        ? "Lecture Mode: ask with retrieval context..."
+                        : isNikiMode
+                          ? "Ask Professor Nikitovic..."
+                          : "Specify mathematical query..."
                   }
-                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${
-                    profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
-                  } placeholder:text-slate-600 shadow-none`}
+                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
+                    } placeholder:text-slate-600 shadow-none`}
                 />
 
                 <button
