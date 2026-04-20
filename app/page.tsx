@@ -33,9 +33,18 @@ const MenuIcon = () => (
   </svg>
 );
 
+type RagCitation = {
+  lectureTitle?: string;
+  professor?: string;
+  timestampStartSeconds?: number;
+  timestampUrl?: string | null;
+  course?: string;
+};
+
 type Message = {
   role: "ai" | "user";
   content: string;
+  citations?: RagCitation[];
 };
 
 type AppSession = { user: { id: string } } | null;
@@ -55,20 +64,68 @@ type ChatItem = {
   title: string;
   is_pinned?: boolean;
 };
-type RagCitation = {
-  lectureTitle?: string;
-  professor?: string;
-  timestampStartSeconds?: number;
-  timestampUrl?: string | null;
-};
 type RagResponse = {
   context?: string[];
   styleSnippets?: { text: string; personaTag?: string }[];
   citations?: RagCitation[];
   error?: string;
 };
+
 const DEFAULT_GREETING: Message[] = [{ role: "ai", content: "What do you need help with?" }];
 
+const CitationCard = ({
+  citations,
+  accentColor,
+}: {
+  citations: RagCitation[];
+  accentColor: string;
+}) => {
+  const isGreen = accentColor === "green";
+  const isAmber = accentColor === "amber";
+  const accentText = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
+  const accentBorder = isGreen ? "border-green-500/20" : isAmber ? "border-amber-500/20" : "border-cyan-500/20";
+  const accentBg = isGreen ? "bg-green-500/5" : isAmber ? "bg-amber-500/5" : "bg-cyan-500/5";
+
+  if (!citations.length) return null;
+
+  return (
+    <div className={`mt-4 rounded-2xl border ${accentBorder} ${accentBg} p-4`}>
+      <p className={`text-[9px] font-black uppercase tracking-widest ${accentText} mb-3`}>
+        Sources
+      </p>
+      <div className="space-y-2">
+        {citations.slice(0, 4).map((c, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <span className={`text-[9px] font-black ${accentText} mt-0.5`}>{i + 1}</span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-300 truncate">
+                {c.lectureTitle ?? "Unknown lecture"}
+              </p>
+              <p className="text-[10px] text-slate-600">
+                {c.course ?? "Unknown course"}
+                {typeof c.timestampStartSeconds === "number"
+                  ? ` · ${Math.floor(c.timestampStartSeconds / 60)}:${String(
+                      c.timestampStartSeconds % 60
+                    ).padStart(2, "0")}`
+                  : ""}
+                {c.timestampUrl && (
+                  <a
+                    href={c.timestampUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`ml-2 ${accentText} hover:underline`}
+                  >
+                    Watch →
+                  </a>
+                )}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 // Safe sanitizer — cleans up malformed LaTeX delimiters
 function sanitizeMathContent(content: string): string {
@@ -178,9 +235,8 @@ export default function Home() {
   const aiBubbleBg = isGreen
     ? "bg-gradient-to-br from-green-400 to-green-600 text-white"
     : isAmber
-      ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
-      : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
-
+    ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
+    : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
 
   // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
@@ -378,6 +434,7 @@ export default function Home() {
         .map((msg) => ({
           role: msg.role as Message["role"],
           content: msg.text || "",
+          citations: msg.role === "ai" ? msg.citations ?? [] : undefined,
         }));
       setMessages(formatted);
     } else {
@@ -616,7 +673,6 @@ export default function Home() {
     }
   };
 
-
   // --- CORE SEND ENGINE ---
   const handleSend = async () => {
     if (!inputValue.trim() && !attachedFile) return;
@@ -755,7 +811,7 @@ export default function Home() {
         return;
       }
 
-      setMessages((prev) => [...prev, { role: "ai", content: "" }]);
+      setMessages((prev) => [...prev, { role: "ai", content: "", citations: [] }]);
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -771,7 +827,11 @@ export default function Home() {
 
             setMessages((prev) => {
               const updated = [...prev];
-              updated[updated.length - 1] = { role: "ai", content: aiReply };
+              updated[updated.length - 1] = {
+                role: "ai",
+                content: aiReply,
+                citations: [],
+              };
               return updated;
             });
           }
@@ -784,30 +844,29 @@ export default function Home() {
 
       if (chatId && session && aiReply.length > 0) {
         const lectureCitations = rag?.citations ?? [];
-        const citationFooter =
-          lectureMode && lectureCitations.length > 0
-            ? `\n\nSources:\n${lectureCitations
-              .slice(0, 4)
-              .map((c, i) => {
-                const ts = typeof c.timestampStartSeconds === "number" ? `${c.timestampStartSeconds}s` : "unknown";
-                const head = `${i + 1}. ${c.lectureTitle ?? "Unknown lecture"} (${c.professor ?? "Unknown professor"}) @ ${ts}`;
-                return c.timestampUrl ? `${head} — ${c.timestampUrl}` : head;
-              })
-              .join("\n")}`
-            : "";
-        const finalReply = aiReply + citationFooter;
+        const citationFooter = "";
+        const finalReply = aiReply;
 
         setMessages((prev) => {
           const updated = [...prev];
           if (updated.length > 0 && updated[updated.length - 1]?.role === "ai") {
-            updated[updated.length - 1] = { role: "ai", content: finalReply };
+            updated[updated.length - 1] = {
+              role: "ai",
+              content: aiReply,
+              citations: lectureCitations,
+            };
           }
           return updated;
         });
 
         await supabase
           .from("messages")
-          .insert({ chat_id: chatId, role: "ai", text: finalReply });
+          .insert({
+            chat_id: chatId,
+            role: "ai",
+            text: finalReply,
+            citations: lectureCitations,
+          });
 
         await supabase
           .from("chats")
@@ -839,8 +898,9 @@ export default function Home() {
     <div
       key={chat.id}
       onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${currentChatId === chat.id ? "bg-white/5 text-white" : ""
-        }`}
+      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${
+        currentChatId === chat.id ? "bg-white/5 text-white" : ""
+      }`}
     >
       {renamingChatId === chat.id ? (
         <input
@@ -868,10 +928,11 @@ export default function Home() {
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
           onClick={(e) => togglePin(e, chat.id, !!chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${chat.is_pinned
-            ? `${accentColor} opacity-100`
-            : "opacity-20 hover:opacity-100 hover:text-white"
-            }`}
+          className={`cursor-pointer transition-opacity ${
+            chat.is_pinned
+              ? `${accentColor} opacity-100`
+              : "opacity-20 hover:opacity-100 hover:text-white"
+          }`}
         >
           {chat.is_pinned ? "★" : "☆"}
         </div>
@@ -916,8 +977,9 @@ export default function Home() {
     <main className="flex h-screen bg-black text-white font-sans antialiased overflow-hidden">
       {/* SIDEBAR */}
       <aside
-        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
-          }`}
+        className={`h-full bg-[#080808] border-r border-white/5 z-30 transition-all duration-300 flex flex-col ${
+          isSidebarOpen ? "w-80" : "w-0 overflow-hidden"
+        }`}
       >
         <div className="p-4 pt-6">
           <button
@@ -935,19 +997,21 @@ export default function Home() {
         <div className="flex px-4 mb-6 gap-1">
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
-              ? `bg-white/5 ${accentColor} ${accentBorder}`
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+              activeTab === "history"
+                ? `bg-white/5 ${accentColor} ${accentBorder}`
+                : "text-slate-500 border-transparent hover:text-slate-300"
+            }`}
           >
             History
           </button>
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
-              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
+            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${
+              activeTab === "projects"
+                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                : "text-slate-500 border-transparent hover:text-slate-300"
+            }`}
           >
             Projects
           </button>
@@ -1044,7 +1108,8 @@ export default function Home() {
                   className="group flex items-center gap-3 p-1 pr-3 rounded-full hover:bg-white/5 transition-all border border-transparent hover:border-white/10 outline-none"
                 >
                   <div
-                    className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}                  >
+                    className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}
+                  >
                     {profile?.avatar_url ? (
                       <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
                     ) : (
@@ -1079,18 +1144,24 @@ export default function Home() {
             chatViewportRef.current = el;
           }}
           data-chat-capture
-          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
-            } px-6 scroll-smooth`}
+          className={`flex-1 overflow-y-auto ${
+            profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-10 pb-44 text-[17px] sm:text-[18px]"
+          } px-6 scroll-smooth`}
         >
           <div className="max-w-3xl mx-auto space-y-10">
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
+                className={`flex ${
+                  profile?.compact_mode ? "gap-4" : "gap-6"
+                } items-start animate-in fade-in slide-in-from-bottom-2 duration-500`}
               >
                 <div
-                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                    }`}
+                  className={`${
+                    profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"
+                  } flex-shrink-0 rounded-xl flex items-center justify-center font-black ${
+                    msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                  }`}
                 >
                   {msg.role === "ai"
                     ? "N"
@@ -1105,8 +1176,8 @@ export default function Home() {
                       if (isStreamingMessage) {
                         const liveContent = stripPartialThink(msg.content);
                         const liveMathContent = sanitizeMathContent(liveContent);
-                        const canRenderLiveMath = /[$\\]/.test(liveMathContent) && liveMathContent.length > 0;
-
+                        const canRenderLiveMath =
+                          /[$\\]/.test(liveMathContent) && liveMathContent.length > 0;
 
                         return canRenderLiveMath ? (
                           <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
@@ -1139,10 +1210,16 @@ export default function Home() {
                             )}
                           </div>
 
-
                           {steps.length > 0 && (
                             <ThoughtTrace
                               steps={steps}
+                              accentColor={profile?.theme_accent ?? "cyan"}
+                            />
+                          )}
+
+                          {msg.citations && msg.citations.length > 0 && (
+                            <CitationCard
+                              citations={msg.citations}
                               accentColor={profile?.theme_accent ?? "cyan"}
                             />
                           )}
@@ -1179,15 +1256,17 @@ export default function Home() {
             <div className="max-w-[320px] mx-auto flex items-center p-1 bg-[#0a0a0a] rounded-xl border border-white/5 shadow-2xl w-full sm:w-auto">
               <button
                 onClick={() => setIsNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                  }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
+                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                }`}
               >
                 Pure Logic
               </button>
               <button
                 onClick={() => setIsNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                  }`}
+                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${
+                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                }`}
               >
                 Nemanja Mode
               </button>
@@ -1211,10 +1290,11 @@ export default function Home() {
                 <button
                   onClick={() => setLectureMode((prev) => !prev)}
                   disabled={isLoading}
-                  className={`shrink-0 h-10 sm:h-12 px-3 sm:px-4 rounded-xl border text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all outline-none ${lectureMode
-                    ? `${accentBorder} ${accentColor} bg-white/5`
-                    : "border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 bg-white/[0.02]"
-                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  className={`shrink-0 h-10 sm:h-12 px-3 sm:px-4 rounded-xl border text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all outline-none ${
+                    lectureMode
+                      ? `${accentBorder} ${accentColor} bg-white/5`
+                      : "border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 bg-white/[0.02]"
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
                   title="Toggle Lecture Mode retrieval context"
                   aria-pressed={lectureMode}
                 >
@@ -1230,13 +1310,14 @@ export default function Home() {
                     attachedFile
                       ? `Ask about ${attachedFile.file.name}…`
                       : lectureMode
-                        ? "Lecture Mode: ask with retrieval context..."
-                        : isNikiMode
-                          ? "Ask Professor Nikitovic..."
-                          : "Specify mathematical query..."
+                      ? "Lecture Mode: ask with retrieval context..."
+                      : isNikiMode
+                      ? "Ask Professor Nikitovic..."
+                      : "Specify mathematical query..."
                   }
-                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
-                    } placeholder:text-slate-600 shadow-none`}
+                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${
+                    profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
+                  } placeholder:text-slate-600 shadow-none`}
                 />
 
                 <button
