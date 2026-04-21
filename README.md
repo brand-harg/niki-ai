@@ -46,6 +46,7 @@ npm run test:rag-quality:calc
 npm run test:rag-quality:calc:c1
 npm run test:rag-quality:ml
 npm run test:rag-quality:calc:file
+npm run test:rag-quality:all
 ```
 
 You can also run the checker directly with filters:

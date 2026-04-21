@@ -2,9 +2,39 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { detectCourseFilter } from "@/lib/courseFilters";
-
-type Difficulty = "easy" | "exam" | "challenge";
+import { normalizeModelMathOutput } from "@/lib/mathFormatting";
+import {
+  buildLectureContextSystemMessage,
+  buildModeReminderSystemMessage,
+  buildSystemPrompt,
+  buildUserMessageContent,
+  isPracticeRequest,
+  type Difficulty,
+} from "@/lib/chatPrompts";
+import {
+  buildCitationLectureReply,
+  buildLectureRecoveryReply,
+  buildLectureCountReply,
+  buildLectureTopicPrompt,
+  dedupeCitations,
+  formatSeconds,
+  getAvailableLectureCourses,
+  getLectureCourseCounts,
+  getLecturesByCourse,
+  isCalc1LectureListIntent,
+  isLectureCountIntent,
+  isLectureListIntent,
+  isUsableVideoUrl,
+  type LectureCitation,
+} from "@/lib/ragHelpers";
+import {
+  buildDeterministicMathReply,
+  detectSimpleMathIntent,
+  incompleteProceduralMathRequest,
+  missingExpressionReply,
+} from "@/lib/deterministicMath";
 
 type ChatRequest = {
   message?: string;
@@ -30,17 +60,27 @@ type ChatRequest = {
     course?: string;
     timestampStartSeconds?: number;
     timestampUrl?: string | null;
+    similarity?: number;
   }[];
 };
 
-type LectureCitation = NonNullable<ChatRequest["ragCitations"]>[number];
+const UI_GREETING_TEXTS = new Set([
+  "What do you need help with?",
+  "What are we solving today?",
+  "Send the math, code, or technical problem.",
+  "What do you want to work through?",
+  "Give me the problem and I’ll keep it clean.",
+  "What needs fixing, proving, solving, or explaining?",
+  "Do you need help with kalk?",
+  "All right, what are we working on?",
+  "Bring me the problem. We will make it behave.",
+  "What do we need to figure out today?",
+  "Kalk, algebra, stats, code. What is the situation?",
+]);
 
-type LectureSourceRow = {
-  lecture_title: string | null;
-  course: string | null;
-  professor: string | null;
-  video_url: string | null;
-};
+function isUiGreeting(content?: string): boolean {
+  return UI_GREETING_TEXTS.has(content?.trim() ?? "");
+}
 
 function wantsStepByStep(message: string): boolean {
   return /(step[-\s]?by[-\s]?step|show every step|all steps|detailed steps|walk me through|show work)/i.test(
@@ -58,28 +98,49 @@ function wantsThoughtTrace(message: string): boolean {
   return /(thought trace|reasoning trace|show reasoning|show thought process)/i.test(message);
 }
 
-function isExpansionRequest(message: string): boolean {
-  return /(more steps|explain more|more detail|i('| a)?m lost|break it down more|expand this)/i.test(
-    message
-  );
-}
-
-function isPracticeRequest(message: string): boolean {
-  return /(give me practice|make practice problems|similar problems|more problems|quiz me|test me|generate problems)/i.test(
-    message
-  );
-}
-
 function isLectureSummaryRequest(message: string): boolean {
-  return /(summarize the lecture|teach me the lecture|i missed the lecture|what did the lecture cover|explain the lecture)/i.test(
+  return /(summarize the lecture|teach me the lecture|lecture me on|i missed the lecture|wasn'?t in class|what did the lecture cover|explain the lecture)/i.test(
     message
   );
 }
 
 function isLikelyMathQuestion(message: string): boolean {
-  return /(\bintegral\b|\bderivative\b|\bdifferentiate\b|\bsolve\b|\blimit\b|\bmatrix\b|\bprobability\b|\bstatistic\b|\bmean\b|\bvariance\b|\bstandard deviation\b|\btrig\b|\bsin\b|\bcos\b|\btan\b|\bproof\b|\bequation\b|\bfunction\b|\bvector\b|\bdeterminant\b|\beigen\b|\bdistribution\b|[\dxy]\s*[\+\-\*\/\^]\s*[\dxy]|\\int|\\frac|\$)/i.test(
+  return /(\barithmetic\b|\boperations?\b|\bfractions?\b|\bdecimals?\b|\bpercent(?:age)?s?\b|\bsales tax\b|\bdiscount\b|\bfinal price\b|\bvolume\b|\barea\b|\bradius\b|\bheight\b|\bcylinder\b|\broot\b|\broots\b|\bintegral\b|\bintegrate\b|\bantiderivative\b|\bderivative\b|\bdifferentiate\b|\bdy\/dx\b|\bd\/dx\b|\bsolve\b|\bevaluate\b|\bsimplify\b|\bisolate\b|\blimit\b|\bmatrix\b|\bmatrices\b|\bprobability\b|\bstatistic\b|\bmean\b|\bmedian\b|\bmode\b|\bvariance\b|\bstandard deviation\b|\bz[-\s]?score\b|\bp[-\s]?value\b|\bnormal distribution\b|\bbinomial\b|\btrig\b|\bsin\b|\bcos\b|\btan\b|\bsec\b|\bcsc\b|\bcot\b|\bidentity\b|\bproof\b|\bequation\b|\binequality\b|\bfunction\b|\bdomain\b|\brange\b|\basymptote\b|\bgraph\b|\bintercepts?\b|\bvertex\b|\bslope\b|\btangent\b|\bconcavity\b|\binflection\b|\bcritical point\b|\boptimization\b|\brelated rates\b|\bimplicit\b|\bvector\b|\bdot product\b|\bcross product\b|\bgradient\b|\bdeterminant\b|\beigen\b|\bdistribution\b|\bfactor\b|\bfactoring\b|\bpolynomial\b|\bsynthetic division\b|\blong division\b|\bcomplete the square\b|\bquadratic\b|\brational expression\b|\bexponent\b|\blogarithm\b|\bseries\b|\bsequence\b|\bsummation\b|\bsum\b|\bconverge\b|\bdiverge\b|\bratio test\b|\bcomparison test\b|\btaylor\b|\bmaclaurin\b|\bdifferential equation\b|\brow reduce\b|\brow reduction\b|\bgaussian elimination\b|\bscientific notation\b|\bcomplex\b|\ba\s*\+\s*bi\b|\bln\b|\blog\b|\bsqrt\b|\bpi\b|\bdo\s+\d*\s*[a-z]\b|\d+\s*[a-z]\b|[a-z]\^\d|[\dxy]\s*[\+\-\*\/\^]\s*[\dxy]|\\int|\\frac|\\sum|\\lim|\$)/i.test(
     message
   );
+}
+
+function isLongFormNonDeterministicRequest(message: string): boolean {
+  const asksForLongForm =
+    /\b(explain|compare|contrast|summarize|teach|walk me through|break down|why|how|write|draft|brainstorm|analyze|argue|evaluate|recommend|plan|outline)\b/i.test(
+      message
+    ) ||
+    /\b(in detail|deep dive|long answer|essay|paragraphs?|thorough|comprehensive)\b/i.test(
+      message
+    );
+  const asksForExactShort =
+    /\b(just the answer|one sentence|briefly|quick answer|yes or no|true or false)\b/i.test(
+      message
+    );
+
+  return asksForLongForm && !asksForExactShort && message.length >= 18;
+}
+
+function sanitizeHistoryForModel(content: string): string {
+  return content
+    .replace(/^Current response mode:[\s\S]*?\n\nUser request:\n/i, "")
+    .replace(/\\boxed\s*\{([^}]*)\}/g, "$1")
+    .replace(/\\\[/g, "$$$$")
+    .replace(/\\\]/g, "$$$$")
+    .replace(/\\\(/g, "$")
+    .replace(/\\\)/g, "$")
+    .replace(/\${3,}/g, "$$$$")
+    .replace(/^\s*\$\$\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function isInternalModeReminder(content?: string): boolean {
+  return /^Current response mode:/i.test(content?.trim() ?? "");
 }
 
 function isCodingQuestion(message: string, textFileName?: string, textFileContent?: string): boolean {
@@ -94,442 +155,6 @@ function isCodingQuestion(message: string, textFileName?: string, textFileConten
   return /(\bcode\b|\bprogram\b|\bdebug\b|\berror\b|\btypescript\b|\bjavascript\b|\bpython\b|\bjava\b|\breact\b|\bnext\.js\b|\bsql\b|\balgorithm\b|\bfunction\b|\bclass\b|\bcomponent\b|\bapi\b|\broute\b|\bstack trace\b|\bcompiler\b|\bsyntax\b)/i.test(
     message
   );
-}
-
-function isLectureListIntent(message: string): boolean {
-  return /(what lectures do you have|list .*lectures|list me .*lectures|all .*lectures)/i.test(message);
-}
-
-function isVideoLookupIntent(message: string): boolean {
-  return /(what is the youtube video|what's the youtube video|youtube video|video link|what is the video|what's the video)/i.test(
-    message
-  );
-}
-
-function isCalc1LectureListIntent(message: string): boolean {
-  return /(calc 1|calculus 1)/i.test(message) && /(list|lectures|all)/i.test(message);
-}
-
-function formatSeconds(seconds?: number): string {
-  if (typeof seconds !== "number" || Number.isNaN(seconds)) return "unknown time";
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
-function dedupeCitations(citations: LectureCitation[]): LectureCitation[] {
-  const seen = new Set<string>();
-  const out: LectureCitation[] = [];
-
-  for (const cite of citations) {
-    const key = [
-      cite.lectureTitle ?? "",
-      cite.course ?? "",
-      cite.professor ?? "",
-      cite.timestampStartSeconds ?? "",
-      cite.timestampUrl ?? "",
-    ].join("|");
-
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(cite);
-    }
-  }
-
-  return out;
-}
-
-function uniqueLectures(citations: LectureCitation[]): LectureCitation[] {
-  const seen = new Set<string>();
-  const out: LectureCitation[] = [];
-
-  for (const cite of citations) {
-    const key = [cite.lectureTitle ?? "", cite.course ?? "", cite.professor ?? ""].join("|");
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(cite);
-    }
-  }
-
-  return out;
-}
-
-async function getLecturesByCourse(courseFilter: string): Promise<LectureSourceRow[]> {
-  const { data, error } = await supabase
-    .from("lecture_sources")
-    .select("lecture_title, course, professor, video_url")
-    .ilike("course", `%${courseFilter}%`)
-    .order("lecture_title", { ascending: true });
-
-  if (error) throw new Error(error.message);
-
-  const seen = new Set<string>();
-  const deduped: LectureSourceRow[] = [];
-
-  for (const row of (data ?? []) as LectureSourceRow[]) {
-    const key = [
-      row.lecture_title ?? "",
-      row.course ?? "",
-      row.professor ?? "",
-      row.video_url ?? "",
-    ].join("|");
-
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduped.push(row);
-    }
-  }
-
-  return deduped;
-}
-
-function buildCitationLectureReply(
-  message: string,
-  citations: LectureCitation[]
-): string | null {
-  if (!isLectureListIntent(message) && !isVideoLookupIntent(message)) return null;
-
-  const deduped = uniqueLectures(dedupeCitations(citations));
-  if (deduped.length === 0) {
-    return "I don't have any matching lecture metadata in my database for that request.";
-  }
-
-  if (isVideoLookupIntent(message)) {
-    const firstWithUrl = deduped.find((c) => c.timestampUrl);
-    if (!firstWithUrl) {
-      return "I found lecture context, but I do not have a usable video link for it in the database.";
-    }
-
-    return [
-      `${firstWithUrl.lectureTitle ?? "Unknown lecture"}`,
-      `${firstWithUrl.course ?? "Unknown course"} · ${firstWithUrl.professor ?? "Unknown professor"} · ${formatSeconds(firstWithUrl.timestampStartSeconds)}`,
-      `Watch: ${firstWithUrl.timestampUrl}`,
-    ].join("\n");
-  }
-
-  return deduped
-    .map((c, i) => {
-      const title = c.lectureTitle ?? "Unknown lecture";
-      const course = c.course ?? "Unknown course";
-      const professor = c.professor ?? "Unknown professor";
-      const watch = c.timestampUrl ? `\nWatch: ${c.timestampUrl}` : "";
-      return `${i + 1}. ${title}\n${course} · ${professor}${watch}`;
-    })
-    .join("\n\n");
-}
-
-function buildDifficultyRules(difficulty: Difficulty): string {
-  switch (difficulty) {
-    case "easy":
-      return `
-DIFFICULTY — EASY:
-- Prefer approachable explanations.
-- Use simpler numbers/examples when generating practice.
-- Emphasize intuition and setup.
-- Avoid jumping steps.
-`.trim();
-    case "challenge":
-      return `
-DIFFICULTY — CHALLENGE:
-- Use more rigorous explanations.
-- Allow more advanced problem variations.
-- Include subtle pitfalls or non-trivial twists when generating practice.
-- Keep the solution precise and not over-simplified.
-`.trim();
-    case "exam":
-    default:
-      return `
-DIFFICULTY — EXAM:
-- Aim for typical quiz/test level.
-- Be clear, efficient, and solution-focused.
-- Prioritize what a student would need under exam conditions.
-`.trim();
-  }
-}
-
-function buildSystemPrompt({
-  isProfessorMode,
-  userName,
-  includeThoughtTrace,
-  personalContext,
-  styleInstructions,
-  lectureMode,
-  forceStructuredMath,
-  isCoding,
-  difficulty,
-  practiceMode,
-}: {
-  isProfessorMode: boolean;
-  userName: string;
-  includeThoughtTrace: boolean;
-  personalContext?: string;
-  styleInstructions?: string;
-  lectureMode: boolean;
-  forceStructuredMath: boolean;
-  isCoding: boolean;
-  difficulty: Difficulty;
-  practiceMode: boolean;
-}) {
-  const modeLayer = isProfessorMode
-    ? `
-MODE — PROFESSOR:
-- You are NikiAI in Professor Mode.
-- Keep the same correctness and formatting discipline as Pure Logic mode.
-- Change only the teaching style: more instructor-like, more pedagogical, more pointed.
-- Be direct, rigorous, and structured.
-- No fake enthusiasm, no filler, no unnecessary praise.
-- If the student is wrong, state clearly where the logic breaks.
-`
-    : `
-MODE — PURE LOGIC:
-- You are a high-level reasoning assistant in Pure Logic mode.
-- Be concise, neutral, and precise.
-- Focus on solving and explaining clearly and efficiently.
-- No roleplay or personality-heavy language.
-`;
-
-  const thoughtTraceLayer = includeThoughtTrace
-    ? `
-THOUGHT TRACE:
-- Only include one <think>...</think> block before the answer.
-- Keep it brief and strategy-level.
-- Do not dump raw algebra or large code traces inside it.
-- Keep it under 6 short lines.
-`
-    : `
-THOUGHT TRACE:
-- Do not output any <think>...</think> tags unless explicitly requested.
-`;
-
-  const lectureLayer = lectureMode
-    ? `
-LECTURE MODE:
-- Lecture mode is a content and teaching enhancement layer, not a formatting layer.
-- If lecture context is provided separately, use it as the primary grounding source when relevant.
-- Use lecture-aligned terminology, ordering, emphasis, examples, and pacing when supported.
-- Help the user recover missed lecture material, reconstruct lesson flow, and connect this problem to prior lecture patterns.
-- When appropriate, identify what prerequisite idea the user may have missed.
-- If asked, generate similar practice problems aligned to the retrieved lecture style and level.
-- If no lecture context supports a lecture-specific claim, say so plainly and do not invent details.
-`
-    : "";
-
-  const mathLayer = forceStructuredMath
-    ? `
-MATH RESPONSE STRUCTURE (ALL MATH):
-- Use this structure for all math topics, including algebra, calculus, trig, linear algebra, statistics, proofs, and word problems:
-  1) ## Specific Title
-  2) Short intro (1–2 sentences)
-  3) One $$...$$ formula block if relevant
-  4) ---
-  5) ## Step-by-Step Solution
-  6) ### Step 1
-  7) ### Step 2
-  8) Continue with more steps only as needed
-  9) ---
-  10) ## Final Answer
-  11) Final result in ONE standalone $$...$$ block
-  12) One short closing sentence
-
-STEP RULES:
-- Each step should represent one meaningful transformation.
-- Combine very small sub-steps when they naturally belong together.
-- Do not over-fragment simple algebra.
-- Do not compress several meaningful transformations into one long step.
-- Use bullets for setup, definitions, variable choices, helper values, or case setup.
-- Use $$...$$ for formulas, transformations, and final results.
-- Use $...$ for short expressions inside sentences.
-- If the user asks for more steps, expand the same structure instead of rewriting from scratch.
-
-ALL-MATH ADAPTATION:
-- Procedural problems: solve step by step.
-- Conceptual questions: explain clearly with fewer calculations.
-- Word problems: define variables, translate to math, solve, interpret.
-- Multi-part problems: break into Part (a), (b), (c) while keeping the same layout.
-- Proof-style questions: keep a logical structured flow without forcing fake algebraic steps where they do not belong.
-
-LATEX RULES (STRICT):
-- Inline math MUST use $...$
-- Display math MUST use $$...$$
-- Never output raw LaTeX outside delimiters
-- Never output a single "$" on its own line
-- Never mix plain text with raw LaTeX on the same math line
-- Never use \\( \\) or \\[ \\]
-- Never use \\boxed{}
-- Do not place multiple unrelated equations on the same line
-- If a line contains LaTeX commands like \\int, \\ln, \\frac, or \\sqrt, wrap the full expression correctly
-`
-    : `
-GENERAL RESPONSE STRUCTURE:
-- Be clear, readable, and consistent.
-- If the question is technical or analytical, break it into logical sections when useful.
-`;
-
-  const codingLayer = isCoding
-    ? `
-CODE EXPLANATION + WRITING:
-- Be strong at writing, explaining, and debugging code in every mode.
-- When explaining code, be precise and practical.
-- For code help, clearly identify:
-  1) what the code does
-  2) what is wrong, if anything
-  3) how to fix it
-  4) why the fix works
-- When writing code:
-  - prefer correctness, readability, and maintainability
-  - avoid unnecessary cleverness
-  - preserve the user's architecture unless a redesign is clearly needed
-  - include comments only where they actually help
-- If the user asks for debugging, explain the root cause, not just the patch.
-- If the user asks for a rewrite, provide code that is directly usable.
-- If the user asks for explanation, explain like a strong TA or professor, depending on mode.
-`
-    : "";
-
-  const practiceLayer = practiceMode
-    ? `
-PRACTICE MODE:
-- The user wants learning support, not just the answer.
-- When appropriate, generate practice problems that match the current topic and requested difficulty.
-- If lecture mode is on and lecture context exists, make practice similar to the lecture style and level.
-- Prefer a small, useful set of practice problems over a huge dump.
-- If giving practice, separate problems from solutions clearly.
-`
-    : "";
-
-  const difficultyLayer = buildDifficultyRules(difficulty);
-
-  return `
-You are a high-level assistant focused on math, technical reasoning, and code explanation.
-
-CORE RULES:
-- Prioritize correctness, consistency, clarity, and stable formatting.
-- Do not change layout style randomly between similar responses.
-- Be good at both math and code explanation.
-
-${modeLayer}
-
-${lectureLayer}
-
-${difficultyLayer}
-
-${practiceLayer}
-
-${thoughtTraceLayer}
-
-${mathLayer}
-
-${codingLayer}
-
-GENERAL WRITING RULES:
-- For non-math, non-code writing tasks, respond in clean natural prose.
-- Do not over-format simple responses.
-- Use markdown only when it improves readability.
-
-User: ${userName}
-${personalContext ? `\n${personalContext}` : ""}
-${styleInstructions ? `\n${styleInstructions}` : ""}
-`.trim();
-}
-
-function buildLectureContextSystemMessage({
-  ragContext,
-  ragStyleSnippets,
-  ragCitations,
-}: {
-  ragContext: string[];
-  ragStyleSnippets: { text: string; personaTag?: string }[];
-  ragCitations: LectureCitation[];
-}): string {
-  const factual = ragContext
-    .slice(0, 6)
-    .map((chunk, i) => `Context ${i + 1}:\n${chunk}`)
-    .join("\n\n");
-
-  const style = ragStyleSnippets
-    .slice(0, 3)
-    .map(
-      (snippet, i) =>
-        `Style ${i + 1} (${snippet.personaTag ?? "teaching_style"}):\n${snippet.text}`
-    )
-    .join("\n\n");
-
-  const citations = ragCitations
-    .slice(0, 6)
-    .map((cite, i) => {
-      const ts = formatSeconds(cite.timestampStartSeconds);
-      return `${i + 1}. ${cite.lectureTitle ?? "Unknown lecture"} (${cite.course ?? "Unknown course"} · ${cite.professor ?? "Unknown professor"}) @ ${ts}${cite.timestampUrl ? ` -> ${cite.timestampUrl}` : ""}`;
-    })
-    .join("\n");
-
-  return `
-LECTURE CONTEXT (STRICT):
-- Use this as the primary lecture grounding source when relevant.
-- Prioritize lecture terminology, phrasing, examples, method order, and emphasis when supported.
-- If the context does not support a lecture-specific claim, say so clearly.
-- Do not invent lecture titles, section numbers, timestamps, or professor-specific details beyond what is provided here.
-
-=== LECTURE FACTS START ===
-${factual || "No retrieved chunks."}
-=== LECTURE FACTS END ===
-
-=== LECTURE STYLE START ===
-${style || "No style snippets."}
-=== LECTURE STYLE END ===
-
-=== LECTURE CITATIONS START ===
-${citations || "No citations."}
-=== LECTURE CITATIONS END ===
-`.trim();
-}
-
-function buildUserMessageContent({
-  message,
-  textFileContent,
-  textFileName,
-  latestAssistantMessage,
-  practiceMode,
-}: {
-  message: string;
-  textFileContent?: string;
-  textFileName?: string;
-  latestAssistantMessage?: string;
-  practiceMode: boolean;
-}): string {
-  let userMessageContent = message;
-
-  if (textFileContent) {
-    const fileContext = `The user attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\``;
-    userMessageContent = userMessageContent
-      ? `${userMessageContent}\n\nAttached file context:\n${fileContext}`
-      : fileContext;
-  }
-
-  if (practiceMode && !isPracticeRequest(userMessageContent)) {
-    userMessageContent = `${userMessageContent}\n\nThe user would like practice support when useful.`;
-  }
-
-  if (isExpansionRequest(message) && latestAssistantMessage) {
-    const previousAnswer = latestAssistantMessage.slice(0, 6000);
-
-    userMessageContent = `
-EXPANSION TASK:
-- Expand the previous answer with more detail.
-- Preserve the same structure, numbering, and flow.
-- Keep prior wording where possible.
-- Insert missing intermediate steps instead of rewriting from scratch.
-
-Previous answer:
-<previous_answer>
-${previousAnswer}
-</previous_answer>
-
-User follow-up:
-${message}
-`.trim();
-  }
-
-  return userMessageContent || "Please respond to the user's request.";
 }
 
 function extractJsonObjects(input: string): {
@@ -582,13 +207,20 @@ function extractJsonObjects(input: string): {
   return { objects, remainder: "" };
 }
 
+function normalizeBufferedModelOutput(content: string): string {
+  return String(content || "")
+    .replace(/^Current response mode:[^\n]*(?:\n|$)/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export async function POST(req: Request) {
   try {
     const body: ChatRequest = await req.json();
 
     const message = body.message?.trim() || "";
     const history = body.history || [];
-    const isNikiMode = body.isNikiMode ?? true;
+    const isNikiMode = body.isNikiMode ?? false;
     const userName = body.userName?.trim() || "User";
     const userId = body.userId?.trim() || "";
     const base64Image = body.base64Image;
@@ -641,10 +273,41 @@ export async function POST(req: Request) {
       : "";
 
     const detectedCourse = detectCourseFilter(message);
+    const latestAssistantForLectureTopic = [...history]
+      .reverse()
+      .find((msg) => msg.role === "ai" || msg.role === "assistant")?.content ?? "";
+    const isLectureTopicFollowup =
+      !!detectedCourse &&
+      message.trim().length <= 80 &&
+      /(What topic or course do you want lectures for|Tell me a course or topic|I can list lectures by topic\/course)/i.test(
+        latestAssistantForLectureTopic
+      );
     const isDetectedCourseLectureIntent =
-      !!detectedCourse && /(list|lectures|all|show)/i.test(message);
+      (!!detectedCourse && /(list|lectures|all|show)/i.test(message)) ||
+      isLectureTopicFollowup ||
+      (!!detectedCourse && message.trim().length <= 40);
 
-    if (lectureMode && (isCalc1LectureListIntent(message) || isDetectedCourseLectureIntent)) {
+    if (isLectureCountIntent(message)) {
+      const counts = await getLectureCourseCounts();
+      return new Response(buildLectureCountReply(counts), {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
+
+    if (isLectureListIntent(message) && !detectedCourse && !isCalc1LectureListIntent(message)) {
+      const courses = await getAvailableLectureCourses();
+      return new Response(buildLectureTopicPrompt(courses), {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
+
+    if (isCalc1LectureListIntent(message) || isDetectedCourseLectureIntent) {
       const courseFilter = detectedCourse ?? "Calculus 1";
       const lectures = await getLecturesByCourse(courseFilter);
 
@@ -662,10 +325,9 @@ export async function POST(req: Request) {
           const title = lecture.lecture_title ?? "Unknown lecture";
           const course = lecture.course ?? "Unknown course";
           const professor = lecture.professor ?? "Unknown professor";
-          const watch =
-            lecture.video_url && !lecture.video_url.includes("UNKNOWN")
-              ? `\nWatch: ${lecture.video_url}`
-              : "";
+          const watch = isUsableVideoUrl(lecture.video_url)
+            ? `\nWatch: ${lecture.video_url}`
+            : "\nWatch: link unavailable";
           return `${i + 1}. ${title}\n${course} · ${professor}${watch}`;
         })
         .join("\n\n");
@@ -679,6 +341,20 @@ export async function POST(req: Request) {
     }
 
     if (lectureMode) {
+      const lectureRecoveryReply = buildLectureRecoveryReply({
+        message,
+        ragContext,
+        citations: ragCitations,
+      });
+      if (lectureRecoveryReply) {
+        return new Response(lectureRecoveryReply, {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+
       const directLectureReply = buildCitationLectureReply(message, ragCitations);
       if (directLectureReply) {
         return new Response(directLectureReply, {
@@ -688,17 +364,80 @@ export async function POST(req: Request) {
           },
         });
       }
+
+      if (
+        isLectureSummaryRequest(message) &&
+        ragContext.length === 0 &&
+        ragCitations.length === 0
+      ) {
+        return new Response(
+          [
+            "I do not have lecture retrieval context for that specific lecture.",
+            "",
+            "Give me a real course, topic, or lecture title from the indexed lectures and I can reconstruct it from the transcript instead of inventing details.",
+          ].join("\n"),
+          {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
+      }
     }
 
-    const formattedHistory = history
-      .filter((msg) => msg.content?.trim() && msg.content !== "What do you need help with?")
+    if (!hasImage && !hasTextFile) {
+      const proceduralMathIntent = detectSimpleMathIntent(message);
+      if (
+        proceduralMathIntent &&
+        incompleteProceduralMathRequest(message, proceduralMathIntent)
+      ) {
+        return new Response(missingExpressionReply(proceduralMathIntent), {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+
+      const deterministicMathReply = buildDeterministicMathReply({
+        message,
+        isProfessorMode: isNikiMode,
+        lectureMode,
+        hasLectureContext: ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0,
+      });
+
+      if (deterministicMathReply) {
+        return new Response(normalizeModelMathOutput(deterministicMathReply), {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+    }
+
+    const historyWithoutCurrent =
+      history.length > 0 &&
+        history[history.length - 1]?.role === "user" &&
+        history[history.length - 1]?.content?.trim() === message
+        ? history.slice(0, -1)
+        : history;
+
+    const formattedHistory = historyWithoutCurrent
+      .filter(
+        (msg) =>
+          msg.content?.trim() &&
+          !isUiGreeting(msg.content) &&
+          !isInternalModeReminder(msg.content)
+      )
       .slice(-8)
       .map((msg) => ({
         role: msg.role === "ai" ? "assistant" : "user",
-        content: msg.content,
+        content: sanitizeHistoryForModel(msg.content),
       }));
 
-    const latestAssistantMessage = [...history]
+    const latestAssistantMessage = [...historyWithoutCurrent]
       .reverse()
       .find(
         (msg) =>
@@ -712,6 +451,9 @@ export async function POST(req: Request) {
       isLikelyMathQuestion(message) ||
       wantsStepByStep(message) ||
       wantsDeeperExplanation(message);
+    const longFormNonDeterministic =
+      !forceStructuredMath &&
+      isLongFormNonDeterministicRequest(message);
 
     const isCoding =
       isCodingQuestion(message, textFileName, textFileContent) ||
@@ -726,6 +468,7 @@ export async function POST(req: Request) {
       styleInstructions,
       lectureMode,
       forceStructuredMath,
+      longFormNonDeterministic,
       isCoding,
       difficulty,
       practiceMode,
@@ -748,6 +491,12 @@ export async function POST(req: Request) {
       latestAssistantMessage,
       practiceMode: practiceMode || isPracticeRequest(message) || isLectureSummaryRequest(message),
     });
+    const modeReminderSystemContent = buildModeReminderSystemMessage({
+      isProfessorMode: isNikiMode,
+      lectureMode,
+      hasLectureContext: !!lectureContextSystemContent,
+      longFormNonDeterministic,
+    });
 
     const userMessage: Record<string, unknown> = {
       role: "user",
@@ -760,6 +509,7 @@ export async function POST(req: Request) {
 
     const ollamaMessages = [
       { role: "system", content: systemPrompt },
+      { role: "system" as const, content: modeReminderSystemContent },
       ...(lectureContextSystemContent
         ? [{ role: "system" as const, content: lectureContextSystemContent }]
         : lectureMode
@@ -785,6 +535,61 @@ export async function POST(req: Request) {
     const ollamaBaseUrl =
       process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434";
 
+    const shouldBufferForRepair =
+      (forceStructuredMath && !hasImage) || (longFormNonDeterministic && !hasImage);
+    const modelTemperature = forceStructuredMath ? 0 : longFormNonDeterministic ? 0.35 : 0.15;
+    const modelNumPredict = longFormNonDeterministic ? 2600 : hasImage ? 1200 : 1800;
+
+    if (shouldBufferForRepair) {
+      const stableMathResponse = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          keep_alive: "2h",
+          options: {
+            num_predict: modelNumPredict,
+            temperature: modelTemperature,
+          },
+          messages: ollamaMessages,
+        }),
+      });
+
+      if (!stableMathResponse.ok) {
+        const responseText = await stableMathResponse.text().catch(() => "");
+        if (isDevLog) {
+          console.log(
+            "❌ Ollama stable math request failed:",
+            stableMathResponse.status,
+            stableMathResponse.statusText,
+            responseText
+          );
+        }
+
+        return NextResponse.json(
+          {
+            reply:
+              "System Error: Local model request failed. Check OLLAMA_API_URL and model availability.",
+          },
+          { status: 502 }
+        );
+      }
+
+      const stableJson = await stableMathResponse.json().catch(() => null);
+      const stableContent = String(stableJson?.message?.content ?? "");
+      const stableOutput = forceStructuredMath
+        ? normalizeModelMathOutput(stableContent)
+        : normalizeBufferedModelOutput(stableContent);
+
+      return new Response(stableOutput, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
+
     const ollamaResponse = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -793,8 +598,8 @@ export async function POST(req: Request) {
         stream: true,
         keep_alive: "2h",
         options: {
-          num_predict: hasImage ? 1200 : 1800,
-          temperature: 0,
+          num_predict: modelNumPredict,
+          temperature: modelTemperature,
         },
         messages: ollamaMessages,
       }),

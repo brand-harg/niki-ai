@@ -101,10 +101,18 @@ function chunkSegments(segments, maxChars = 900) {
 }
 
 function extractPersonaSnippets(chunks) {
-    const pattern =
-        /(think about|intuition|common mistake|remember this|important idea|geometric meaning)/i;
+    const stylePattern =
+        /(think about|intuition|common mistake|remember|keep in mind|important idea|geometric meaning|what do we do|what is the only thing|do you see|there we go|that's it|not a big deal|make sense|on the exam|you need to know|must know|the idea is|the point is|this tells us|this means|in other words|so now|now we|let's translate|plug everything|we immediately|be careful|domain|vertical asymptote|slope|change|squeeze|kalk|calc two|calc three|calc 2|calc 3)/i;
+    const stylePatternGlobal =
+        /(think about|intuition|common mistake|remember|keep in mind|important idea|geometric meaning|what do we do|what is the only thing|do you see|there we go|that's it|not a big deal|make sense|on the exam|you need to know|must know|the idea is|the point is|this tells us|this means|in other words|so now|now we|let's translate|plug everything|we immediately|be careful|domain|vertical asymptote|slope|change|squeeze|kalk|calc two|calc three|calc 2|calc 3)/gi;
+    const weakFillerPattern =
+        /^(thank you|bye|hello and welcome back|all right\.?|okay\.?)$/i;
+    const styleScore = (text) => (text.match(stylePatternGlobal) ?? []).length;
+
     return chunks
-        .filter((c) => pattern.test(c.clean_text))
+        .filter((c) => stylePattern.test(c.clean_text))
+        .filter((c) => !weakFillerPattern.test(c.clean_text.trim()))
+        .sort((a, b) => styleScore(b.clean_text) - styleScore(a.clean_text))
         .slice(0, 80)
         .map((c) => ({
             snippet_text: c.clean_text,
@@ -336,12 +344,13 @@ async function main() {
     }
 
     const openaiApiKey = process.env.OPENAI_API_KEY?.trim();
-    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    const supabaseUrl =
+        process.env.SUPABASE_URL?.trim() || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
     if (!openaiApiKey || !supabaseUrl || !supabaseServiceRoleKey) {
         console.error(
-            "Missing env vars. Required: OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY"
+            "Missing env vars. Required: OPENAI_API_KEY, SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY"
         );
         process.exit(1);
     }

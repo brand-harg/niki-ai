@@ -28,6 +28,18 @@ const fixtures = [
     pattern: /clean_text\.ilike|retrievalMode/,
   },
   {
+    name: "uses-expanded-embedding-query",
+    pattern: /embeddingInputForQuestion/,
+  },
+  {
+    name: "uses-hybrid-reranker",
+    pattern: /hybridChunkScore|selectDiverseChunks/,
+  },
+  {
+    name: "retrieves-neighboring-transcript-context",
+    pattern: /fetchNeighborChunks|neighborChunkKeys/,
+  },
+  {
     name: "supports-source-filters",
     pattern: /courseFilter|professorFilter|matchesSourceFilters/,
   },

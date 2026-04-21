@@ -64,11 +64,12 @@ const ACCENT = {
 };
 
 const RECENT_KEY = "niki_recent_commands";
-const MAX_RECENT = 3;
+const MAX_RECENT = 2;
 
 function getRecent(): string[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    const value = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    return Array.isArray(value) ? value.slice(0, MAX_RECENT) : [];
   } catch {
     return [];
   }
@@ -103,6 +104,7 @@ export default function CommandPalette({
   const [recent, setRecent] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const shouldScrollSelectedRef = useRef(false);
 
   const a = ACCENT[accentColor as keyof typeof ACCENT] ?? ACCENT.cyan;
 
@@ -160,7 +162,7 @@ export default function CommandPalette({
         id: "nemanja-mode",
         icon: "⬡",
         label: "Switch to Nemanja Mode",
-        description: "Professor persona — rigorous and direct",
+        description: "Instructor style, same structure",
         shortcut: "M",
         action: () => onToggleNikiMode(),
       },
@@ -168,7 +170,7 @@ export default function CommandPalette({
         id: "pure-logic",
         icon: "◈",
         label: "Switch to Pure Logic",
-        description: "Clean math assistant — no persona",
+        description: "Default concise technical mode",
         shortcut: "M",
         action: () => onToggleNikiMode(),
       },
@@ -265,6 +267,8 @@ export default function CommandPalette({
 
   // Scroll selected item into view
   useEffect(() => {
+    if (!shouldScrollSelectedRef.current) return;
+    shouldScrollSelectedRef.current = false;
     if (!listRef.current) return;
     const el = listRef.current.querySelector(`[data-idx="${selectedIdx}"]`) as HTMLElement;
     if (el) el.scrollIntoView({ block: "nearest" });
@@ -276,9 +280,11 @@ export default function CommandPalette({
       if (e.key === "Escape") { onClose(); return; }
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        shouldScrollSelectedRef.current = true;
         setSelectedIdx((i) => Math.min(i + 1, flatList.length - 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        shouldScrollSelectedRef.current = true;
         setSelectedIdx((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
@@ -298,18 +304,21 @@ export default function CommandPalette({
       <button
         data-idx={idx}
         onClick={() => execute(cmd)}
-        onMouseEnter={() => setSelectedIdx(flatList.indexOf(cmd))}
+        onMouseEnter={() => {
+          shouldScrollSelectedRef.current = false;
+          setSelectedIdx(flatList.indexOf(cmd));
+        }}
         className={`w-full flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-left transition-all outline-none border
           ${isSelected
             ? `${a.bg} ${a.border} ${a.glow}`
-            : "border-transparent hover:bg-white/[0.03]"
+            : "border-transparent hover:bg-white/[0.04]"
           }
           ${dim ? "opacity-50" : ""}
         `}
       >
         {/* Icon */}
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base
-          ${isSelected ? `${a.bg} border ${a.border}` : "bg-white/[0.04] border border-white/5"}
+          ${isSelected ? `${a.bg} border ${a.border}` : "bg-white/[0.045] border border-white/10"}
         `}>
           <span className={isSelected ? a.text : "text-slate-500"}>{cmd.icon}</span>
         </div>
@@ -319,7 +328,7 @@ export default function CommandPalette({
           <div className={`text-[13px] font-bold leading-none mb-0.5 truncate ${isSelected ? "text-white" : "text-slate-300"}`}>
             {cmd.label}
           </div>
-          <div className="text-[11px] text-slate-600 truncate">{cmd.description}</div>
+          <div className="text-[11px] text-slate-500 truncate">{cmd.description}</div>
         </div>
 
         {/* Shortcut or contextual badge */}
@@ -328,7 +337,7 @@ export default function CommandPalette({
             Active
           </div>
         ) : cmd.shortcut ? (
-          <kbd className={`text-[10px] font-black bg-white/5 border border-white/8 px-2 py-0.5 rounded-md ${isSelected ? a.kbd : "text-slate-700"} font-mono`}>
+          <kbd className={`text-[10px] font-black bg-white/[0.06] border border-white/10 px-2 py-0.5 rounded-md ${isSelected ? a.kbd : "text-slate-600"} font-mono`}>
             {cmd.shortcut}
           </kbd>
         ) : null}
@@ -338,19 +347,19 @@ export default function CommandPalette({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
-      style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] sm:pt-[15vh]"
+      style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(10px)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="w-full max-w-[560px] mx-4 bg-[#0e0e0e] border border-white/8 rounded-2xl overflow-hidden"
+        className="w-full max-w-[580px] mx-4 bg-[#0b0b0b] border border-white/10 rounded-2xl overflow-hidden"
         style={{
-          boxShadow: "0 32px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04)",
+          boxShadow: "0 32px 90px rgba(0,0,0,0.82), inset 0 1px 0 rgba(255,255,255,0.04)",
           animation: "palette-in 0.18s cubic-bezier(0.16,1,0.3,1) both",
         }}
       >
         {/* Search bar */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/5">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 bg-white/[0.02]">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-slate-600 flex-shrink-0">
             <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
             <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -360,20 +369,20 @@ export default function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search commands or type an action…"
-            className="flex-1 bg-transparent border-none outline-none text-slate-100 text-sm placeholder:text-slate-700 font-medium"
+            className="flex-1 bg-transparent border-none outline-none text-slate-100 text-sm placeholder:text-slate-600 font-medium"
           />
           <div className="flex items-center gap-2">
             {query && (
               <button
                 onClick={() => setQuery("")}
-                className="text-slate-600 hover:text-slate-400 transition-colors text-xs"
+                className="text-slate-500 hover:text-slate-300 transition-colors text-xs font-bold"
               >
                 Clear
               </button>
             )}
             <kbd
               onClick={onClose}
-              className="text-[10px] font-black text-slate-700 bg-white/5 border border-white/8 px-2 py-1 rounded-md cursor-pointer hover:text-slate-400 transition-colors font-mono"
+              className="text-[10px] font-black text-slate-600 bg-white/[0.06] border border-white/10 px-2 py-1 rounded-md cursor-pointer hover:text-slate-300 transition-colors font-mono"
             >
               ESC
             </kbd>
@@ -381,13 +390,13 @@ export default function CommandPalette({
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="py-2 max-h-[400px] overflow-y-auto overscroll-contain">
+        <div ref={listRef} className="py-2 max-h-[420px] overflow-y-auto overscroll-contain">
           {/* Query mode — flat filtered list */}
           {filtered !== null ? (
             filtered.length === 0 ? (
               <div className="px-5 py-10 text-center">
-                <p className="text-slate-600 text-xs uppercase tracking-widest font-black">No commands found</p>
-                <p className="text-slate-700 text-[11px] mt-1">Try a different search term</p>
+                <p className="text-slate-500 text-xs uppercase tracking-widest font-black">No commands found</p>
+                <p className="text-slate-600 text-[11px] mt-1">Try a different search term</p>
               </div>
             ) : (
               <div className="px-2 space-y-0.5">
@@ -403,7 +412,7 @@ export default function CommandPalette({
               {recentCommands.length > 0 && (
                 <div className="px-2">
                   <div className="px-3 py-2">
-                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-700">Recent</span>
+                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-600">Recent</span>
                   </div>
                   <div className="space-y-0.5">
                     {recentCommands.map((cmd) => (
@@ -418,7 +427,7 @@ export default function CommandPalette({
               {groups.map((group) => (
                 <div key={group.label} className="px-2">
                   <div className="px-3 py-2">
-                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-700">{group.label}</span>
+                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-600">{group.label}</span>
                   </div>
                   <div className="space-y-0.5">
                     {group.commands.map((cmd) => (
@@ -432,7 +441,7 @@ export default function CommandPalette({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-white/5 flex items-center justify-between">
+        <div className="px-5 py-3 border-t border-white/10 bg-white/[0.015] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${a.dot}`} />
             <span className={`text-[9px] font-black uppercase tracking-[0.15em] ${a.text}`}>

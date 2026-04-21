@@ -13,7 +13,7 @@ export default function PersonalizationPage() {
   const [data, setData] = useState({
     about_user: "",
     response_style: "",
-    default_niki_mode: true,
+    default_niki_mode: false,
   });
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function PersonalizationPage() {
         setData({
           about_user: profile.about_user || "",
           response_style: profile.response_style || "",
-          default_niki_mode: profile.default_niki_mode ?? true,
+          default_niki_mode: profile.default_niki_mode ?? false,
         });
         if (
           profile.theme_accent === "cyan" ||
@@ -154,7 +154,7 @@ export default function PersonalizationPage() {
             <div>
               <span className="text-xs font-bold text-slate-300">Default to Nemanja Mode</span>
               <p className="text-[8px] text-slate-600 uppercase mt-1">
-                Start sessions with the Professor&apos;s persona active
+                Start sessions with the instructor teaching style active
               </p>
             </div>
             <button

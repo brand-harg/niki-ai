@@ -9,6 +9,8 @@ function normalizeChecks(parsed) {
         .filter((item) => item && typeof item === "object")
         .map((item) => ({
             question: String(item.question || "").trim(),
+            courseFilter: item.courseFilter ? String(item.courseFilter).trim() : "",
+            professorFilter: item.professorFilter ? String(item.professorFilter).trim() : "",
             expectedAny: Array.isArray(item.expectedAny)
                 ? item.expectedAny.map((x) => String(x).toLowerCase()).filter(Boolean)
                 : [],
@@ -38,7 +40,7 @@ function parseArgs(argv) {
         strict: argv.includes("--strict") || process.env.CI === "true",
         suite: "calc",
         checksFile: "",
-        ourseFilter: "",
+        courseFilter: "",
         professorFilter: "",
         maxChunks: 8,
     };
@@ -184,7 +186,10 @@ function citationMatchesExpected(citation, expectedAny) {
     return expectedAny.some((needle) => haystack.includes(needle));
 }
 
-async function runCheck({ question, expectedAny }) {
+async function runCheck({ question, expectedAny, courseFilter: checkCourseFilter, professorFilter: checkProfessorFilter }) {
+    const effectiveCourseFilter = checkCourseFilter || courseFilter;
+    const effectiveProfessorFilter = checkProfessorFilter || professorFilter;
+
     const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -192,8 +197,8 @@ async function runCheck({ question, expectedAny }) {
             question,
             lectureMode: true,
             maxChunks,
-            ...(courseFilter ? { courseFilter } : {}),
-            ...(professorFilter ? { professorFilter } : {}),
+            ...(effectiveCourseFilter ? { courseFilter: effectiveCourseFilter } : {}),
+            ...(effectiveProfessorFilter ? { professorFilter: effectiveProfessorFilter } : {}),
         }),
     });
 

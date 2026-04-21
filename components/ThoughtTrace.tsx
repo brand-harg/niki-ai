@@ -85,13 +85,13 @@ export default function ThoughtTrace({ steps, accentColor = "cyan" }: Props) {
   const completionPct = Math.round((steps.length / Math.max(steps.length, 1)) * 100);
 
   return (
-    <div className={`mt-4 rounded-2xl border ${a.border} overflow-hidden bg-black/30 backdrop-blur-sm`}
-      style={{ boxShadow: open ? `0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.03)` : "none" }}
+    <div className={`mt-4 rounded-xl border ${a.border} overflow-hidden bg-black/35 backdrop-blur-sm`}
+      style={{ boxShadow: open ? `0 18px 55px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.04)` : "inset 0 1px 0 rgba(255,255,255,0.025)" }}
     >
       {/* Header */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center justify-between px-5 py-3.5 transition-all outline-none group ${open ? a.bgSofter : "hover:bg-white/[0.02]"}`}
+        className={`w-full flex items-center justify-between px-5 py-3.5 transition-all outline-none group ${open ? a.bgSofter : "hover:bg-white/[0.035]"}`}
       >
         <div className="flex items-center gap-3">
           {/* Animated beacon */}
@@ -109,7 +109,7 @@ export default function ThoughtTrace({ steps, accentColor = "cyan" }: Props) {
           {/* Step count pill */}
           <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border ${a.numBg} ${a.border}`}>
             <span className={`text-[9px] font-black tabular-nums ${a.numText}`}>{steps.length}</span>
-            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
               {steps.length === 1 ? "step" : "steps"}
             </span>
           </div>
@@ -132,7 +132,7 @@ export default function ThoughtTrace({ steps, accentColor = "cyan" }: Props) {
             height="14"
             viewBox="0 0 14 14"
             fill="none"
-            className="text-slate-600 group-hover:text-slate-400 transition-colors"
+            className="text-slate-500 group-hover:text-slate-300 transition-colors"
           >
             <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -195,7 +195,7 @@ export default function ThoughtTrace({ steps, accentColor = "cyan" }: Props) {
                         {step.label}
                       </span>
                       <span
-                        className={`text-[13px] leading-relaxed transition-colors duration-150 ${isActive ? "text-slate-200" : "text-slate-500"
+                        className={`text-[13px] leading-relaxed transition-colors duration-150 ${isActive ? "text-slate-200" : "text-slate-400"
                           }`}
                       >
                         {step.detail}

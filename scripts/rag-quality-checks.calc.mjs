@@ -1,4 +1,4 @@
-export default [
+const calcQualityChecks = [
     {
         question: "How do I know when integration by parts is a better choice than u-substitution?",
         expectedAny: ["integration by parts", "u-substitution", "integral", "choice"],
@@ -20,3 +20,5 @@ export default [
         expectedAny: ["taylor", "polynomial", "approximation", "derivative"],
     },
 ];
+
+export default calcQualityChecks;

@@ -65,7 +65,10 @@ create index if not exists persona_snippets_embedding_idx
 -- RPC: retrieve top lecture chunks by cosine similarity.
 create or replace function public.match_lecture_chunks(
   query_embedding vector(1536),
-  match_count int default 8
+  match_count int default 8,
+  filter_course text default null,
+  filter_professor text default null,
+  filter_source_id uuid default null
 )
 returns table (
   id uuid,
@@ -87,7 +90,11 @@ as $$
     c.section_hint,
     1 - (c.embedding <=> query_embedding) as similarity
   from public.lecture_chunks c
+  join public.lecture_sources s on s.id = c.source_id
   where c.embedding is not null
+    and (filter_source_id is null or c.source_id = filter_source_id)
+    and (filter_course is null or s.course ilike '%' || filter_course || '%')
+    and (filter_professor is null or s.professor ilike '%' || filter_professor || '%')
   order by c.embedding <=> query_embedding
   limit greatest(match_count, 1);
 $$;
@@ -95,7 +102,10 @@ $$;
 -- RPC: retrieve style snippets.
 create or replace function public.match_persona_snippets(
   query_embedding vector(1536),
-  match_count int default 3
+  match_count int default 3,
+  filter_course text default null,
+  filter_professor text default null,
+  filter_source_id uuid default null
 )
 returns table (
   id uuid,
@@ -115,7 +125,11 @@ as $$
     p.timestamp_start_seconds,
     1 - (p.embedding <=> query_embedding) as similarity
   from public.persona_snippets p
+  join public.lecture_sources s on s.id = p.source_id
   where p.embedding is not null
+    and (filter_source_id is null or p.source_id = filter_source_id)
+    and (filter_course is null or s.course ilike '%' || filter_course || '%')
+    and (filter_professor is null or s.professor ilike '%' || filter_professor || '%')
   order by p.embedding <=> query_embedding
   limit greatest(match_count, 1);
 $$;
