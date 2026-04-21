@@ -37,5 +37,22 @@ This architecture ensures zero API costs for token generation, total data privac
 The next phase of NikiAi focuses on **Retrieval-Augmented Generation (RAG)**. 
 I am currently processing unstructured data (lecture transcripts from YouTube playlists) to generate vector embeddings. These will be stored using Supabase's `pgvector` extension. Once complete, NikiAi will query this vector database prior to local inference, anchoring the LLM's mathematical explanations directly to specific, verified lecture materials to eliminate hallucination.
 
+### RAG retrieval quality checks
+
+After ingesting lectures, run retrieval checks locally:
+
+```bash
+npm run test:rag-quality:calc
+npm run test:rag-quality:calc:c1
+npm run test:rag-quality:ml
+npm run test:rag-quality:calc:file
+```
+
+You can also run the checker directly with filters:
+
+```bash
+node scripts/check-rag-quality.mjs --suite calc --courseFilter "Calc 1" --professorFilter "Prof Nemanja" --maxChunks 10
+```
+
 ---
 *Developed by Brandon Hargadon*

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import ThoughtTrace from "@/components/ThoughtTrace";
 import CommandPalette from "@/components/CommandPalette";
 
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import Image from "next/image";
@@ -13,6 +13,7 @@ import "katex/dist/katex.min.css";
 import FileUploadButton from "@/components/FileUploadButton";
 import FilePreview, { type AttachedFile } from "@/components/FilePreview";
 import html2canvas from "html2canvas";
+import { detectCourseFilter } from "@/lib/courseFilters";
 
 // --- ICONS ---
 const PlusIcon = () => (
@@ -157,148 +158,101 @@ const CitationCard = ({
 function sanitizeMathContent(content: string): string {
   if (!content || typeof content !== "string") return "";
 
-  let cleaned = content;
-
-  const shouldPromoteInlineMath = (expr: string) => {
-    const trimmed = expr.trim();
-    if (!trimmed) return false;
-
-    return (
-      trimmed.length >= 22 ||
-      /\\(int|frac|sum|prod|sqrt|lim|left|right|cdot|ln|log|sin|cos|tan)/.test(trimmed) ||
-      /[=∫ΣΠ√]/.test(trimmed)
-    );
-  };
-
-  const normalizeEquationText = (expr: string) =>
-    expr
-      .replace(/∫/g, "\\int ")
-      .replace(/√/g, "\\sqrt")
-      .replace(/−/g, "-")
-      .replace(/×/g, "\\cdot ")
-      .replace(/·/g, "\\cdot ")
-      .replace(/∞/g, "\\infty")
-      .replace(/≤/g, "\\leq")
-      .replace(/≥/g, "\\geq")
-      .replace(/π/g, "\\pi")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-
-  cleaned = cleaned
+  let cleaned = content
+    // Upgrade invalid single-dollar multiline blocks into valid display math.
+    .replace(/\$(?!\$)\s*\n([\s\S]*?)\n\s*\$(?!\$)/g, (_m, expr: string) => {
+      const trimmed = expr.trim();
+      if (!trimmed) return "";
+      return `$$\n${trimmed}\n$$`;
+    })
     .replace(/\\\[/g, "$$")
     .replace(/\\\]/g, "$$")
     .replace(/\\\(/g, "$")
-    .replace(/\\\)/g, "$");
+    .replace(/\\\)/g, "$")
+    .replace(/\bInt\s+/g, "\\int ")
+    .replace(/\${3,}/g, "$$")
+    .replace(/^\$(?!\$)\s*$/gm, "")
+    .replace(/\\boxed\s*\{([^}]*)\}/g, "$1")
+    .replace(/\\text\{([^}]*)\}/g, "$1");
 
-  cleaned = cleaned.replace(/\${3,}/g, "$$");
-  cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
-  cleaned = cleaned.replace(/\\boxed\s*\{([^}]*)\}/g, "$1");
-  cleaned = cleaned.replace(/\\text\{([^}]*)\}/g, "$1");
+  // If the model over-formats tiny terms as display math, pull them back inline
+  // so sentences don't get visually fragmented.
+  cleaned = cleaned.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (match, expr: string) => {
+    const trimmed = expr.trim();
+    const isTinyExpression =
+      trimmed.length > 0 &&
+      trimmed.length <= 14 &&
+      !trimmed.includes("\n") &&
+      !/[=]/.test(trimmed) &&
+      !/\\(frac|int|sum|prod|sqrt|begin|end)/.test(trimmed);
 
+    if (!isTinyExpression) return match;
+    return `$${trimmed}$`;
+  });
 
-  // Promote inline equations into centered display blocks so formulas and final
-  // results are visually separated (Gemini-style layout).
-  cleaned = cleaned
-    .split("\n")
-    .map((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return line;
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
 
-      if (trimmed.includes("$$")) return line;
-
-      const colonIndex = trimmed.indexOf(":");
-      if (colonIndex !== -1) {
-        const label = trimmed.slice(0, colonIndex + 1).trim();
-        const tail = trimmed.slice(colonIndex + 1).trim();
-        const tailLooksEquation =
-          /[=^]|∫|√|\b(?:ln|log|sin|cos|tan)\s*\(/.test(tail) ||
-          (/\d/.test(tail) && /[a-zA-Z]/.test(tail) && /[+\-*/]/.test(tail));
-
-        if (tail && tailLooksEquation && !/^step\s+\d+:/i.test(label)) {
-          return `${label}\n$$${normalizeEquationText(tail)}$$`;
-        }
-      }
-
-      const fullLineLooksEquation =
-        (/[=^]|∫|√|\b(?:ln|log|sin|cos|tan)\s*\(/.test(trimmed) || /\b(?:dx|dy|dz)\b/.test(trimmed)) &&
-        !/^step\s+\d+:/i.test(trimmed) &&
-        !/^let\s+/i.test(trimmed);
-
-      if (fullLineLooksEquation && shouldPromoteInlineMath(trimmed)) {
-        return `$$${normalizeEquationText(trimmed)}$$`;
-      }
-
-      const inlineSegments = [...trimmed.matchAll(/\$([^$\n]+)\$/g)];
-      if (inlineSegments.length > 0) {
-        const rebuilt: string[] = [];
-        let cursor = 0;
-
-        for (const seg of inlineSegments) {
-          const full = seg[0];
-          const expr = seg[1]?.trim() ?? "";
-          const start = seg.index ?? 0;
-
-          const before = trimmed.slice(cursor, start).trim();
-          if (before) rebuilt.push(before);
-
-          if (shouldPromoteInlineMath(expr)) {
-            rebuilt.push(`$$${normalizeEquationText(expr)}$$`);
-          } else {
-            rebuilt.push(full);
-          }
-
-          cursor = start + full.length;
-        }
-
-        const after = trimmed.slice(cursor).trim();
-        if (after) rebuilt.push(after);
-
-        return rebuilt.join("\n");
-      }
-
-      const inlineMathOnly = trimmed.match(/^\$(.+)\$$/);
-      if (inlineMathOnly && shouldPromoteInlineMath(inlineMathOnly[1])) {
-        return `$$${normalizeEquationText(inlineMathOnly[1])}$$`;
-      }
-
-      const labelPlusInlineMath = trimmed.match(/^(.*?:)\s*\$(.+)\$\s*$/);
-      if (labelPlusInlineMath && shouldPromoteInlineMath(labelPlusInlineMath[2])) {
-        const label = labelPlusInlineMath[1].trim();
-        const expr = labelPlusInlineMath[2].trim();
-        return `${label}\n$$${normalizeEquationText(expr)}$$`;
-      }
-
-      const bareMathStart = trimmed.search(/\\(int|frac|sum|prod|sqrt|lim|left|right|cdot|ln|log|sin|cos|tan)|[∫ΣΠ√]/);
-      if (bareMathStart > 0) {
-        const prefix = trimmed.slice(0, bareMathStart).trim();
-        const possibleMath = trimmed.slice(bareMathStart).trim();
-
-        if (shouldPromoteInlineMath(possibleMath)) {
-          return `${prefix}\n$$${normalizeEquationText(possibleMath)}$$`;
-        }
-      }
-
-      return line;
-    })
-    .join("\n");
-
-  // If the model emits bare LaTeX command lines (e.g. "\int ...", "\frac ...")
-  // without dollar delimiters, wrap those lines so KaTeX can render them.
+  // Convert bare integral lines to display math so raw "\int ..." text does not
+  // leak into the UI when the model forgets delimiters.
   cleaned = cleaned
     .split("\n")
     .map((line) => {
       const trimmed = line.trim();
       if (!trimmed) return line;
       if (trimmed.includes("$")) return line;
-
-      const looksLikeBareLatex =
-        /\\(int|frac|cdot|sqrt|sum|prod|lim|left|right|sin|cos|tan|ln|log|alpha|beta|gamma|delta)/.test(trimmed) &&
-        (trimmed.startsWith("\\") || /=/.test(trimmed));
-
-      if (!looksLikeBareLatex) return line;
-      return `$$${trimmed}$$`;
+      if (!/^\\int\b/.test(trimmed)) return line;
+      return `$$\n${trimmed}\n$$`;
     })
     .join("\n");
+
+  // Convert other bare LaTeX equation lines (e.g. \frac..., \ln..., \cdot...)
+  // into display blocks when delimiters are missing.
+  cleaned = cleaned
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.includes("$")) return line;
+      const looksLikeBareLatexEquation =
+        /^\\[a-zA-Z]+/.test(trimmed) &&
+        /[=+\-]/.test(trimmed) &&
+        /\\(int|frac|cdot|ln|log|sin|cos|tan|sqrt|left|right)/.test(trimmed);
+      if (!looksLikeBareLatexEquation) return line;
+      return `$$\n${trimmed}\n$$`;
+    })
+    .join("\n");
+
+  // Normalize final-answer presentation so layout stays consistent.
+  cleaned = cleaned.replace(/^Final Answer\s*$/gim, "**Final Answer:**");
+  cleaned = cleaned.replace(/^Final Answer:\s*(.+)$/gim, (_m, expr: string) => {
+    const value = expr.trim();
+    if (!value) return "**Final Answer:**";
+    if (value.includes("$")) return `**Final Answer:**\n${value}`;
+    return `**Final Answer:**\n$$\n${value}\n$$`;
+  });
+
+  // Promote long transformation lines to display math for visual consistency.
+  cleaned = cleaned
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.includes("$")) return line;
+      const looksLikeKeyTransform =
+        trimmed.length >= 28 &&
+        /[=]/.test(trimmed) &&
+        /\\(int|frac|cdot|ln|log|sin|cos|tan)/.test(trimmed);
+      if (!looksLikeKeyTransform) return line;
+      return `$$\n${trimmed}\n$$`;
+    })
+    .join("\n");
+
+  // If streaming leaves an unmatched display delimiter, close it so the rest of
+  // the message doesn't become invalid math.
+  const displayFenceCount = (cleaned.match(/\$\$/g) ?? []).length;
+  if (displayFenceCount % 2 === 1) {
+    cleaned += "\n$$";
+  }
 
   return cleaned;
 }
@@ -394,6 +348,21 @@ export default function Home() {
     : isAmber
       ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
       : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
+
+  const mathMarkdownComponents: Components = {
+    h2: ({ ...props }) => (
+      <h2 className="mt-3 mb-2 text-[1.25rem] font-extrabold text-white tracking-tight" {...props} />
+    ),
+    h3: ({ ...props }) => (
+      <h3 className="mt-5 mb-2 text-[1.1rem] font-extrabold text-white" {...props} />
+    ),
+    hr: ({ ...props }) => <hr className="my-5 border-white/15" {...props} />,
+    p: ({ ...props }) => <p className="my-2 leading-8 text-slate-100" {...props} />,
+    ul: ({ ...props }) => <ul className="my-2 list-disc pl-6 space-y-2" {...props} />,
+    li: ({ ...props }) => <li className="marker:text-slate-300 text-slate-100" {...props} />,
+    strong: ({ ...props }) => <strong className="font-extrabold text-white" {...props} />,
+  };
+
 
   // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
@@ -804,13 +773,15 @@ export default function Home() {
     if (!lectureMode || !question.trim()) return null;
 
     try {
+      const inferredCourse = detectCourseFilter(question, profile?.current_unit);
       const res = await fetch("/api/rag/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
           lectureMode: true,
-          courseFilter: profile?.current_unit ?? undefined,
+          courseFilter: inferredCourse,
+          minSimilarity: 0.2,
           maxChunks: 8,
           maxStyleSnippets: 3,
         }),
@@ -1338,11 +1309,14 @@ export default function Home() {
 
                         return (
                           <div className="prose prose-invert prose-base sm:prose-lg max-w-none prose-p:my-3 prose-li:my-2 prose-ul:my-3 prose-ol:my-3 prose-headings:my-4">
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
+                              components={mathMarkdownComponents}
+                            >
                               {liveMathContent}
                             </ReactMarkdown>
                           </div>
-
                         );
                       }
 
@@ -1350,11 +1324,16 @@ export default function Home() {
                       const finalContent = sanitizeMathContent(clean);
                       const finalAnswerBoxClass =
                         "mt-1 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 sm:px-6 sm:py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
+
                       return (
                         <>
                           <div className={finalAnswerBoxClass}>
                             <div className="prose prose-invert prose-base sm:prose-lg max-w-none prose-p:my-3 prose-li:my-2 prose-ul:my-3 prose-ol:my-3 prose-headings:my-4">
-                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                              <ReactMarkdown
+                                remarkPlugins={[remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                                components={mathMarkdownComponents}
+                              >
                                 {finalContent}
                               </ReactMarkdown>
                             </div>

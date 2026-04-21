@@ -13,7 +13,11 @@
     "test:rag-route": "node scripts/check-rag-route-contract.mjs",
     "rag:ingest": "node scripts/ingest-lecture-transcript.mjs",
     "test:rag-quality": "node scripts/check-rag-quality.mjs",
-    "test:rag-quality:strict": "node scripts/check-rag-quality.mjs --strict"
+    "test:rag-quality:strict": "node scripts/check-rag-quality.mjs --strict",
+    "test:rag-quality:ml": "node scripts/check-rag-quality.mjs --suite ml",
+    "test:rag-quality:calc": "node scripts/check-rag-quality.mjs --suite calc",
+    "test:rag-quality:calc:file": "node scripts/check-rag-quality.mjs --checksFile scripts/rag-quality-checks.calc.mjs",
+    "test:rag-quality:calc:c1": "node scripts/check-rag-quality.mjs --suite calc --courseFilter \"Calc 1\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",

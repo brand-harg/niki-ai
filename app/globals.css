@@ -9,124 +9,100 @@
   @source inline block so the v4 content scanner never purges them.
 */
 @source inline("
-  text-cyan-400 text-green-400 text-amber-400
-  bg-cyan-500 bg-green-500 bg-amber-500
-  hover:bg-cyan-500 hover:bg-green-500 hover:bg-amber-500
-  hover:bg-cyan-400 hover:bg-green-400 hover:bg-amber-400
-  border-cyan-500/20 border-green-500/20 border-amber-500/20
-  from-cyan-400 to-blue-600 from-green-400 to-green-600 from-amber-400 to-orange-500
-  bg-cyan-500/10 bg-green-500/10 bg-amber-500/10
-  bg-cyan-500/8 bg-green-500/8 bg-amber-500/8
-  bg-cyan-400/5 bg-green-400/5 bg-amber-400/5
-  border-cyan-500/15 border-green-500/15 border-amber-500/15
-  border-cyan-500/40 border-green-500/40 border-amber-500/40
-  border-cyan-500/25 border-green-500/25 border-amber-500/25
-  shadow-[0_0_8px_rgba(34,211,238,0.7)] shadow-[0_0_8px_rgba(74,222,128,0.7)] shadow-[0_0_8px_rgba(251,191,36,0.7)]
-  shadow-[0_0_10px_rgba(34,197,94,0.3)] shadow-[0_0_10px_rgba(245,158,11,0.3)] shadow-[0_0_10px_rgba(34,211,238,0.3)]
-  shadow-[0_0_15px_rgba(34,197,94,0.3)] shadow-[0_0_15px_rgba(245,158,11,0.3)] shadow-[0_0_15px_rgba(6,182,212,0.3)]
-  shadow-[0_0_30px_rgba(34,197,94,0.4)] shadow-[0_0_30px_rgba(245,158,11,0.4)] shadow-[0_0_30px_rgba(6,182,212,0.4)]
-  selection:bg-cyan-500/30 selection:bg-green-500/30 selection:bg-amber-500/30
-  focus:border-cyan-500/50 focus:border-green-500/50 focus:border-amber-500/50
-  focus:border-cyan-500/40 focus:border-green-500/40 focus:border-amber-500/40
-  ring-cyan-500/20 ring-green-500/20 ring-amber-500/20
-  group-hover:bg-cyan-500 group-hover:bg-green-500 group-hover:bg-amber-500
-  group-hover:text-cyan-400 group-hover:text-green-400 group-hover:text-amber-400
-  text-cyan-300 text-green-300 text-amber-300
-  text-cyan-500 text-green-500 text-amber-500
-  text-cyan-500/60 text-green-500/60 text-amber-500/60
-  bg-cyan-500/[0.03] bg-green-500/[0.03] bg-amber-500/[0.03]
-  border-cyan-500/10 border-green-500/10 border-amber-500/10
-  bg-cyan-600 bg-green-600 bg-amber-600
-  hover:bg-cyan-500 hover:bg-green-500 hover:bg-amber-400
-  accent-cyan-500 accent-green-500 accent-amber-500
-  text-cyan-400/70 text-green-400/70 text-amber-400/70
-  bg-cyan-400/30 bg-green-400/30 bg-amber-400/30
-  bg-cyan-500/5 bg-green-500/5 bg-amber-500/5
-");
+ text-cyan-400 text-green-400 text-amber-400 bg-cyan-500 bg-green-500 bg-amber-500 hover:bg-cyan-500 hover:bg-green-500 hover:bg-amber-500 hover:bg-cyan-400 hover:bg-green-400 hover:bg-amber-400 border-cyan-500/20 border-green-500/20 border-amber-500/20 from-cyan-400 to-blue-600 from-green-400 to-green-600 from-amber-400 to-orange-500 bg-cyan-500/10 bg-green-500/10 bg-amber-500/10 bg-cyan-500/8 bg-green-500/8 bg-amber-500/8 bg-cyan-400/5 bg-green-400/5 bg-amber-400/5 border-cyan-500/15 border-green-500/15 border-amber-500/15 border-cyan-500/40 border-green-500/40 border-amber-500/40 border-cyan-500/25 border-green-500/25 border-amber-500/25 shadow-[0_0_8px_rgba(34, 211, 238, 0.7)] shadow-[0_0_8px_rgba(74, 222, 128, 0.7)] shadow-[0_0_8px_rgba(251, 191, 36, 0.7)] shadow-[0_0_10px_rgba(34, 197, 94, 0.3)] shadow-[0_0_10px_rgba(245, 158, 11, 0.3)] shadow-[0_0_10px_rgba(34, 211, 238, 0.3)] shadow-[0_0_15px_rgba(34, 197, 94, 0.3)] shadow-[0_0_15px_rgba(245, 158, 11, 0.3)] shadow-[0_0_15px_rgba(6, 182, 212, 0.3)] shadow-[0_0_30px_rgba(34, 197, 94, 0.4)] shadow-[0_0_30px_rgba(245, 158, 11, 0.4)] shadow-[0_0_30px_rgba(6, 182, 212, 0.4)] selection:bg-cyan-500/30 selection:bg-green-500/30 selection:bg-amber-500/30 focus:border-cyan-500/50 focus:border-green-500/50 focus:border-amber-500/50 focus:border-cyan-500/40 focus:border-green-500/40 focus:border-amber-500/40 ring-cyan-500/20 ring-green-500/20 ring-amber-500/20 group-hover:bg-cyan-500 group-hover:bg-green-500 group-hover:bg-amber-500 group-hover:text-cyan-400 group-hover:text-green-400 group-hover:text-amber-400 text-cyan-300 text-green-300 text-amber-300 text-cyan-500 text-green-500 text-amber-500 text-cyan-500/60 text-green-500/60 text-amber-500/60 bg-cyan-500/[0.03] bg-green-500/[0.03] bg-amber-500/[0.03] border-cyan-500/10 border-green-500/10 border-amber-500/10 bg-cyan-600 bg-green-600 bg-amber-600 hover:bg-cyan-500 hover:bg-green-500 hover:bg-amber-400 accent-cyan-500 accent-green-500 accent-amber-500 text-cyan-400/70 text-green-400/70 text-amber-400/70 bg-cyan-400/30 bg-green-400/30 bg-amber-400/30 bg-cyan-500/5 bg-green-500/5 bg-amber-500/5 ");
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-.prose :where(p) {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.prose :where(ul, ol) {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.prose :where(li) {
-  margin-top: 0.15rem;
-  margin-bottom: 0.15rem;
-}
-
-.prose :where(h1, h2, h3, h4) {
-  margin-top: 0.75rem;
-  margin-bottom: 0.5rem;
-}
-
-.prose :where(pre) {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.prose :where(blockquote) {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-prose .katex-display {
-  display: block;
-  width: 100%;
-  text-align: center;
-  margin: 1rem 0 !important;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 0.25rem 0;
-}
-
-.katex {
-  font-size: 1em;
-  line-height: 1.35;
-}
-
-.prose .katex-display > .katex {
-  display: inline-block;
-  margin: 0 auto;
-}
-
-@media (max-width: 640px) {
-  .katex-display {
-    font-size: 0.95em;
-    padding-bottom: 0.25rem;
+    --background: #ffffff;
+    --foreground: #171717;
   }
 
-  .prose {
-    font-size: 0.95rem;
-    line-height: 1.55;
+  @theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: var(--font-geist-sans);
+    --font-mono: var(--font-geist-mono);
   }
-}
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: #0a0a0a;
+      --foreground: #ededed;
+    }
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  .prose :where(p) {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .prose :where(ul, ol) {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .prose :where(li) {
+    margin-top: 0.15rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .prose :where(h1, h2, h3, h4) {
+    margin-top: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .prose :where(pre) {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .prose :where(blockquote) {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .prose .katex-display {
+    display: block;
+    width: 100%;
+    text-align: center;
+    margin: 0.55rem 0 !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.2rem 0;
+    background: transparent !important;
+  }
+
+  .katex {
+    font-size: 1em;
+    line-height: 1.35;
+    background: transparent !important;
+  }
+
+  .prose .katex-display > .katex {
+    display: inline-block;
+    margin: 0 auto;
+    font-size: 1.08em;
+  }
+
+  .prose :where(hr) {
+    margin: 1rem 0;
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  @media (max-width: 640px) {
+    .katex-display {
+      font-size: 0.95em;
+      padding-bottom: 0.25rem;
+    }
+
+    .prose {
+      font-size: 0.95rem;
+      line-height: 1.55;
+    }
+  }

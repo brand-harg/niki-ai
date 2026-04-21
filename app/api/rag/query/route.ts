@@ -9,17 +9,23 @@ type RagRequest = {
   lectureMode?: boolean;
   maxChunks?: number;
   maxStyleSnippets?: number;
+  minSimilarity?: number;
   courseFilter?: string;
   professorFilter?: string;
 };
 
 type ChunkRow = {
+  id: string;
   source_id: string;
   clean_text: string;
   timestamp_start_seconds: number;
   timestamp_end_seconds: number;
   section_hint: string | null;
   similarity: number;
+  lecture_title?: string;
+  professor?: string;
+  course?: string;
+  video_url?: string;
 };
 
 type StyleRow = {
@@ -46,10 +52,7 @@ function extractKeywords(question: string) {
         .replace(/[^a-z0-9\s]/g, " ")
         .split(/\s+/)
         .filter((w) => w.length >= 4)
-        .filter(
-          (w) =>
-            !["what", "when", "where", "which", "with", "from", "that", "this", "into"].includes(w)
-        )
+        .filter((w) => !["what", "when", "where", "which", "with", "from", "that", "this", "into"].includes(w))
     )
   ).slice(0, 6);
 }
@@ -60,9 +63,7 @@ function toVideoTimestampUrl(url: string, seconds: number) {
   return `${url}?t=${safe}s`;
 }
 
-function chunkKey(
-  chunk: Pick<ChunkRow, "source_id" | "timestamp_start_seconds" | "timestamp_end_seconds">
-) {
+function chunkKey(chunk: Pick<ChunkRow, "source_id" | "timestamp_start_seconds" | "timestamp_end_seconds">) {
   return `${chunk.source_id}:${chunk.timestamp_start_seconds}:${chunk.timestamp_end_seconds}`;
 }
 
@@ -72,8 +73,13 @@ export async function POST(req: Request) {
     const question = body.question?.trim() || "";
     const maxChunks = Math.min(Math.max(body.maxChunks ?? 8, 1), 15);
     const maxStyleSnippets = Math.min(Math.max(body.maxStyleSnippets ?? 3, 1), 6);
+    const minSimilarity = Math.min(Math.max(body.minSimilarity ?? 0.2, 0), 1);
     const courseFilter = body.courseFilter?.trim() || "";
     const professorFilter = body.professorFilter?.trim() || "";
+    const rpcProfessorFilter = "Nemanja Nikitovic";
+    const similarityThreshold = 0.7;
+    const isDevLog = process.env.NODE_ENV !== "production";
+
 
     if (!question) {
       return NextResponse.json(
@@ -100,7 +106,10 @@ export async function POST(req: Request) {
     });
     const embedding = embeddingRes.data?.[0]?.embedding;
     if (!embedding) {
-      return NextResponse.json({ error: "Embedding generation failed." }, { status: 500 });
+      return NextResponse.json(
+        { error: "Embedding generation failed." },
+        { status: 500 }
+      );
     }
 
     const keywords = extractKeywords(question);
@@ -110,9 +119,12 @@ export async function POST(req: Request) {
     let requestedSourceIdSet: Set<string> | null = null;
     if (anyFilterRequested) {
       let sourceFilterQuery = supabase.from("lecture_sources").select("id");
-      if (courseFilter) sourceFilterQuery = sourceFilterQuery.ilike("course", `%${courseFilter}%`);
-      if (professorFilter)
+      if (courseFilter) {
+        sourceFilterQuery = sourceFilterQuery.ilike("course", `%${courseFilter}%`);
+      }
+      if (professorFilter) {
         sourceFilterQuery = sourceFilterQuery.ilike("professor", `%${professorFilter}%`);
+      }
 
       const { data: requestedSourceRows, error: requestedSourceErr } =
         await sourceFilterQuery.limit(200);
@@ -150,6 +162,8 @@ export async function POST(req: Request) {
             filteredSourceCount: 0,
             requestedSourceCandidates: 0,
             noSourceCandidates: true,
+            minSimilarityUsed: minSimilarity,
+            droppedLowSimilarityCount: 0,
           },
         },
       });
@@ -163,6 +177,9 @@ export async function POST(req: Request) {
       supabase.rpc("match_lecture_chunks", {
         query_embedding: embedding,
         match_count: maxChunks,
+        filter_course: courseFilter || null,
+        filter_professor: rpcProfessorFilter,
+        filter_source_id: null,
       }),
       supabase.rpc("match_persona_snippets", {
         query_embedding: embedding,
@@ -179,7 +196,10 @@ export async function POST(req: Request) {
             .limit(maxChunks);
 
           if (requestedSourceIdSet && requestedSourceIdSet.size > 0) {
-            keywordQuery = keywordQuery.in("source_id", Array.from(requestedSourceIdSet));
+            keywordQuery = keywordQuery.in(
+              "source_id",
+              Array.from(requestedSourceIdSet)
+            );
           }
           return keywordQuery;
         })()
@@ -191,6 +211,11 @@ export async function POST(req: Request) {
         { error: `Chunk retrieval failed: ${chunkErr.message}` },
         { status: 500 }
       );
+    }
+
+    if (isDevLog) {
+      console.log("lectureMatches", chunksData ?? []);
+      console.log("lectureError", chunkErr ?? null);
     }
     if (styleErr) {
       return NextResponse.json(
@@ -215,7 +240,9 @@ export async function POST(req: Request) {
     for (const row of [...vectorChunks, ...keywordChunks]) {
       const key = chunkKey(row);
       const prev = chunkMap.get(key);
-      if (!prev || row.similarity > prev.similarity) chunkMap.set(key, row);
+      if (!prev || row.similarity > prev.similarity) {
+        chunkMap.set(key, row);
+      }
     }
 
     const chunks = Array.from(chunkMap.values())
@@ -223,10 +250,7 @@ export async function POST(req: Request) {
       .slice(0, maxChunks);
     const styleSnippets = (styleData || []) as StyleRow[];
     const sourceIds = Array.from(
-      new Set([
-        ...chunks.map((c) => c.source_id),
-        ...styleSnippets.map((s) => s.source_id),
-      ])
+      new Set([...chunks.map((c) => c.source_id), ...styleSnippets.map((s) => s.source_id)])
     );
 
     const { data: sourceRows, error: sourceErr } = sourceIds.length
@@ -249,7 +273,9 @@ export async function POST(req: Request) {
 
     const matchesSourceFilters = (sourceId: string) => {
       if (!courseFilter && !professorFilter) return true;
-      if (requestedSourceIdSet) return requestedSourceIdSet.has(sourceId);
+      if (requestedSourceIdSet) {
+        return requestedSourceIdSet.has(sourceId);
+      }
       const source = sourceMap.get(sourceId);
       if (!source) return false;
       const coursePass = courseFilter
@@ -269,11 +295,38 @@ export async function POST(req: Request) {
       ...filteredChunks.map((chunk) => chunk.source_id),
       ...filteredStyleSnippets.map((snippet) => snippet.source_id),
     ]);
-    const scopedChunks = anyFilterRequested ? filteredChunks : chunks;
-    const scopedStyleSnippets = anyFilterRequested ? filteredStyleSnippets : styleSnippets;
+    const scopedChunksPreThreshold = anyFilterRequested ? filteredChunks : chunks;
+    const scopedChunks = scopedChunksPreThreshold.filter(
+      (chunk) => chunk.similarity >= minSimilarity
+    );
+    const droppedLowSimilarityCount = scopedChunksPreThreshold.length - scopedChunks.length;
+    const scopedStyleSnippets = anyFilterRequested
+      ? filteredStyleSnippets
+      : styleSnippets;
     const anyFilterApplied = filteredSourceIds.size > 0;
+    const filteredLectureMatches = scopedChunks.filter(
+      (chunk) => chunk.similarity >= similarityThreshold
+    );
 
-    const citations = scopedChunks.map((chunk) => {
+    const lectureContext = filteredLectureMatches
+      .map((chunk, i) => {
+        const source = sourceMap.get(chunk.source_id);
+        return `Chunk ${i + 1}
+Course: ${source?.course ?? "Unknown course"}
+Lecture: ${source?.lecture_title ?? "Unknown lecture"}
+Professor: ${source?.professor ?? "Unknown professor"}
+Section: ${chunk.section_hint ?? "Unknown"}
+
+${chunk.clean_text}`;
+      })
+      .join("\n\n---\n\n");
+
+    if (isDevLog) {
+      console.log("lectureContext", lectureContext);
+    }
+
+
+    const citations = filteredLectureMatches.map((chunk) => {
       const source = sourceMap.get(chunk.source_id);
       return {
         sourceId: chunk.source_id,
@@ -323,6 +376,8 @@ export async function POST(req: Request) {
           filteredSourceCount: filteredSourceIds.size,
           requestedSourceCandidates: requestedSourceIdSet?.size ?? null,
           noSourceCandidates: false,
+          minSimilarityUsed: minSimilarity,
+          droppedLowSimilarityCount,
         },
       },
     });
