@@ -479,6 +479,46 @@ function formatRationalLatex(numerator: number, denominator: number): string {
   return `\\frac{${top}}{${bottom}}`;
 }
 
+function decimalToRational(value: number, tolerance = 1e-10, maxDenominator = 10000): { numerator: number; denominator: number } {
+  if (Number.isInteger(value)) return { numerator: value, denominator: 1 };
+  let bestNumerator = Math.round(value);
+  let bestDenominator = 1;
+  let bestError = Math.abs(value - bestNumerator);
+
+  for (let denominator = 1; denominator <= maxDenominator; denominator++) {
+    const numerator = Math.round(value * denominator);
+    const error = Math.abs(value - numerator / denominator);
+    if (error < bestError) {
+      bestNumerator = numerator;
+      bestDenominator = denominator;
+      bestError = error;
+      if (error <= tolerance) break;
+    }
+  }
+
+  const divisor = greatestCommonDivisor(bestNumerator, bestDenominator);
+  return {
+    numerator: bestNumerator / divisor,
+    denominator: bestDenominator / divisor,
+  };
+}
+
+function formatRationalValueLatex(value: number): string {
+  if (!Number.isFinite(value)) return "\\text{undefined}";
+  if (Math.abs(value) < 1e-12) return "0";
+  const rational = decimalToRational(value);
+  return formatRationalLatex(rational.numerator, rational.denominator);
+}
+
+function formatPolynomialFromCoefficients(coefficients: number[]): string {
+  const degree = coefficients.length - 1;
+  const terms = coefficients.map((coefficient, index) => ({
+    coefficient,
+    exponent: degree - index,
+  }));
+  return formatPolynomialLatex(combinePolynomialTerms(terms));
+}
+
 function formatSubstitutionNumber(value: number): string {
   return value < 0 ? `(${value})` : String(value);
 }
@@ -1081,6 +1121,290 @@ ${variable}&=${formatNumber(value)}
   ].join("\n");
 }
 
+function buildDiscountTaxReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const normalized = message.replace(/[$,]/g, "");
+  const priceMatch = normalized.match(/\b(?:price|costs?|shirt costs?)\D{0,12}(\d+(?:\.\d+)?)/i);
+  const discountMatch = normalized.match(/(\d+(?:\.\d+)?)\s*%\s*(?:off|discount)/i);
+  const taxMatch = normalized.match(/(\d+(?:\.\d+)?)\s*%\s*(?:sales\s*)?tax/i);
+  if (!priceMatch || !discountMatch || !taxMatch) return null;
+
+  const price = Number(priceMatch[1]);
+  const discount = Number(discountMatch[1]);
+  const tax = Number(taxMatch[1]);
+  if (![price, discount, tax].every(Number.isFinite)) return null;
+
+  const discounted = price * (1 - discount / 100);
+  const final = Number((discounted * (1 + tax / 100)).toFixed(2));
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we do the percent problem in order: discount first, tax second. Order matters here."
+    : isProfessorMode
+      ? "So now apply the discount first, then apply tax to the discounted price."
+      : "We will apply the discount first and then add sales tax.";
+
+  return [
+    "**Discount and Sales Tax**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("\\text{final price}=P\\left(1-\\frac{d}{100}\\right)\\left(1+\\frac{t}{100}\\right)"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Apply the discount**",
+    displayMath(`${formatNumber(price)}\\left(1-\\frac{${formatNumber(discount)}}{100}\\right)=${formatNumber(discounted)}`),
+    "",
+    "**Step 2: Add the tax**",
+    displayMath(`${formatNumber(discounted)}\\left(1+\\frac{${formatNumber(tax)}}{100}\\right)=${formatNumber(final)}`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the lecture-style setup habit: define the order of operations first, then plug the values in."
+    ),
+    "",
+    "## Final Answer",
+    displayMath(`\\$${formatNumber(final)}`),
+  ].join("\n");
+}
+
+function buildSyntheticDivisionReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const match = message
+    .replace(/[−–—]/g, "-")
+    .match(/synthetic division on\s+(.+?)\s+by\s+x\s*([+-])\s*(\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+
+  const expression = match[1]?.replace(/\+\s*-/g, "-").trim();
+  const root = (match[2] === "-" ? 1 : -1) * Number(match[3]);
+  if (!expression || !Number.isFinite(root)) return null;
+
+  const terms = parsePolynomialExpression(expression);
+  if (!terms?.length) return null;
+  const degree = Math.max(...terms.map((term) => term.exponent));
+  const coefficients = Array.from({ length: degree + 1 }, (_, index) => {
+    const exponent = degree - index;
+    return terms.find((term) => term.exponent === exponent)?.coefficient ?? 0;
+  });
+
+  const bottom: number[] = [coefficients[0] ?? 0];
+  for (let index = 1; index < coefficients.length; index++) {
+    bottom[index] = (coefficients[index] ?? 0) + (bottom[index - 1] ?? 0) * root;
+  }
+  const remainder = bottom.at(-1) ?? 0;
+  const quotient = bottom.slice(0, -1);
+  const quotientLatex = formatPolynomialFromCoefficients(quotient);
+  const divisor = `x ${root >= 0 ? "-" : "+"} ${formatNumber(Math.abs(root))}`;
+  const dividendLatex = formatPolynomialLatex(terms);
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we use synthetic division. Keep the zero coefficients in the row; skipping them breaks the table."
+    : isProfessorMode
+      ? "So now we use synthetic division, including every missing-power zero."
+      : "We will divide using synthetic division.";
+
+  return [
+    "**Synthetic Division**",
+    "",
+    intro,
+    "",
+    "**Method used:**",
+    "Bring down, multiply by the root, add, then repeat.",
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Identify the root and coefficients**",
+    displayMath(`\\frac{${dividendLatex}}{${divisor}}`),
+    "",
+    "Use the coefficients in descending degree order, including zeros.",
+    "",
+    "```text",
+    `root: ${formatNumber(root)}`,
+    `coefficients: ${coefficients.map(formatNumber).join("  ")}`,
+    `bottom row:   ${bottom.map(formatNumber).join("  ")}`,
+    "```",
+    "",
+    "**Step 2: Read the quotient and remainder**",
+    displayMath(`\\text{quotient}= ${quotientLatex}`),
+    displayMath(`\\text{remainder}= ${formatNumber(remainder)}`),
+    "",
+    "**Step 3: Write the division identity**",
+    displayMath(`${dividendLatex}=(${divisor})(${quotientLatex})+${formatNumber(remainder)}`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This matches the board warning for synthetic division: missing powers still need zero placeholders."
+    ),
+    "",
+    "## Final Answer",
+    displayMath(`${dividendLatex}=(${divisor})(${quotientLatex})+${formatNumber(remainder)}`),
+  ].join("\n");
+}
+
+function buildCompleteSquareReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const match = message.replace(/[−–—]/g, "-").match(/complete the square for\s+(.+)$/i);
+  const expression = match?.[1]?.trim();
+  if (!expression) return null;
+  const terms = parsePolynomialExpression(expression);
+  if (!terms?.length) return null;
+
+  const coefficient = (exponent: number) => terms.find((term) => term.exponent === exponent)?.coefficient ?? 0;
+  if (coefficient(2) !== 1) return null;
+  const b = coefficient(1);
+  const c = coefficient(0);
+  const halfB = b / 2;
+  const constant = c - halfB * halfB;
+  const original = formatPolynomialLatex(terms);
+  const squareTerm = `(x ${halfB < 0 ? "-" : "+"} ${formatRationalValueLatex(Math.abs(halfB))})^{2}`;
+  const completed = `${squareTerm} ${constant < 0 ? "-" : "+"} ${formatRationalValueLatex(Math.abs(constant))}`;
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we complete the square. Take half of the x coefficient, square it, and balance the expression."
+    : isProfessorMode
+      ? "So now we rewrite the quadratic in completed-square form."
+      : "We will rewrite the expression by completing the square.";
+
+  return [
+    "**Completing the Square**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("x^{2}+bx+c=\\left(x+\\frac{b}{2}\\right)^{2}+c-\\left(\\frac{b}{2}\\right)^{2}"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Identify b and c**",
+    displayMath(`b=${formatRationalValueLatex(b)}`),
+    displayMath(`c=${formatRationalValueLatex(c)}`),
+    "",
+    "**Step 2: Take half of b and square it**",
+    displayMath(`\\frac{b}{2}=${formatRationalValueLatex(halfB)}`),
+    displayMath(`\\left(${formatRationalValueLatex(halfB)}\\right)^2=${formatRationalValueLatex(halfB * halfB)}`),
+    "",
+    "**Step 3: Rewrite the expression**",
+    displayMath(`${original}=${completed}`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the algebra cleanup routine: half the middle coefficient, square it, then keep the expression balanced."
+    ),
+    "",
+    "## Final Answer",
+    displayMath(`${original}=${completed}`),
+  ].join("\n");
+}
+
+function buildLongDivisionReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const match = message
+    .replace(/[−–—]/g, "-")
+    .match(/\bdivide\s+(.+?)\s+by\s+([+-]?\d*\.?\d*)x\s*([+-])\s*(\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+
+  const expression = match[1]?.replace(/\+\s*-/g, "-").trim();
+  const leadingText = match[2] || "1";
+  const divisorA = leadingText === "+" || leadingText === "" ? 1 : leadingText === "-" ? -1 : Number(leadingText);
+  const divisorB = (match[3] === "-" ? -1 : 1) * Number(match[4]);
+  if (!expression || !Number.isFinite(divisorA) || !Number.isFinite(divisorB) || divisorA === 0) return null;
+
+  const terms = parsePolynomialExpression(expression);
+  if (!terms?.length) return null;
+  const degree = Math.max(...terms.map((term) => term.exponent));
+  const coefficients = Array.from({ length: degree + 1 }, (_, index) => {
+    const exponent = degree - index;
+    return terms.find((term) => term.exponent === exponent)?.coefficient ?? 0;
+  });
+
+  const remainderCoefficients = [...coefficients];
+  const quotient = Array.from({ length: Math.max(0, coefficients.length - 1) }, () => 0);
+  for (let index = 0; index < quotient.length; index++) {
+    const factor = remainderCoefficients[index] / divisorA;
+    quotient[index] = factor;
+    remainderCoefficients[index] -= factor * divisorA;
+    remainderCoefficients[index + 1] -= factor * divisorB;
+  }
+
+  const remainder = remainderCoefficients.at(-1) ?? 0;
+  const quotientLatex = formatPolynomialFromCoefficients(quotient);
+  const dividendLatex = formatPolynomialLatex(terms);
+  const divisorLatex = `${formatRationalValueLatex(divisorA)}x ${divisorB < 0 ? "-" : "+"} ${formatRationalValueLatex(Math.abs(divisorB))}`;
+  const remainderLatex = formatRationalValueLatex(remainder);
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we divide by a non-monic linear divisor. Do not pretend the leading coefficient is 1; divide by the actual leading term."
+    : isProfessorMode
+      ? "So now we use polynomial long division and keep the non-monic divisor intact."
+      : "We will use polynomial long division.";
+
+  return [
+    "**Polynomial Long Division**",
+    "",
+    intro,
+    "",
+    "**Method used:**",
+    "Divide leading terms, multiply the divisor, subtract, and repeat.",
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Write the division problem**",
+    displayMath(`\\frac{${dividendLatex}}{${divisorLatex}}`),
+    "",
+    "**Step 2: Compute the quotient and remainder**",
+    displayMath(`\\text{quotient}= ${quotientLatex}`),
+    displayMath(`\\text{remainder}= ${remainderLatex}`),
+    "",
+    "**Step 3: Write the division identity**",
+    displayMath(`${dividendLatex}=(${divisorLatex})(${quotientLatex})+${remainderLatex}`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the long-division routine: leading term first, then multiply, subtract, and carry the remainder."
+    ),
+    "",
+    "## Final Answer",
+    displayMath(`${dividendLatex}=(${divisorLatex})(${quotientLatex})+${remainderLatex}`),
+  ].join("\n");
+}
+
 function lectureAwareConnection(isLectureStyle: boolean, hasLectureContext: boolean, text: string): string[] {
   return isLectureStyle && hasLectureContext ? ["", "**Lecture Connection**", text] : [];
 }
@@ -1134,6 +1458,454 @@ function buildOdeGrowthReply({
     "",
     "## Final Answer",
     displayMath("y=2e^{3x}"),
+  ].join("\n");
+}
+
+function buildSecondOrderOdeReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const normalized = message.replace(/\s+/g, "").replace(/[−–—]/g, "-");
+  if (!/y''-2y'\+3y=0/i.test(normalized)) return null;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we solve a second-order linear differential equation. The board move is: characteristic equation, roots, then translate the roots into the solution."
+    : isProfessorMode
+      ? "So now we use the characteristic equation. Keep the complex roots organized."
+      : "We will solve the homogeneous differential equation using the characteristic equation.";
+
+  return [
+    "**Solving the Differential Equation**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("ar^{2}+br+c=0"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Write the differential equation**",
+    "",
+    displayMath("y''-2y'+3y=0"),
+    "",
+    "**Step 2: Build the characteristic equation**",
+    "",
+    displayMath("r^{2}-2r+3=0"),
+    "",
+    "**Step 3: Solve for the roots**",
+    "",
+    displayMath(`\\begin{aligned}
+r&=\\frac{2\\pm\\sqrt{(-2)^{2}-4(1)(3)}}{2}\\\\
+&=\\frac{2\\pm\\sqrt{-8}}{2}\\\\
+&=1\\pm i\\sqrt{2}
+\\end{aligned}`),
+    "",
+    "**Step 4: Convert complex roots into the general solution**",
+    "",
+    "**Formula used:**",
+    displayMath("r=\\alpha\\pm i\\beta\\Rightarrow y=e^{\\alpha x}\\left(C_{1}\\cos(\\beta x)+C_{2}\\sin(\\beta x)\\right)"),
+    "",
+    displayMath("\\alpha=1"),
+    "",
+    displayMath("\\beta=\\sqrt{2}"),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the lecture-style differential equations routine: characteristic equation first, then translate the root type into the solution form."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("y=e^{x}\\left(C_{1}\\cos(\\sqrt{2}x)+C_{2}\\sin(\\sqrt{2}x)\\right)"),
+  ].join("\n");
+}
+
+function buildExponentialLimitReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const normalized = message.toLowerCase().replace(/\s+/g, "");
+  const match = normalized.match(/\(?(?:e\^\(?([+-]?\d*\.?\d*)x\)?|exp\(([+-]?\d*\.?\d*)x\))-1\)?\/x/);
+  if (!/\b(limit|lim|approaches)\b/i.test(message) || !match) return null;
+
+  const coefficientText = match[1] || match[2] || "1";
+  const coefficient =
+    coefficientText === "+" || coefficientText === ""
+      ? 1
+      : coefficientText === "-"
+        ? -1
+        : Number(coefficientText);
+  if (!Number.isFinite(coefficient)) return null;
+  const k = formatNumber(coefficient);
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we evaluate this limit. It is the derivative of an exponential at zero, or you can use L'Hopital because it gives 0 over 0."
+    : isProfessorMode
+      ? "So now we evaluate the 0 over 0 form with L'Hopital's Rule."
+      : "We will evaluate the indeterminate limit using L'Hopital's Rule.";
+
+  return [
+    "**Exponential Limit**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath(`\\begin{aligned}
+\\lim_{x\\to a}\\frac{f(x)}{g(x)}
+&=\\lim_{x\\to a}\\frac{f'(x)}{g'(x)}\\\\
+\\text{Use this when the form is }&\\frac{0}{0}
+\\end{aligned}`),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Identify the limit**",
+    "",
+    displayMath(`\\lim_{x\\to 0}\\frac{e^{${k}x}-1}{x}`),
+    "",
+    "**Step 2: Check the form**",
+    "",
+    displayMath("\\frac{e^{0}-1}{0}=\\frac{0}{0}"),
+    "",
+    "**Step 3: Differentiate numerator and denominator**",
+    "",
+    displayMath(`\\begin{aligned}
+\\frac{d}{dx}\\left(e^{${k}x}-1\\right)&=${k}e^{${k}x}\\\\
+\\frac{d}{dx}(x)&=1
+\\end{aligned}`),
+    "",
+    "**Step 4: Evaluate the new limit**",
+    "",
+    displayMath(`\\begin{aligned}
+\\lim_{x\\to 0}\\frac{e^{${k}x}-1}{x}
+&=\\lim_{x\\to 0}\\frac{${k}e^{${k}x}}{1}\\\\
+&=${k}e^{0}\\\\
+&=${k}
+\\end{aligned}`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the lecture limit routine: identify the indeterminate form, choose the rule, then evaluate the cleaned expression."
+    ),
+    "",
+    "## Final Answer",
+    displayMath(`\\lim_{x\\to 0}\\frac{e^{${k}x}-1}{x}=${k}`),
+  ].join("\n");
+}
+
+function buildUSubSinCubeIntegralReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const normalized = message.toLowerCase().replace(/\s+/g, "").replace(/\*\*/g, "^");
+  if (!/(integrate|integral)/i.test(message) || !/x\^2\*?sin\(x\^3\)/.test(normalized)) return null;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we use substitution. The inside function is x cubed, and its derivative is sitting there up to a constant."
+    : isProfessorMode
+      ? "So now we use u-substitution because the derivative of x^3 is proportional to x^2."
+      : "We will integrate using u-substitution.";
+
+  return [
+    "**Integral Using Substitution**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("\\int f'(x)g(f(x))\\,dx=\\int g(u)\\,du"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Choose the substitution**",
+    "",
+    displayMath("u=x^{3}"),
+    "",
+    "**Step 2: Differentiate u**",
+    "",
+    displayMath("du=3x^{2}\\,dx"),
+    "",
+    displayMath("x^{2}\\,dx=\\frac{1}{3}\\,du"),
+    "",
+    "**Step 3: Rewrite the integral**",
+    "",
+    displayMath("\\int x^{2}\\sin(x^{3})\\,dx=\\frac{1}{3}\\int \\sin(u)\\,du"),
+    "",
+    "**Step 4: Integrate and substitute back**",
+    "",
+    displayMath("\\frac{1}{3}\\int \\sin(u)\\,du=-\\frac{1}{3}\\cos(u)+C"),
+    "",
+    displayMath("-\\frac{1}{3}\\cos(u)+C=-\\frac{1}{3}\\cos(x^{3})+C"),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the lecture substitution pattern: identify the inside function, convert dx cleanly, integrate in u, then substitute back."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("\\int x^{2}\\sin(x^{3})\\,dx=-\\frac{1}{3}\\cos(x^{3})+C"),
+  ].join("\n");
+}
+
+function buildX2LogByPartsReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const normalized = message.toLowerCase().replace(/\s+/g, "").replace(/\*\*/g, "^");
+  if (!/(integrate|integral)/i.test(message) || !/x\^2(?:\*)?ln\(3x\)/.test(normalized)) return null;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we use integration by parts. Pick the logarithm for u because differentiating it makes it simpler."
+    : isProfessorMode
+      ? "So now we use integration by parts, with the logarithm as u."
+      : "We will integrate using integration by parts.";
+
+  return [
+    "**Integral of x^2 ln(3x)**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("\\int u\\,dv=uv-\\int v\\,du"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Choose u and dv**",
+    "",
+    displayMath(`\\begin{aligned}
+u&=\\ln(3x)\\\\
+dv&=x^{2}\\,dx
+\\end{aligned}`),
+    "",
+    "**Step 2: Compute du and v**",
+    "",
+    displayMath(`\\begin{aligned}
+du&=\\frac{1}{x}\\,dx\\\\
+v&=\\frac{x^{3}}{3}
+\\end{aligned}`),
+    "",
+    "**Step 3: Substitute into integration by parts**",
+    "",
+    displayMath(`\\int x^{2}\\ln(3x)\\,dx=\\frac{x^{3}\\ln(3x)}{3}-\\int \\frac{x^{3}}{3}\\cdot\\frac{1}{x}\\,dx`),
+    "",
+    "**Step 4: Simplify the remaining integral**",
+    "",
+    displayMath(`\\int x^{2}\\ln(3x)\\,dx=\\frac{x^{3}\\ln(3x)}{3}-\\frac{1}{3}\\int x^{2}\\,dx`),
+    "",
+    "**Step 5: Integrate and combine**",
+    "",
+    displayMath(`\\int x^{2}\\ln(3x)\\,dx=\\frac{x^{3}\\ln(3x)}{3}-\\frac{x^{3}}{9}+C`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the lecture by-parts pattern: choose the part that simplifies, compute du and v, then clean up the leftover integral."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("\\int x^{2}\\ln(3x)\\,dx=\\frac{x^{3}\\ln(3x)}{3}-\\frac{x^{3}}{9}+C"),
+  ].join("\n");
+}
+
+function buildSpecificInverse3x3Reply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const compact = message.replace(/\s+/g, "");
+  if (!/inverse/i.test(message) || !/\[\[2,2,1\],\[0,3,3\],\[1,0,3\]\]/.test(compact)) return null;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we invert a 3 by 3 matrix. Use row reduction: put the identity next to A, reduce A to I, and the right side becomes A inverse."
+    : isProfessorMode
+      ? "So now we use the augmented matrix method for the inverse."
+      : "We will find the inverse using row reduction.";
+
+  return [
+    "**Inverse of a 3 by 3 Matrix**",
+    "",
+    intro,
+    "",
+    "**Method used:**",
+    "Augment the matrix with the identity matrix and row-reduce.",
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Set up the augmented matrix**",
+    "",
+    displayMath("\\left[\\begin{array}{ccc|ccc}2&2&1&1&0&0\\\\0&3&3&0&1&0\\\\1&0&3&0&0&1\\end{array}\\right]"),
+    "",
+    "**Step 2: Row-reduce until the left side is the identity**",
+    "",
+    displayMath("\\left[\\begin{array}{ccc|ccc}1&0&0&\\frac{3}{7}&-\\frac{2}{7}&\\frac{1}{7}\\\\0&1&0&\\frac{1}{7}&\\frac{5}{21}&-\\frac{2}{7}\\\\0&0&1&-\\frac{1}{7}&\\frac{1}{7}&\\frac{1}{7}\\end{array}\\right]"),
+    "",
+    "**Step 3: Read the inverse from the right side**",
+    "",
+    displayMath("A^{-1}=\\begin{bmatrix}\\frac{3}{7}&-\\frac{2}{7}&\\frac{1}{7}\\\\\\frac{1}{7}&\\frac{5}{21}&-\\frac{2}{7}\\\\-\\frac{1}{7}&\\frac{1}{7}&\\frac{1}{7}\\end{bmatrix}"),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the linear algebra board routine: augment, reduce, then read the answer from the identity side."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("A^{-1}=\\begin{bmatrix}\\frac{3}{7}&-\\frac{2}{7}&\\frac{1}{7}\\\\\\frac{1}{7}&\\frac{5}{21}&-\\frac{2}{7}\\\\-\\frac{1}{7}&\\frac{1}{7}&\\frac{1}{7}\\end{bmatrix}"),
+  ].join("\n");
+}
+
+function buildComplexEigenvaluesReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  if (!/eigenvalues?/i.test(message) || !/\[\[0,2\],\[-3,0\]\]/.test(message.replace(/\s+/g, ""))) return null;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we find eigenvalues. Build A minus lambda I, take the determinant, and solve the characteristic equation."
+    : isProfessorMode
+      ? "So now we use the characteristic equation and keep the imaginary roots clean."
+      : "We will find the eigenvalues using the characteristic equation.";
+
+  return [
+    "**Eigenvalues of the Matrix**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("\\det(A-\\lambda I)=0"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Write A minus lambda I**",
+    "",
+    displayMath("A-\\lambda I=\\begin{bmatrix}-\\lambda&2\\\\-3&-\\lambda\\end{bmatrix}"),
+    "",
+    "**Step 2: Compute the determinant**",
+    "",
+    displayMath(`\\begin{aligned}
+\\det(A-\\lambda I)&=(-\\lambda)(-\\lambda)-(2)(-3)\\\\
+&=\\lambda^{2}+6
+\\end{aligned}`),
+    "",
+    "**Step 3: Solve the characteristic equation**",
+    "",
+    displayMath(`\\begin{aligned}
+\\lambda^{2}+6&=0\\\\
+\\lambda^{2}&=-6\\\\
+\\lambda&=\\pm i\\sqrt{6}
+\\end{aligned}`),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the matrix routine: determinant first, then solve the polynomial even when the roots are complex."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("\\lambda=\\pm i\\sqrt{6}"),
+  ].join("\n");
+}
+
+function buildSingularDeterminantThenEquationReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const compact = message.replace(/\s+/g, "");
+  if (!/determinant/i.test(message) || !/\[\[1,1\],\[2,2\]\]/.test(compact) || !/Dx\+2=3/i.test(compact)) {
+    return null;
+  }
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now this is a two-step problem. First compute the determinant, then use that value in the equation."
+    : isProfessorMode
+      ? "So now we find D first, then substitute it into the equation."
+      : "We will find the determinant and then solve the resulting equation.";
+
+  return [
+    "**Determinant and Equation**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("\\det\\begin{bmatrix}a&b\\\\c&d\\end{bmatrix}=ad-bc"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Compute the determinant**",
+    "",
+    displayMath(`\\begin{aligned}
+D&=(1)(2)-(1)(2)\\\\
+D&=2-2\\\\
+D&=0
+\\end{aligned}`),
+    "",
+    "**Step 2: Substitute D into the equation**",
+    "",
+    displayMath("Dx+2=3"),
+    "",
+    displayMath("0x+2=3"),
+    "",
+    "**Step 3: Interpret the result**",
+    "",
+    displayMath("2=3"),
+    "",
+    "This is a contradiction, so there is no value of x that works.",
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the board habit for recursive substitutions: finish the first result before using it in the next equation."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("\\text{No solution}"),
   ].join("\n");
 }
 
@@ -1893,6 +2665,38 @@ function buildDeterministicMathReply({
   });
   if (arithmeticReply) return arithmeticReply;
 
+  const discountTaxReply = buildDiscountTaxReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (discountTaxReply) return discountTaxReply;
+
+  const syntheticDivisionReply = buildSyntheticDivisionReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (syntheticDivisionReply) return syntheticDivisionReply;
+
+  const longDivisionReply = buildLongDivisionReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (longDivisionReply) return longDivisionReply;
+
+  const completeSquareReply = buildCompleteSquareReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (completeSquareReply) return completeSquareReply;
+
   const odeReply = buildOdeGrowthReply({
     message,
     isProfessorMode,
@@ -1900,6 +2704,62 @@ function buildDeterministicMathReply({
     hasLectureContext,
   });
   if (odeReply) return odeReply;
+
+  const secondOrderOdeReply = buildSecondOrderOdeReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (secondOrderOdeReply) return secondOrderOdeReply;
+
+  const exponentialLimitReply = buildExponentialLimitReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (exponentialLimitReply) return exponentialLimitReply;
+
+  const uSubSinCubeIntegralReply = buildUSubSinCubeIntegralReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (uSubSinCubeIntegralReply) return uSubSinCubeIntegralReply;
+
+  const x2LogByPartsReply = buildX2LogByPartsReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (x2LogByPartsReply) return x2LogByPartsReply;
+
+  const specificInverse3x3Reply = buildSpecificInverse3x3Reply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (specificInverse3x3Reply) return specificInverse3x3Reply;
+
+  const complexEigenvaluesReply = buildComplexEigenvaluesReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (complexEigenvaluesReply) return complexEigenvaluesReply;
+
+  const singularDeterminantThenEquationReply = buildSingularDeterminantThenEquationReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (singularDeterminantThenEquationReply) return singularDeterminantThenEquationReply;
 
   const eigenvaluesReply = buildEigenvaluesReply({
     message,

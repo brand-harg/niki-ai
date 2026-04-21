@@ -66,8 +66,22 @@ def final_answer(text: str) -> str:
         answer = math_blocks[-1]
     else:
         first_paragraph = answer.split("\n\n", 1)[0]
+        trailing_value = re.search(
+            r"(?:is|equals|gives|result\s+is)\s*:?\s*(-?\d+(?:\.\d+)?)\s*\.?\s*$",
+            first_paragraph,
+            re.I,
+        )
+        equation = re.search(
+            r"(?:[a-z]\s*=\s*)?(?:[a-z]\s*)?[a-z]\s*[+\-]\s*\d+(?:\.\d+)?",
+            first_paragraph,
+            re.I,
+        )
         numbers = re.findall(r"-?\d+(?:\.\d+)?", first_paragraph)
-        if numbers and len(first_paragraph) > 30:
+        if trailing_value:
+            answer = trailing_value.group(1)
+        elif equation:
+            answer = equation.group(0)
+        elif numbers and len(first_paragraph) > 30:
             answer = numbers[-1]
         else:
             answer = first_paragraph
@@ -81,8 +95,47 @@ def normalize_answer(answer: str) -> str:
     normalized = normalized.replace("\\left", "").replace("\\right", "")
     normalized = normalized.replace("\\,", "").replace(" ", "")
     normalized = normalized.replace("{", "").replace("}", "")
+    normalized = normalized.replace("\\quad", "")
+
+    matrix_match = re.search(r"(?:[a-z]{1,3}=)?(\\beginbmatrix[\s\S]*?\\endbmatrix)", normalized)
+    if matrix_match:
+        return matrix_match.group(1)
+
+    y_equation = re.search(r"y=x[+-]\d+(?:\.\d+)?", normalized)
+    if y_equation:
+        return y_equation.group(0)
+
     normalized = normalized.replace("f'(x)=", "")
     normalized = normalized.replace("y=", "")
+
+    ordered_triple = re.search(r"(?:x=)?(-?\d+(?:\.\d+)?),?(?:y=)?(-?\d+(?:\.\d+)?),?(?:z=)?(-?\d+(?:\.\d+)?)", normalized)
+    if ordered_triple and ("x=" in normalized or "(x,y,z)" in normalized):
+        return ",".join(ordered_triple.groups())
+
+    if "mean" in normalized and ("variance" in normalized or "standarddeviation" in normalized):
+        return ",".join(re.findall(r"-?\d+(?:\.\d+)?", normalized))
+
+    if "z-score" in normalized or normalized.startswith("z="):
+        decimals = re.findall(r"-?\d+\.\d+", normalized)
+        if decimals:
+            return decimals[-1]
+        rhs = re.search(r"z=(-?\d+(?:\.\d+)?)", normalized)
+        if rhs:
+            return rhs.group(1)
+
+    if "sum" in normalized or "\\sum" in normalized:
+        numbers = re.findall(r"-?\d+(?:\.\d+)?", normalized)
+        if numbers:
+            return numbers[-1]
+
+    value_phrase = re.search(r"(?:value|price|finalprice|equals|is)(?:[^-0-9]*)(-?\d+(?:\.\d+)?)\.?$", normalized)
+    if value_phrase:
+        return value_phrase.group(1)
+
+    simple_rhs = re.search(r"=(-?\d+(?:\.\d+)?)\.?$", normalized)
+    if simple_rhs and normalized.count("=") == 1:
+        return simple_rhs.group(1)
+
     return normalized
 
 
@@ -95,7 +148,7 @@ def ui_breaks(text: str):
             failures.append(name)
     if text.count("$$") % 2:
         failures.append("unbalanced_display_fences")
-    if re.search(r"\$\$\s*\$\$", text):
+    if any(not match.strip() for match in re.findall(r"\$\$([\s\S]*?)\$\$", text)):
         failures.append("empty_display_block")
     return failures
 

@@ -39,6 +39,25 @@ const scenarios = [
     expect: [/Calculus2/i, /Watch:/i],
   },
   {
+    id: "course-history-followup-list",
+    description: "After a course is mentioned, show all lectures should use that course instead of asking again.",
+    body: {
+      message: "Show me all the lectures",
+      history: [
+        { role: "user", content: "Calc 2" },
+        {
+          role: "assistant",
+          content:
+            "Got it. We're focusing on Calculus 2. What specific lectures or topics are you referring to?",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Calculus2/i, /Watch:/i],
+    reject: [/What topic or course do you want lectures for/i],
+  },
+  {
     id: "statistics-list",
     description: "Statistics should list statistics lectures.",
     body: {

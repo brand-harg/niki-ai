@@ -139,6 +139,15 @@ function sanitizeHistoryForModel(content: string): string {
     .replace(/\n{3,}/g, "\n\n");
 }
 
+function detectRecentCourseFromHistory(history: { role: string; content: string }[]): string | undefined {
+  for (const item of [...history].reverse().slice(0, 8)) {
+    if (isUiGreeting(item.content)) continue;
+    const course = detectCourseFilter(item.content);
+    if (course) return course;
+  }
+  return undefined;
+}
+
 function isInternalModeReminder(content?: string): boolean {
   return /^Current response mode:/i.test(content?.trim() ?? "");
 }
@@ -273,11 +282,13 @@ export async function POST(req: Request) {
       : "";
 
     const detectedCourse = detectCourseFilter(message);
+    const recentCourseFromHistory = detectRecentCourseFromHistory(history);
+    const courseForLectureList = detectedCourse ?? recentCourseFromHistory;
     const latestAssistantForLectureTopic = [...history]
       .reverse()
       .find((msg) => msg.role === "ai" || msg.role === "assistant")?.content ?? "";
     const isLectureTopicFollowup =
-      !!detectedCourse &&
+      !!courseForLectureList &&
       message.trim().length <= 80 &&
       /(What topic or course do you want lectures for|Tell me a course or topic|I can list lectures by topic\/course)/i.test(
         latestAssistantForLectureTopic
@@ -286,6 +297,11 @@ export async function POST(req: Request) {
       (!!detectedCourse && /(list|lectures|all|show)/i.test(message)) ||
       isLectureTopicFollowup ||
       (!!detectedCourse && message.trim().length <= 40);
+    const isRecentCourseLectureFollowup =
+      !detectedCourse &&
+      !!recentCourseFromHistory &&
+      isLectureListIntent(message) &&
+      /\b(all|show|list|those|them|that course|the lectures?)\b/i.test(message);
 
     if (isLectureCountIntent(message)) {
       const counts = await getLectureCourseCounts();
@@ -297,7 +313,11 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isLectureListIntent(message) && !detectedCourse && !isCalc1LectureListIntent(message)) {
+    if (
+      isLectureListIntent(message) &&
+      !courseForLectureList &&
+      !isCalc1LectureListIntent(message)
+    ) {
       const courses = await getAvailableLectureCourses();
       return new Response(buildLectureTopicPrompt(courses), {
         headers: {
@@ -307,8 +327,8 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isCalc1LectureListIntent(message) || isDetectedCourseLectureIntent) {
-      const courseFilter = detectedCourse ?? "Calculus 1";
+    if (isCalc1LectureListIntent(message) || isDetectedCourseLectureIntent || isRecentCourseLectureFollowup) {
+      const courseFilter = courseForLectureList ?? "Calculus 1";
       const lectures = await getLecturesByCourse(courseFilter);
 
       if (!lectures.length) {
