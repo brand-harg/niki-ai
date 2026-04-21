@@ -79,13 +79,33 @@ Method-specific formatting (REQUIRED for all calculus methods in walkthrough mod
 
   const conciseMathLayoutRules = `
 Concise math layout (default):
-- Use this structure even in concise mode:
-  Step 1: choose method/rule
-  Step 2: apply it
-  Step 3: simplify/evaluate
-- Under Step 1 and Step 2, include short bullet sub-lines for key setup details.
-- Show key equations in standalone $$...$$ blocks.
-- End with a clear standalone final result line.
+-- Use this exact Gemini-like structure:
+  [One short setup sentence]
+  The formula for [method] is:
+  $$...$$
+
+  Step 1: [method setup]
+  Let:
+  - ...
+  - ...
+
+  Step 2: [differentiate/integrate/setup details]
+  - ...
+  - ...
+
+  Step 3: [plug into formula]
+  $$...$$
+
+  Step 4: [evaluate/simplify]
+  $$...$$
+
+  Alternative Form (only if useful):
+  $$...$$
+
+  Final Answer:
+  $$...$$
+- Do not collapse this into one paragraph.
+- Keep equations centered by always using standalone $$...$$ lines.
 `.trim();
 
   const sharedMathRules = `
@@ -240,6 +260,12 @@ function wantsDeeperExplanation(message: string): boolean {
 
 function wantsThoughtTrace(message: string): boolean {
   return /(thought trace|reasoning trace|show reasoning|show thought process|show your reasoning)/i.test(
+    message
+  );
+}
+
+function isLikelyMathQuestion(message: string): boolean {
+  return /(\bintegral\b|\bderivative\b|\bdifferentiate\b|\bsolve\b|\blimit\b|\bmatrix\b|\bprobability\b|\bstatistic|\bmean\b|\bvariance\b|[\dxy]\s*[\+\-\*\/\^]\s*[\dxy]|\\int|\\frac|\$)/i.test(
     message
   );
 }
@@ -430,7 +456,8 @@ export async function POST(req: Request) {
     const ragStyleSnippets = body.ragStyleSnippets ?? [];
     const ragCitations = dedupeCitations(body.ragCitations ?? []);
     const wantsMoreDetail = wantsDeeperExplanation(message);
-    const forceStepByStep = wantsStepByStep(message) || wantsMoreDetail;
+    const likelyMathQuestion = isLikelyMathQuestion(message);
+    const forceStepByStep = wantsStepByStep(message) || wantsMoreDetail || likelyMathQuestion;
     const includeThoughtTrace = wantsThoughtTrace(message);
 
     const hasImage = !!base64Image;

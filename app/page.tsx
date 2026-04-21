@@ -159,6 +159,31 @@ function sanitizeMathContent(content: string): string {
 
   let cleaned = content;
 
+  const shouldPromoteInlineMath = (expr: string) => {
+    const trimmed = expr.trim();
+    if (!trimmed) return false;
+
+    return (
+      trimmed.length >= 22 ||
+      /\\(int|frac|sum|prod|sqrt|lim|left|right|cdot|ln|log|sin|cos|tan)/.test(trimmed) ||
+      /[=∫ΣΠ√]/.test(trimmed)
+    );
+  };
+
+  const normalizeEquationText = (expr: string) =>
+    expr
+      .replace(/∫/g, "\\int ")
+      .replace(/√/g, "\\sqrt")
+      .replace(/−/g, "-")
+      .replace(/×/g, "\\cdot ")
+      .replace(/·/g, "\\cdot ")
+      .replace(/∞/g, "\\infty")
+      .replace(/≤/g, "\\leq")
+      .replace(/≥/g, "\\geq")
+      .replace(/π/g, "\\pi")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
   cleaned = cleaned
     .replace(/\\\[/g, "$$")
     .replace(/\\\]/g, "$$")
@@ -169,6 +194,111 @@ function sanitizeMathContent(content: string): string {
   cleaned = cleaned.replace(/^\$(?!\$)\s*$/gm, "");
   cleaned = cleaned.replace(/\\boxed\s*\{([^}]*)\}/g, "$1");
   cleaned = cleaned.replace(/\\text\{([^}]*)\}/g, "$1");
+
+
+  // Promote inline equations into centered display blocks so formulas and final
+  // results are visually separated (Gemini-style layout).
+  cleaned = cleaned
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+
+      if (trimmed.includes("$$")) return line;
+
+      const colonIndex = trimmed.indexOf(":");
+      if (colonIndex !== -1) {
+        const label = trimmed.slice(0, colonIndex + 1).trim();
+        const tail = trimmed.slice(colonIndex + 1).trim();
+        const tailLooksEquation =
+          /[=^]|∫|√|\b(?:ln|log|sin|cos|tan)\s*\(/.test(tail) ||
+          (/\d/.test(tail) && /[a-zA-Z]/.test(tail) && /[+\-*/]/.test(tail));
+
+        if (tail && tailLooksEquation && !/^step\s+\d+:/i.test(label)) {
+          return `${label}\n$$${normalizeEquationText(tail)}$$`;
+        }
+      }
+
+      const fullLineLooksEquation =
+        (/[=^]|∫|√|\b(?:ln|log|sin|cos|tan)\s*\(/.test(trimmed) || /\b(?:dx|dy|dz)\b/.test(trimmed)) &&
+        !/^step\s+\d+:/i.test(trimmed) &&
+        !/^let\s+/i.test(trimmed);
+
+      if (fullLineLooksEquation && shouldPromoteInlineMath(trimmed)) {
+        return `$$${normalizeEquationText(trimmed)}$$`;
+      }
+
+      const inlineSegments = [...trimmed.matchAll(/\$([^$\n]+)\$/g)];
+      if (inlineSegments.length > 0) {
+        const rebuilt: string[] = [];
+        let cursor = 0;
+
+        for (const seg of inlineSegments) {
+          const full = seg[0];
+          const expr = seg[1]?.trim() ?? "";
+          const start = seg.index ?? 0;
+
+          const before = trimmed.slice(cursor, start).trim();
+          if (before) rebuilt.push(before);
+
+          if (shouldPromoteInlineMath(expr)) {
+            rebuilt.push(`$$${normalizeEquationText(expr)}$$`);
+          } else {
+            rebuilt.push(full);
+          }
+
+          cursor = start + full.length;
+        }
+
+        const after = trimmed.slice(cursor).trim();
+        if (after) rebuilt.push(after);
+
+        return rebuilt.join("\n");
+      }
+
+      const inlineMathOnly = trimmed.match(/^\$(.+)\$$/);
+      if (inlineMathOnly && shouldPromoteInlineMath(inlineMathOnly[1])) {
+        return `$$${normalizeEquationText(inlineMathOnly[1])}$$`;
+      }
+
+      const labelPlusInlineMath = trimmed.match(/^(.*?:)\s*\$(.+)\$\s*$/);
+      if (labelPlusInlineMath && shouldPromoteInlineMath(labelPlusInlineMath[2])) {
+        const label = labelPlusInlineMath[1].trim();
+        const expr = labelPlusInlineMath[2].trim();
+        return `${label}\n$$${normalizeEquationText(expr)}$$`;
+      }
+
+      const bareMathStart = trimmed.search(/\\(int|frac|sum|prod|sqrt|lim|left|right|cdot|ln|log|sin|cos|tan)|[∫ΣΠ√]/);
+      if (bareMathStart > 0) {
+        const prefix = trimmed.slice(0, bareMathStart).trim();
+        const possibleMath = trimmed.slice(bareMathStart).trim();
+
+        if (shouldPromoteInlineMath(possibleMath)) {
+          return `${prefix}\n$$${normalizeEquationText(possibleMath)}$$`;
+        }
+      }
+
+      return line;
+    })
+    .join("\n");
+
+  // If the model emits bare LaTeX command lines (e.g. "\int ...", "\frac ...")
+  // without dollar delimiters, wrap those lines so KaTeX can render them.
+  cleaned = cleaned
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.includes("$")) return line;
+
+      const looksLikeBareLatex =
+        /\\(int|frac|cdot|sqrt|sum|prod|lim|left|right|sin|cos|tan|ln|log|alpha|beta|gamma|delta)/.test(trimmed) &&
+        (trimmed.startsWith("\\") || /=/.test(trimmed));
+
+      if (!looksLikeBareLatex) return line;
+      return `$$${trimmed}$$`;
+    })
+    .join("\n");
 
   return cleaned;
 }

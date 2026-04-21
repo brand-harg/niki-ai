@@ -1,3 +1,6 @@
+/* css-rparentexpected */
+/* stylelint-disable */
+
 @import "tailwindcss";
 
 /*
@@ -96,11 +99,13 @@ body {
   margin-bottom: 0.5rem;
 }
 
-.katex-display {
-  display: flex;
-  justify-content: center;
+prose .katex-display {
+  display: block;
+  width: 100%;
+  text-align: center;
   margin: 1rem 0 !important;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 0.25rem 0;
 }
 
@@ -109,8 +114,9 @@ body {
   line-height: 1.35;
 }
 
-.katex-display > .katex {
-  text-align: center;
+.prose .katex-display > .katex {
+  display: inline-block;
+  margin: 0 auto;
 }
 
 @media (max-width: 640px) {
