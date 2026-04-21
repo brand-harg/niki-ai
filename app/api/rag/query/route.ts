@@ -46,7 +46,10 @@ function extractKeywords(question: string) {
         .replace(/[^a-z0-9\s]/g, " ")
         .split(/\s+/)
         .filter((w) => w.length >= 4)
-        .filter((w) => !["what", "when", "where", "which", "with", "from", "that", "this", "into"].includes(w))
+        .filter(
+          (w) =>
+            !["what", "when", "where", "which", "with", "from", "that", "this", "into"].includes(w)
+        )
     )
   ).slice(0, 6);
 }
@@ -57,7 +60,9 @@ function toVideoTimestampUrl(url: string, seconds: number) {
   return `${url}?t=${safe}s`;
 }
 
-function chunkKey(chunk: Pick<ChunkRow, "source_id" | "timestamp_start_seconds" | "timestamp_end_seconds">) {
+function chunkKey(
+  chunk: Pick<ChunkRow, "source_id" | "timestamp_start_seconds" | "timestamp_end_seconds">
+) {
   return `${chunk.source_id}:${chunk.timestamp_start_seconds}:${chunk.timestamp_end_seconds}`;
 }
 
@@ -95,10 +100,7 @@ export async function POST(req: Request) {
     });
     const embedding = embeddingRes.data?.[0]?.embedding;
     if (!embedding) {
-      return NextResponse.json(
-        { error: "Embedding generation failed." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Embedding generation failed." }, { status: 500 });
     }
 
     const keywords = extractKeywords(question);
@@ -108,12 +110,9 @@ export async function POST(req: Request) {
     let requestedSourceIdSet: Set<string> | null = null;
     if (anyFilterRequested) {
       let sourceFilterQuery = supabase.from("lecture_sources").select("id");
-      if (courseFilter) {
-        sourceFilterQuery = sourceFilterQuery.ilike("course", `%${courseFilter}%`);
-      }
-      if (professorFilter) {
+      if (courseFilter) sourceFilterQuery = sourceFilterQuery.ilike("course", `%${courseFilter}%`);
+      if (professorFilter)
         sourceFilterQuery = sourceFilterQuery.ilike("professor", `%${professorFilter}%`);
-      }
 
       const { data: requestedSourceRows, error: requestedSourceErr } =
         await sourceFilterQuery.limit(200);
@@ -171,22 +170,19 @@ export async function POST(req: Request) {
       }),
       keywords.length > 0
         ? (() => {
-            let keywordQuery = supabase
-              .from("lecture_chunks")
-              .select(
-                "source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint"
-              )
-              .or(keywordFilter)
-              .limit(maxChunks);
+          let keywordQuery = supabase
+            .from("lecture_chunks")
+            .select(
+              "source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint"
+            )
+            .or(keywordFilter)
+            .limit(maxChunks);
 
-            if (requestedSourceIdSet && requestedSourceIdSet.size > 0) {
-              keywordQuery = keywordQuery.in(
-                "source_id",
-                Array.from(requestedSourceIdSet)
-              );
-            }
-            return keywordQuery;
-          })()
+          if (requestedSourceIdSet && requestedSourceIdSet.size > 0) {
+            keywordQuery = keywordQuery.in("source_id", Array.from(requestedSourceIdSet));
+          }
+          return keywordQuery;
+        })()
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -219,9 +215,7 @@ export async function POST(req: Request) {
     for (const row of [...vectorChunks, ...keywordChunks]) {
       const key = chunkKey(row);
       const prev = chunkMap.get(key);
-      if (!prev || row.similarity > prev.similarity) {
-        chunkMap.set(key, row);
-      }
+      if (!prev || row.similarity > prev.similarity) chunkMap.set(key, row);
     }
 
     const chunks = Array.from(chunkMap.values())
@@ -229,14 +223,17 @@ export async function POST(req: Request) {
       .slice(0, maxChunks);
     const styleSnippets = (styleData || []) as StyleRow[];
     const sourceIds = Array.from(
-      new Set([...chunks.map((c) => c.source_id), ...styleSnippets.map((s) => s.source_id)])
+      new Set([
+        ...chunks.map((c) => c.source_id),
+        ...styleSnippets.map((s) => s.source_id),
+      ])
     );
 
     const { data: sourceRows, error: sourceErr } = sourceIds.length
       ? await supabase
-          .from("lecture_sources")
-          .select("id, lecture_title, video_url, professor, course")
-          .in("id", sourceIds)
+        .from("lecture_sources")
+        .select("id, lecture_title, video_url, professor, course")
+        .in("id", sourceIds)
       : { data: [], error: null };
 
     if (sourceErr) {
@@ -252,9 +249,7 @@ export async function POST(req: Request) {
 
     const matchesSourceFilters = (sourceId: string) => {
       if (!courseFilter && !professorFilter) return true;
-      if (requestedSourceIdSet) {
-        return requestedSourceIdSet.has(sourceId);
-      }
+      if (requestedSourceIdSet) return requestedSourceIdSet.has(sourceId);
       const source = sourceMap.get(sourceId);
       if (!source) return false;
       const coursePass = courseFilter
@@ -275,9 +270,7 @@ export async function POST(req: Request) {
       ...filteredStyleSnippets.map((snippet) => snippet.source_id),
     ]);
     const scopedChunks = anyFilterRequested ? filteredChunks : chunks;
-    const scopedStyleSnippets = anyFilterRequested
-      ? filteredStyleSnippets
-      : styleSnippets;
+    const scopedStyleSnippets = anyFilterRequested ? filteredStyleSnippets : styleSnippets;
     const anyFilterApplied = filteredSourceIds.size > 0;
 
     const citations = scopedChunks.map((chunk) => {

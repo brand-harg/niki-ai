@@ -1,78 +1,66 @@
 "use client";
-import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
 
 export default function PersonalizationPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [themeAccent, setThemeAccent] = useState('cyan');
+  const [themeAccent, setThemeAccent] = useState("cyan");
 
   const [data, setData] = useState({
-    about_user: '',
-    response_style: '',
-    default_niki_mode: true
+    about_user: "",
+    response_style: "",
+    default_niki_mode: true,
   });
 
   useEffect(() => {
     const run = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return router.push('/login');
+      if (!session) return router.push("/login");
 
       const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('about_user, response_style, default_niki_mode, theme_accent')
-        .eq('id', session.user.id)
+        .from("profiles")
+        .select("about_user, response_style, default_niki_mode, theme_accent")
+        .eq("id", session.user.id)
         .maybeSingle();
 
-      if (error) {
-        console.log("Personalization fetch error:", error);
-      }
+      if (error) console.log("Personalization fetch error:", error);
 
       if (profile) {
         setData({
-          about_user: profile.about_user || '',
-          response_style: profile.response_style || '',
-          default_niki_mode: profile.default_niki_mode ?? true
+          about_user: profile.about_user || "",
+          response_style: profile.response_style || "",
+          default_niki_mode: profile.default_niki_mode ?? true,
         });
-
         if (
-          profile.theme_accent === 'cyan' ||
-          profile.theme_accent === 'green' ||
-          profile.theme_accent === 'amber'
+          profile.theme_accent === "cyan" ||
+          profile.theme_accent === "green" ||
+          profile.theme_accent === "amber"
         ) {
           setThemeAccent(profile.theme_accent);
         }
       }
-
-
       setLoading(false);
     };
-
     run();
   }, [router]);
 
   const handleSave = async () => {
     setSaving(true);
-
     const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      setStatus("Auth Session Lost");
-      setSaving(false);
-      return;
-    }
+    if (!session) { setStatus("Auth Session Lost"); setSaving(false); return; }
 
     const { error } = await supabase
-      .from('profiles')
+      .from("profiles")
       .update({
         about_user: data.about_user,
         response_style: data.response_style,
-        default_niki_mode: data.default_niki_mode
+        default_niki_mode: data.default_niki_mode,
       })
-      .eq('id', session.user.id);
+      .eq("id", session.user.id);
 
     if (!error) {
       setStatus("Instructions Updated");
@@ -82,55 +70,47 @@ export default function PersonalizationPage() {
       setTimeout(() => setStatus(null), 3000);
       console.log("Personalization save error:", error);
     }
-
     setSaving(false);
   };
 
-  const isGreen = themeAccent === 'green';
-  const isAmber = themeAccent === 'amber';
-
-  const accentText = isGreen
-    ? 'text-green-400'
-    : isAmber
-      ? 'text-amber-400'
-      : 'text-cyan-400';
-
-  const accentBg = isGreen
-    ? 'bg-green-500'
-    : isAmber
-      ? 'bg-amber-500'
-      : 'bg-cyan-500';
-
+  const isGreen = themeAccent === "green";
+  const isAmber = themeAccent === "amber";
+  const accentText = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
+  const accentBg = isGreen ? "bg-green-500" : isAmber ? "bg-amber-500" : "bg-cyan-500";
   const accentHoverBg = isGreen
-    ? 'hover:bg-green-400'
+    ? "hover:bg-green-400"
     : isAmber
-      ? 'hover:bg-amber-400'
-      : 'hover:bg-cyan-400';
-
+    ? "hover:bg-amber-400"
+    : "hover:bg-cyan-400";
   const accentFocusBorder = isGreen
-    ? 'focus:border-green-500/50'
+    ? "focus:border-green-500/50"
     : isAmber
-      ? 'focus:border-amber-500/50'
-      : 'focus:border-cyan-500/50';
-
+    ? "focus:border-amber-500/50"
+    : "focus:border-cyan-500/50";
   const selectionClass = isGreen
-    ? 'selection:bg-green-500/30'
+    ? "selection:bg-green-500/30"
     : isAmber
-      ? 'selection:bg-amber-500/30'
-      : 'selection:bg-cyan-500/30';
+    ? "selection:bg-amber-500/30"
+    : "selection:bg-cyan-500/30";
 
   if (loading) {
     return (
-      <div className={`min-h-screen bg-black flex items-center justify-center ${accentText} font-mono text-[10px] uppercase tracking-widest animate-pulse`}>
+      <div
+        className={`min-h-screen bg-black flex items-center justify-center ${accentText} font-mono text-[10px] uppercase tracking-widest animate-pulse`}
+      >
         Accessing AI Core...
       </div>
     );
   }
 
   return (
-    <main className={`min-h-screen bg-black text-white p-6 font-sans ${selectionClass} relative`}>
+    <main
+      className={`min-h-screen bg-black text-white p-6 font-sans ${selectionClass} relative`}
+    >
       {status && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-50 px-6 py-2 ${accentBg} text-black text-[9px] font-black uppercase rounded-full shadow-lg animate-in fade-in zoom-in duration-300`}>
+        <div
+          className={`fixed top-8 left-1/2 -translate-x-1/2 z-50 px-6 py-2 ${accentBg} text-black text-[9px] font-black uppercase rounded-full shadow-lg animate-in fade-in zoom-in duration-300`}
+        >
           {status}
         </div>
       )}
@@ -151,7 +131,7 @@ export default function PersonalizationPage() {
               What should NikiAi know about you?
             </h3>
             <textarea
-              value={data.about_user || ''}
+              value={data.about_user || ""}
               onChange={(e) => setData({ ...data, about_user: e.target.value })}
               placeholder="e.g. I am a student at RVCC transferring to Rowan for Data Science. Focus on Calculus III and Python logic."
               className={`w-full h-32 bg-white/[0.02] border border-white/10 rounded-3xl p-6 text-sm text-slate-300 ${accentFocusBorder} outline-none transition-all resize-none ring-0`}
@@ -163,7 +143,7 @@ export default function PersonalizationPage() {
               How should NikiAi respond?
             </h3>
             <textarea
-              value={data.response_style || ''}
+              value={data.response_style || ""}
               onChange={(e) => setData({ ...data, response_style: e.target.value })}
               placeholder="e.g. Be direct, use mathematical notation, and always provide a 'Nemanja-style' logic summary at the end."
               className={`w-full h-32 bg-white/[0.02] border border-white/10 rounded-3xl p-6 text-sm text-slate-300 ${accentFocusBorder} outline-none transition-all resize-none ring-0`}
@@ -179,15 +159,21 @@ export default function PersonalizationPage() {
             </div>
             <button
               onClick={() => setData({ ...data, default_niki_mode: !data.default_niki_mode })}
-              className={`w-12 h-6 rounded-full relative transition-all ${data.default_niki_mode ? accentBg : 'bg-zinc-800'}`}
+              className={`w-12 h-6 rounded-full relative transition-all ${
+                data.default_niki_mode ? accentBg : "bg-zinc-800"
+              }`}
             >
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${data.default_niki_mode ? 'right-1' : 'left-1'}`}></div>
+              <div
+                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                  data.default_niki_mode ? "right-1" : "left-1"
+                }`}
+              />
             </button>
           </div>
 
           <div className="flex gap-4 pt-6 border-t border-white/5">
             <button
-              onClick={() => router.push('/settings')}
+              onClick={() => router.push("/settings")}
               className="flex-1 py-4 text-[9px] font-black uppercase text-slate-600 hover:text-white transition-all"
             >
               Back

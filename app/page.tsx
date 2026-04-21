@@ -961,8 +961,8 @@ export default function Home() {
         <div
           onClick={(e) => togglePin(e, chat.id, !!chat.is_pinned)}
           className={`cursor-pointer transition-opacity ${chat.is_pinned
-              ? `${accentColor} opacity-100`
-              : "opacity-20 hover:opacity-100 hover:text-white"
+            ? `${accentColor} opacity-100`
+            : "opacity-20 hover:opacity-100 hover:text-white"
             }`}
         >
           {chat.is_pinned ? "★" : "☆"}
@@ -1029,8 +1029,8 @@ export default function Home() {
           <button
             onClick={() => setActiveTab("history")}
             className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
-                ? `bg-white/5 ${accentColor} ${accentBorder}`
-                : "text-slate-500 border-transparent hover:text-slate-300"
+              ? `bg-white/5 ${accentColor} ${accentBorder}`
+              : "text-slate-500 border-transparent hover:text-slate-300"
               }`}
           >
             History
@@ -1038,8 +1038,8 @@ export default function Home() {
           <button
             onClick={() => setActiveTab("projects")}
             className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
-                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                : "text-slate-500 border-transparent hover:text-slate-300"
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "text-slate-500 border-transparent hover:text-slate-300"
               }`}
           >
             Projects
@@ -1180,12 +1180,14 @@ export default function Home() {
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex w-full ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500 ${msg.role === "user" ? "text-right ml-auto" : "text-left mr-auto"
+                className={`flex w-full ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500 
+                ${msg.role === "user" ? "justify-end" : "justify-start"
                   }`}
               >
                 <div
-                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
-                    }`}
+                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black 
+                  ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
+                    } ${msg.role === "user" ? "order-2" : "order-1"}`}
                 >
                   {msg.role === "ai"
                     ? "N"
@@ -1193,8 +1195,8 @@ export default function Home() {
                 </div>
 
                 <div
-                  className={`max-w-[85%] sm:max-w-[80%] text-slate-200 pt-1 select-text selection:bg-white/20 leading-6 sm:leading-7 text-sm sm:text-base overflow-hidden ${msg.role === "user" ? "text-right" : "text-left"
-                    }`}
+                  className={`max-w-[88%] sm:max-w-[82%] text-slate-200 pt-1 select-text selection:bg-white/20 leading-7 sm:leading-8 text-base sm:text-lg overflow-hidden 
+                    ${msg.role === "user" ? "text-right order-1" : "text-left order-2"}`}
                 >
                   {msg.role === "ai" ? (
                     (() => {
@@ -1205,7 +1207,7 @@ export default function Home() {
                         const liveMathContent = sanitizeMathContent(liveContent);
 
                         return (
-                          <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                          <div className="prose prose-invert prose-base sm:prose-lg max-w-none prose-p:my-3 prose-li:my-2 prose-ul:my-3 prose-ol:my-3 prose-headings:my-4">
                             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                               {liveMathContent}
                             </ReactMarkdown>
@@ -1217,12 +1219,11 @@ export default function Home() {
                       const { steps, clean } = parseThoughtTrace(msg.content);
                       const finalContent = sanitizeMathContent(clean);
                       const finalAnswerBoxClass =
-                        "mt-1 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 sm:px-5 sm:py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
-
+                        "mt-1 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 sm:px-6 sm:py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
                       return (
                         <>
                           <div className={finalAnswerBoxClass}>
-                            <div className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-headings:my-3">
+                            <div className="prose prose-invert prose-base sm:prose-lg max-w-none prose-p:my-3 prose-li:my-2 prose-ul:my-3 prose-ol:my-3 prose-headings:my-4">
                               <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                                 {finalContent}
                               </ReactMarkdown>
@@ -1310,8 +1311,8 @@ export default function Home() {
                   onClick={() => setLectureMode((prev) => !prev)}
                   disabled={isLoading}
                   className={`shrink-0 h-10 sm:h-12 px-3 sm:px-4 rounded-xl border text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all outline-none ${lectureMode
-                      ? `${accentBorder} ${accentColor} bg-white/5`
-                      : "border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 bg-white/[0.02]"
+                    ? `${accentBorder} ${accentColor} bg-white/5`
+                    : "border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 bg-white/[0.02]"
                     } disabled:opacity-40 disabled:cursor-not-allowed`}
                   title="Toggle Lecture Mode retrieval context"
                   aria-pressed={lectureMode}

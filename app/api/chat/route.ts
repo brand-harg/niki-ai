@@ -79,9 +79,12 @@ Method-specific formatting (REQUIRED for all calculus methods in walkthrough mod
 
   const conciseMathLayoutRules = `
 Concise math layout (default):
-- Give a short plain-language setup line.
-- Show only key equations (not every intermediate arithmetic line).
-- Use numbered steps only when the user asks for step-by-step.
+- Use this structure even in concise mode:
+  Step 1: choose method/rule
+  Step 2: apply it
+  Step 3: simplify/evaluate
+- Under Step 1 and Step 2, include short bullet sub-lines for key setup details.
+- Show key equations in standalone $$...$$ blocks.
 - End with a clear standalone final result line.
 `.trim();
 
@@ -110,11 +113,10 @@ ${forceStepByStep
 - If the student asks for more help, expand the walkthrough with more steps instead of compressing.
 - End with a separate line: Final Answer: [result].
 - Do not skip directly to only the final result.`
-      : `- Prefer clean explanatory prose (not rigid numbered steps).
+      : `- Use a compact but structured walkthrough with Step 1/Step 2/Step 3.
+- Include short bullet sub-lines in Step 1 and Step 2 for setup work.
 - Show key equations on their own lines with $$...$$.
-- Briefly state the rule used, then apply it.
-- End with a standalone concluding equation/result line.
-- Only use explicit Step 1/Step 2 labels if the user asks for step-by-step.`}
+- End with a standalone concluding equation/result line labeled "Final Answer:".`}
 ${forceStepByStep ? detailedMathLayoutRules : conciseMathLayoutRules}
 `.trim();
 
@@ -165,6 +167,8 @@ Lecture mode grounding rules (STRICT):
 - Do not invent lecture titles, section numbers, or video links.
 - If the answer is not supported by the provided sources, say so clearly.
 - For "list all lectures" style questions, use only database-backed lecture lists, not guesses.
+- Do not use markdown heading markers like ### in lecture answers.
+- Prefer short sections with bullets over long dense paragraphs.
 `.trim()
     : "";
 
@@ -240,6 +244,11 @@ function wantsThoughtTrace(message: string): boolean {
   );
 }
 
+/**
+ * Parses complete JSON objects out of a streaming buffer.
+ * Returns the parsed objects and any leftover incomplete bytes.
+ * Any remaining incomplete object at end-of-stream should be flushed separately.
+ */
 function extractJsonObjects(input: string): {
   objects: string[];
   remainder: string;
@@ -272,13 +281,10 @@ function extractJsonObjects(input: string): {
     if (inString) continue;
 
     if (char === "{") {
-      if (depth === 0) {
-        startIndex = i;
-      }
+      if (depth === 0) startIndex = i;
       depth++;
     } else if (char === "}") {
       depth--;
-
       if (depth === 0 && startIndex !== -1) {
         objects.push(input.slice(startIndex, i + 1));
         startIndex = -1;
@@ -286,17 +292,12 @@ function extractJsonObjects(input: string): {
     }
   }
 
+  // Return remainder only if we're mid-object
   if (depth > 0 && startIndex !== -1) {
-    return {
-      objects,
-      remainder: input.slice(startIndex),
-    };
+    return { objects, remainder: input.slice(startIndex) };
   }
 
-  return {
-    objects,
-    remainder: "",
-  };
+  return { objects, remainder: "" };
 }
 
 function formatSeconds(seconds?: number): string {
@@ -309,7 +310,6 @@ function formatSeconds(seconds?: number): string {
 function dedupeCitations(citations: LectureCitation[]): LectureCitation[] {
   const seen = new Set<string>();
   const out: LectureCitation[] = [];
-
   for (const cite of citations) {
     const key = [
       cite.lectureTitle ?? "",
@@ -318,40 +318,29 @@ function dedupeCitations(citations: LectureCitation[]): LectureCitation[] {
       cite.timestampStartSeconds ?? "",
       cite.timestampUrl ?? "",
     ].join("|");
-
     if (!seen.has(key)) {
       seen.add(key);
       out.push(cite);
     }
   }
-
   return out;
 }
 
 function uniqueLectures(citations: LectureCitation[]): LectureCitation[] {
   const seen = new Set<string>();
   const out: LectureCitation[] = [];
-
   for (const cite of citations) {
-    const key = [
-      cite.lectureTitle ?? "",
-      cite.course ?? "",
-      cite.professor ?? "",
-    ].join("|");
-
+    const key = [cite.lectureTitle ?? "", cite.course ?? "", cite.professor ?? ""].join("|");
     if (!seen.has(key)) {
       seen.add(key);
       out.push(cite);
     }
   }
-
   return out;
 }
 
 function isLectureListIntent(message: string): boolean {
-  return /(what lectures do you have|list .*lectures|list me .*lectures|all .*lectures)/i.test(
-    message
-  );
+  return /(what lectures do you have|list .*lectures|list me .*lectures|all .*lectures)/i.test(message);
 }
 
 function isVideoLookupIntent(message: string): boolean {
@@ -387,7 +376,6 @@ async function getAllCalc1Lectures(): Promise<LectureSourceRow[]> {
       deduped.push(row);
     }
   }
-
   return deduped;
 }
 
@@ -395,13 +383,11 @@ function buildCitationLectureReply(
   message: string,
   citations: LectureCitation[]
 ): string | null {
-  if (!isLectureListIntent(message) && !isVideoLookupIntent(message)) {
-    return null;
-  }
+  if (!isLectureListIntent(message) && !isVideoLookupIntent(message)) return null;
 
   const deduped = uniqueLectures(dedupeCitations(citations));
   if (deduped.length === 0) {
-    return "I don’t have any matching lecture metadata in my database for that request.";
+    return "I don't have any matching lecture metadata in my database for that request.";
   }
 
   if (isVideoLookupIntent(message)) {
@@ -409,7 +395,6 @@ function buildCitationLectureReply(
     if (!firstWithUrl) {
       return "I found lecture context, but I do not have a usable video link for it in the database.";
     }
-
     return [
       `${firstWithUrl.lectureTitle ?? "Unknown lecture"}`,
       `${firstWithUrl.course ?? "Unknown course"} · ${firstWithUrl.professor ?? "Unknown professor"} · ${formatSeconds(firstWithUrl.timestampStartSeconds)}`,
@@ -424,7 +409,6 @@ function buildCitationLectureReply(
     const watch = c.timestampUrl ? `\nWatch: ${c.timestampUrl}` : "";
     return `${i + 1}. ${title}\n${course} · ${professor}${watch}`;
   });
-
   return lines.join("\n\n");
 }
 
@@ -464,9 +448,7 @@ export async function POST(req: Request) {
       console.log("\n=============================");
       console.log(`🧠 User asked: "${message || "[file only]"}"`);
       console.log(`📎 Image: ${hasImage} | Text file: ${hasTextFile}`);
-      if (hasImage && imageMediaType) {
-        console.log(`🖼️ Image type: ${imageMediaType}`);
-      }
+      if (hasImage && imageMediaType) console.log(`🖼️ Image type: ${imageMediaType}`);
       console.log("🌊 STREAMING ONLINE: Connecting to Ollama...");
     }
 
@@ -480,9 +462,7 @@ export async function POST(req: Request) {
       ).data
       : null;
 
-    const personalContext = profile?.about_user
-      ? `User context: ${profile.about_user}`
-      : "";
+    const personalContext = profile?.about_user ? `User context: ${profile.about_user}` : "";
     const styleInstructions = profile?.response_style
       ? `Response style: ${profile.response_style}`
       : "";
@@ -501,14 +481,10 @@ export async function POST(req: Request) {
     if (lectureMode && isCalc1LectureListIntent(message)) {
       const lectures = await getAllCalc1Lectures();
       if (!lectures.length) {
-        return new Response("I don’t have any Calculus 1 lectures in the database.", {
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-            "Cache-Control": "no-cache",
-          },
+        return new Response("I don't have any Calculus 1 lectures in the database.", {
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
         });
       }
-
       const reply = lectures
         .map((lecture, i) => {
           const title = lecture.lecture_title ?? "Unknown lecture";
@@ -521,12 +497,8 @@ export async function POST(req: Request) {
           return `${i + 1}. ${title}\n${course} · ${professor}${watch}`;
         })
         .join("\n\n");
-
       return new Response(reply, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Cache-Control": "no-cache",
-        },
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
       });
     }
 
@@ -534,10 +506,7 @@ export async function POST(req: Request) {
       const directLectureReply = buildCitationLectureReply(message, ragCitations);
       if (directLectureReply) {
         return new Response(directLectureReply, {
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-            "Cache-Control": "no-cache",
-          },
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
         });
       }
     }
@@ -558,7 +527,10 @@ export async function POST(req: Request) {
         .join("\n\n");
       const style = ragStyleSnippets
         .slice(0, 3)
-        .map((snippet, i) => `Style ${i + 1} (${snippet.personaTag ?? "teaching_style"}):\n${snippet.text}`)
+        .map(
+          (snippet, i) =>
+            `Style ${i + 1} (${snippet.personaTag ?? "teaching_style"}):\n${snippet.text}`
+        )
         .join("\n\n");
       const citations = ragCitations
         .slice(0, 6)
@@ -601,29 +573,22 @@ ${message}
       role: "user",
       content: userMessageContent || "Please analyze this image.",
     };
-
-    if (hasImage) {
-      userMessage.images = [base64Image];
-    }
+    if (hasImage) userMessage.images = [base64Image];
 
     const ollamaMessages = [
       { role: "system", content: systemPrompt },
       {
         role: "assistant",
-        content:
-          "I will format all math using proper LaTeX with one equation per line.",
+        content: "I will format all math using proper LaTeX with one equation per line.",
       },
       ...formattedHistory,
       userMessage,
     ];
 
-    if (isDevLog) {
-      console.log(`🤖 Routing to model: ${model}`);
-    }
+    if (isDevLog) console.log(`🤖 Routing to model: ${model}`);
 
-    const ollamaBaseUrl =
-      process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434";
-    const response = await fetch(
+    const ollamaBaseUrl = process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434";
+    const ollamaResponse = await fetch(
       `${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`,
       {
         method: "POST",
@@ -632,22 +597,19 @@ ${message}
           model,
           stream: true,
           keep_alive: "2h",
-          options: {
-            num_predict: hasImage ? 1000 : 1500,
-            temperature: 0.2,
-          },
+          options: { num_predict: hasImage ? 1000 : 1500, temperature: 0.2 },
           messages: ollamaMessages,
         }),
       }
     );
 
-    if (!response.ok) {
-      const responseText = await response.text().catch(() => "");
+    if (!ollamaResponse.ok) {
+      const responseText = await ollamaResponse.text().catch(() => "");
       if (isDevLog) {
         console.log(
           "❌ Ollama request failed:",
-          response.status,
-          response.statusText,
+          ollamaResponse.status,
+          ollamaResponse.statusText,
           responseText
         );
       }
@@ -662,7 +624,7 @@ ${message}
 
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = response.body?.getReader();
+        const reader = ollamaResponse.body?.getReader();
         if (!reader) {
           controller.close();
           return;
@@ -680,38 +642,46 @@ ${message}
           }
         };
 
+        const processObjects = (objects: string[]) => {
+          for (const obj of objects) {
+            try {
+              const parsed = JSON.parse(obj);
+              if (parsed.message?.content) {
+                controller.enqueue(encoder.encode(parsed.message.content));
+              }
+              if (parsed.done) return true; // signal done
+            } catch {
+              // ignore malformed partial objects
+            }
+          }
+          return false;
+        };
+
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
+            if (done) {
+              // Flush any remaining buffer content before closing
+              if (buffer.trim()) {
+                const { objects } = extractJsonObjects(buffer);
+                processObjects(objects);
+              }
+              break;
+            }
 
+            buffer += decoder.decode(value, { stream: true });
             const { objects, remainder } = extractJsonObjects(buffer);
             buffer = remainder;
 
-            for (const obj of objects) {
-              try {
-                const parsed = JSON.parse(obj);
-
-                if (parsed.message?.content) {
-                  controller.enqueue(encoder.encode(parsed.message.content));
-                }
-
-                if (parsed.done) {
-                  safeClose();
-                  return;
-                }
-              } catch {
-                // ignore malformed partial objects
-              }
+            const isDone = processObjects(objects);
+            if (isDone) {
+              safeClose();
+              return;
             }
           }
         } catch (err) {
-          if (isDevLog) {
-            console.log("❌ Stream error:", err);
-          }
+          if (isDevLog) console.log("❌ Stream error:", err);
         } finally {
           reader.releaseLock();
           safeClose();
@@ -720,19 +690,13 @@ ${message}
     });
 
     return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-cache",
-      },
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
     });
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "AbortError") {
       return NextResponse.json({ reply: "System Error: Model timed out." });
     }
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log("❌ Fatal error:", error);
-    }
+    if (process.env.NODE_ENV !== "production") console.log("❌ Fatal error:", error);
     return NextResponse.json(
       {
         reply:

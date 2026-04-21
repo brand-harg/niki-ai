@@ -4,7 +4,7 @@ function parseArgs(argv) {
     };
 }
 
-const { strict } = parseArgs(process.argv.slice(2)); c
+const { strict } = parseArgs(process.argv.slice(2)); 
 const endpoint = process.env.RAG_EVAL_URL?.trim() || "http://localhost:3000/api/rag/query";
 
 const checks = [

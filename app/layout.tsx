@@ -14,14 +14,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "NikiAi | Professor Nikitovic",
-  description: "Stop guessing and start deriving. Your personal academic vault for Calculus, Statistics, and beyond.",
+  description:
+    "Stop guessing and start deriving. Your personal academic vault for Calculus, Statistics, and beyond.",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="en"
