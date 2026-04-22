@@ -139,6 +139,24 @@ function isLectureSummaryRequest(message: string): boolean {
   );
 }
 
+function hasSpecificUnsupportedLectureDomain(message: string): boolean {
+  if (!/\blectures?\b/i.test(message)) return false;
+  if (/(what|which|list|show|all|how many)\b[\s\S]{0,50}\blectures?\b/i.test(message)) {
+    return false;
+  }
+
+  const remainingTerms = message
+    .toLowerCase()
+    .replace(/\blectures?\b/g, " ")
+    .replace(/\b(calculus|calc|math|course|class|videos?|youtube|available|have|got)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return remainingTerms.length >= 2;
+}
+
 function isLikelyMathQuestion(message: string): boolean {
   return /(\barithmetic\b|\boperations?\b|\bfractions?\b|\bdecimals?\b|\bpercent(?:age)?s?\b|\bsales tax\b|\bdiscount\b|\bfinal price\b|\bvolume\b|\barea\b|\bradius\b|\bheight\b|\bcylinder\b|\broot\b|\broots\b|\bintegral\b|\bintegrate\b|\bantiderivative\b|\bderivative\b|\bdifferentiate\b|\bdy\/dx\b|\bd\/dx\b|\bsolve\b|\bevaluate\b|\bsimplify\b|\bisolate\b|\blimit\b|\bmatrix\b|\bmatrices\b|\bprobability\b|\bstatistic\b|\bmean\b|\bmedian\b|\bmode\b|\bvariance\b|\bstandard deviation\b|\bz[-\s]?score\b|\bp[-\s]?value\b|\bnormal distribution\b|\bbinomial\b|\btrig\b|\bsin\b|\bcos\b|\btan\b|\bsec\b|\bcsc\b|\bcot\b|\bidentity\b|\bproof\b|\bequation\b|\binequality\b|\bfunction\b|\bdomain\b|\brange\b|\basymptote\b|\bgraph\b|\bintercepts?\b|\bvertex\b|\bslope\b|\btangent\b|\bconcavity\b|\binflection\b|\bcritical point\b|\boptimization\b|\brelated rates\b|\bimplicit\b|\bvector\b|\bdot product\b|\bcross product\b|\bgradient\b|\bdeterminant\b|\beigen\b|\bdistribution\b|\bfactor\b|\bfactoring\b|\bpolynomial\b|\bsynthetic division\b|\blong division\b|\bcomplete the square\b|\bquadratic\b|\brational expression\b|\bexponent\b|\blogarithm\b|\bseries\b|\bsequence\b|\bsummation\b|\bsum\b|\bconverge\b|\bdiverge\b|\bratio test\b|\bcomparison test\b|\btaylor\b|\bmaclaurin\b|\bdifferential equation\b|\brow reduce\b|\brow reduction\b|\bgaussian elimination\b|\bscientific notation\b|\bcomplex\b|\ba\s*\+\s*bi\b|\bln\b|\blog\b|\bsqrt\b|\bpi\b|\bdo\s+\d*\s*[a-z]\b|\d+\s*[a-z]\b|[a-z]\^\d|[\dxy]\s*[\+\-\*\/\^]\s*[\dxy]|\\int|\\frac|\\sum|\\lim|\$)/i.test(
     message
@@ -409,6 +427,7 @@ export async function POST(req: Request) {
       : "";
 
     const detectedCourse = detectCourseFilter(message);
+    const inferredMathCourse = inferCourseFromMathTopic(message);
     const recentCourseFromHistory = detectRecentCourseFromHistory(historyWithoutCurrent);
     const courseForLectureList = detectedCourse ?? recentCourseFromHistory;
     const latestAssistantForLectureTopic = [...history]
@@ -432,6 +451,28 @@ export async function POST(req: Request) {
       isLectureListIntent(message) &&
       !wantsLectureRecovery &&
       /\b(all|show|list|those|them|that course|the lectures?)\b/i.test(message);
+
+    if (
+      lectureMode &&
+      hasSpecificUnsupportedLectureDomain(message) &&
+      !wantsLectureRecovery &&
+      !detectedCourse &&
+      !inferredMathCourse
+    ) {
+      return new Response(
+        [
+          "I don't have lecture retrieval context for that specific topic or course.",
+          "",
+          "I will not invent lecture names or YouTube links. Ask for a real indexed course or topic like Calculus 1, Calculus 2, Calculus 3, PreCalc1, Statistics, Differential Equations, or Elementary Algebra.",
+        ].join("\n"),
+        {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        }
+      );
+    }
 
     if (isLectureCountIntent(message)) {
       const counts = await getLectureCourseCounts();
