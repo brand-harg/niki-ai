@@ -63,6 +63,19 @@ const fixtures = [
       /limit expression and the value x approaches/.test(deterministicMath),
   },
   {
+    name: "backend-contextual-math-followups-avoid-qwen-fallback",
+    pass:
+      /function extractBareMathFollowupExpression/.test(chatRoute) &&
+      /function detectRecentMathIntentFromHistory/.test(chatRoute) &&
+      /function ambiguousMathFollowupReply/.test(chatRoute) &&
+      /function contextualLimitFollowupReply/.test(chatRoute) &&
+      /function buildContextualMathMessage/.test(chatRoute) &&
+      /bareMathFollowupExpression/.test(chatRoute) &&
+      /recentMathIntent === "limit"/.test(chatRoute) &&
+      chatRoute.includes("ln|log|sqrt|sin|cos|tan|sec|csc|cot") &&
+      /buildDeterministicMathReply\(\{\s*message: contextualMathMessage/.test(chatRoute),
+  },
+  {
     name: "long-form-mode-lock-is-buffered",
     pass:
       /LONG-FORM MODE LOCK/.test(chatPrompts) &&
@@ -82,6 +95,15 @@ const fixtures = [
       /powerSeriesLectureReply/.test(deterministicMath) &&
       /Efficiency Tip/.test(deterministicMath) &&
       /Concept Check/.test(deterministicMath),
+  },
+  {
+    name: "alternating-series-test-has-deterministic-template",
+    pass:
+      /function buildAlternatingSeriesTestReply/.test(deterministicMath) &&
+      deterministicMath.includes("\\\\sum_{n=1}^{\\\\infty}(-1)^{n-1}b_n") &&
+      deterministicMath.includes("\\\\lim_{n\\\\to\\\\infty}b_n=0") &&
+      /Alternating Series Test/.test(deterministicMath) &&
+      /alternatingSeriesTestReply/.test(deterministicMath),
   },
   {
     name: "deterministic-covers-core-symbolic-actions",

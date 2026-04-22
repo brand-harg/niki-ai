@@ -11,6 +11,7 @@
     "test:prompt": "node scripts/check-prompt-regression.mjs",
     "test:math-stability": "node scripts/check-math-stability.mjs",
     "test:math-sanitizer": "node scripts/check-math-sanitizer-output.mjs",
+    "test:math-followups": "node scripts/check-math-followups.mjs",
     "test:math-live": "node scripts/check-live-math-output.mjs",
     "audit:responses": "node scripts/audit-response-logs.mjs",
     "test:response-audit": "node scripts/check-response-audit-contract.mjs",
@@ -29,7 +30,9 @@
     "test:rag-quality:calc:file": "node scripts/check-rag-quality.mjs --checksFile scripts/rag-quality-checks.calc.mjs",
     "test:rag-quality:all": "node scripts/check-rag-quality.mjs --checksFile scripts/rag-quality-checks.all.mjs",
     "test:rag-quality:core-courses": "node scripts/check-rag-quality.mjs --checksFile scripts/rag-quality-checks.core-courses.mjs",
-    "test:rag-quality:calc:c1": "node scripts/check-rag-quality.mjs --checksFile scripts/rag-quality-checks.calc1.mjs --courseFilter \"Calc 1\""
+    "test:rag-quality:calc:c1": "node scripts/check-rag-quality.mjs --checksFile scripts/rag-quality-checks.calc1.mjs --courseFilter \"Calc 1\"",
+    "overnight": "node scripts/overnight-run.mjs",
+    "checkpoint:demo": "node scripts/demo-recovery.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",

@@ -18,12 +18,12 @@ import {
   buildLectureCountReply,
   buildLectureTopicPrompt,
   dedupeCitations,
-  getAvailableLectureCourses,
   getLectureCourseCounts,
   getLecturesByCourse,
   isCalc1LectureListIntent,
   isLectureCountIntent,
   isLectureListIntent,
+  isVideoLookupIntent,
   isUsableVideoUrl,
 } from "@/lib/ragHelpers";
 import {
@@ -73,6 +73,8 @@ type InternalRagResponse = {
     similarity?: number;
   }[];
 };
+
+const INTERNAL_RAG_TIMEOUT_MS = 12_000;
 
 const UI_GREETING_TEXTS = new Set([
   "What do you need help with?",
@@ -132,7 +134,7 @@ function wantsThoughtTrace(message: string): boolean {
 }
 
 function isLectureSummaryRequest(message: string): boolean {
-  return /(summarize the lecture|teach me the lecture|lecture me on|i missed the lecture|wasn'?t in class|what did the lecture cover|explain the lecture)/i.test(
+  return /(summarize the lecture|teach me the lecture|lecture me on|do a lecture on|lecture on|give me a lecture on|can we do a lecture|i missed the lecture|wasn'?t in class|what did the lecture cover|explain the lecture|don'?t understand|can't figure out|cannot figure out|help me understand)/i.test(
     message
   );
 }
@@ -179,6 +181,92 @@ function detectRecentCourseFromHistory(history: { role: string; content: string 
     if (course) return course;
   }
   return undefined;
+}
+
+function detectRecentMathIntentFromHistory(
+  history: { role: string; content: string }[]
+): ReturnType<typeof detectSimpleMathIntent> {
+  for (const item of [...history].reverse().slice(0, 10)) {
+    const content = item.content?.trim() ?? "";
+    if (!content || isUiGreeting(content) || isInternalModeReminder(content)) continue;
+
+    const directIntent = detectSimpleMathIntent(content);
+    if (directIntent) return directIntent;
+
+    if (/^#{0,3}\s*\*{0,2}Derivative\b/i.test(content)) return "derivative";
+    if (/^#{0,3}\s*\*{0,2}Integral\b/i.test(content)) return "integral";
+    if (/^#{0,3}\s*\*{0,2}Limit\b/i.test(content)) return "limit";
+    if (/^#{0,3}\s*\*{0,2}Factoring\b/i.test(content)) return "factor";
+    if (/^#{0,3}\s*\*{0,2}Simplifying\b/i.test(content)) return "simplify";
+  }
+
+  return null;
+}
+
+function extractBareMathFollowupExpression(message: string): string | null {
+  const source = message
+    .trim()
+    .replace(/[?.!,;:]+$/g, "")
+    .replace(/^please\s+/i, "")
+    .replace(/^can\s+you\s+/i, "")
+    .replace(/^could\s+you\s+/i, "")
+    .replace(/^(?:do|try|use|run|work|solve|evaluate|calculate|compute)\s+(?:it|this|that)\s+(?:on|for|with)\s+/i, "")
+    .replace(/^(?:do|try|use|run|work|solve|evaluate|calculate|compute)\s+(?:the\s+)?/i, "")
+    .trim();
+
+  if (!source || source.length > 90) return null;
+  if (/\b(lecture|lectures|explain|teach|why|how|what|where|when|who|list|show me all)\b/i.test(source)) {
+    return null;
+  }
+  if (detectSimpleMathIntent(source)) return null;
+
+  const hasMathClue =
+    /\\[a-z]+|\b(?:ln|log|sqrt|sin|cos|tan|sec|csc|cot|pi|theta)\b/i.test(source) ||
+    /^(?:ln|log|sqrt|sin|cos|tan|sec|csc|cot)\s*\(?[-+0-9a-z^*/.]+\)?$/i.test(source) ||
+    /[0-9xyzt]\s*[\^+\-*/=()]/i.test(source) ||
+    /[\^+\-*/=()]\s*[0-9xyzt]/i.test(source) ||
+    /^[a-z]\d*[a-z]?$/i.test(source) ||
+    /^\d+[a-z](?:\^\d+)?$/i.test(source);
+
+  return hasMathClue ? source : null;
+}
+
+function buildContextualMathMessage(intent: ReturnType<typeof detectSimpleMathIntent>, expression: string): string | null {
+  if (!intent) return null;
+  if (intent === "limit") return null;
+
+  const prefix =
+    intent === "derivative"
+      ? "derivative of"
+      : intent === "integral"
+        ? "integral of"
+        : intent === "factor"
+          ? "factor"
+          : intent === "expand"
+            ? "expand"
+            : intent === "simplify"
+              ? "simplify"
+              : intent === "solve"
+                ? "solve"
+                : null;
+
+  return prefix ? `${prefix} ${expression}` : null;
+}
+
+function contextualLimitFollowupReply(expression: string): string {
+  return [
+    `I can evaluate a limit for ${expression}, but I need the approach value.`,
+    "",
+    `Send it like: limit of ${expression} as x approaches 0.`,
+  ].join("\n");
+}
+
+function ambiguousMathFollowupReply(expression: string): string {
+  return [
+    `What do you want me to do with ${expression}?`,
+    "",
+    "I can differentiate it, integrate it, simplify it, factor it, solve it, or evaluate a limit if you give me the approach value.",
+  ].join("\n");
 }
 
 function isInternalModeReminder(content?: string): boolean {
@@ -280,6 +368,12 @@ export async function POST(req: Request) {
     const hasImage = !!base64Image;
     const hasTextFile = !!textFileContent;
     const isDevLog = process.env.NODE_ENV !== "production";
+    const historyWithoutCurrent =
+      history.length > 0 &&
+        history[history.length - 1]?.role === "user" &&
+        history[history.length - 1]?.content?.trim() === message
+        ? history.slice(0, -1)
+        : history;
 
     if (!message && !hasImage && !hasTextFile) {
       return NextResponse.json(
@@ -315,25 +409,28 @@ export async function POST(req: Request) {
       : "";
 
     const detectedCourse = detectCourseFilter(message);
-    const recentCourseFromHistory = detectRecentCourseFromHistory(history);
+    const recentCourseFromHistory = detectRecentCourseFromHistory(historyWithoutCurrent);
     const courseForLectureList = detectedCourse ?? recentCourseFromHistory;
     const latestAssistantForLectureTopic = [...history]
       .reverse()
       .find((msg) => msg.role === "ai" || msg.role === "assistant")?.content ?? "";
+    const wantsLectureRecovery = lectureMode && isLectureSummaryRequest(message);
     const isLectureTopicFollowup =
       !!courseForLectureList &&
       message.trim().length <= 80 &&
+      !wantsLectureRecovery &&
       /(What topic or course do you want lectures for|Tell me a course or topic|I can list lectures by topic\/course)/i.test(
         latestAssistantForLectureTopic
       );
     const isDetectedCourseLectureIntent =
-      (!!detectedCourse && /(list|lectures|all|show)/i.test(message)) ||
+      (!!detectedCourse && !wantsLectureRecovery && /(list|lectures|all|show)/i.test(message)) ||
       isLectureTopicFollowup ||
-      (!!detectedCourse && message.trim().length <= 40);
+      (!!detectedCourse && !wantsLectureRecovery && message.trim().length <= 40);
     const isRecentCourseLectureFollowup =
       !detectedCourse &&
       !!recentCourseFromHistory &&
       isLectureListIntent(message) &&
+      !wantsLectureRecovery &&
       /\b(all|show|list|those|them|that course|the lectures?)\b/i.test(message);
 
     if (isLectureCountIntent(message)) {
@@ -348,11 +445,11 @@ export async function POST(req: Request) {
 
     if (
       isLectureListIntent(message) &&
+      !wantsLectureRecovery &&
       !courseForLectureList &&
       !isCalc1LectureListIntent(message)
     ) {
-      const courses = await getAvailableLectureCourses();
-      return new Response(buildLectureTopicPrompt(courses), {
+      return new Response(buildLectureTopicPrompt([]), {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -360,7 +457,11 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isCalc1LectureListIntent(message) || isDetectedCourseLectureIntent || isRecentCourseLectureFollowup) {
+    if (
+      (!wantsLectureRecovery && isCalc1LectureListIntent(message)) ||
+      isDetectedCourseLectureIntent ||
+      isRecentCourseLectureFollowup
+    ) {
       const courseFilter = courseForLectureList ?? "Calculus 1";
       const lectures = await getLecturesByCourse(courseFilter);
 
@@ -395,14 +496,30 @@ export async function POST(req: Request) {
 
     if (
       lectureMode &&
-      isLectureSummaryRequest(message) &&
+      (isLectureSummaryRequest(message) || isVideoLookupIntent(message)) &&
       ragContext.length === 0 &&
       ragCitations.length === 0
     ) {
+      if (isVideoLookupIntent(message)) {
+        const knownVideoReply = buildCitationLectureReply(message, []);
+        if (knownVideoReply && !/don't have any matching lecture metadata/i.test(knownVideoReply)) {
+          return new Response(knownVideoReply, {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          });
+        }
+      }
+
+      const ragController = new AbortController();
+      const ragTimeout = setTimeout(() => ragController.abort(), INTERNAL_RAG_TIMEOUT_MS);
+
       try {
         const ragRes = await fetch(new URL("/api/rag/query", req.url), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: ragController.signal,
           body: JSON.stringify({
             question: message,
             lectureMode: true,
@@ -423,6 +540,8 @@ export async function POST(req: Request) {
         }
       } catch (error) {
         if (isDevLog) console.log("Lecture recovery RAG fallback error:", error);
+      } finally {
+        clearTimeout(ragTimeout);
       }
     }
 
@@ -501,14 +620,51 @@ export async function POST(req: Request) {
           },
         });
       }
-    }
 
-    const historyWithoutCurrent =
-      history.length > 0 &&
-        history[history.length - 1]?.role === "user" &&
-        history[history.length - 1]?.content?.trim() === message
-        ? history.slice(0, -1)
-        : history;
+      const bareMathFollowupExpression = extractBareMathFollowupExpression(message);
+      if (!proceduralMathIntent && bareMathFollowupExpression) {
+        const recentMathIntent = detectRecentMathIntentFromHistory(historyWithoutCurrent);
+        if (recentMathIntent === "limit") {
+          return new Response(contextualLimitFollowupReply(bareMathFollowupExpression), {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          });
+        }
+
+        const contextualMathMessage = buildContextualMathMessage(
+          recentMathIntent,
+          bareMathFollowupExpression
+        );
+
+        if (contextualMathMessage) {
+          const contextualMathReply = buildDeterministicMathReply({
+            message: contextualMathMessage,
+            isProfessorMode: isNikiMode,
+            lectureMode,
+            hasLectureContext:
+              ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0,
+          });
+
+          if (contextualMathReply) {
+            return new Response(normalizeModelMathOutput(contextualMathReply), {
+              headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-cache",
+              },
+            });
+          }
+        }
+
+        return new Response(ambiguousMathFollowupReply(bareMathFollowupExpression), {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+    }
 
     const formattedHistory = historyWithoutCurrent
       .filter(

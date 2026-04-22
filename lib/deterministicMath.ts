@@ -2850,6 +2850,104 @@ function buildRatioTestReply({
   ].join("\n");
 }
 
+function buildAlternatingSeriesTestReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const compact = message.toLowerCase().replace(/\s+/g, "");
+  const wantsAst =
+    /\b(alternating series test|ast|alternating series)\b/i.test(message) ||
+    /\(-1\)\^\{?n-?1\}?/.test(compact) ||
+    /\(-1\)\^n/.test(compact);
+  if (!wantsAst) return null;
+
+  const termMatch =
+    compact.match(/(?:b_n|bn)\s*=\s*(?:\\frac\{(\d+)\}\{n\+(\d+)\}|(\d+)\/\(n\+(\d+)\)|(\d+)\/n)/) ??
+    compact.match(/(?:\\frac\{(\d+)\}\{n\+(\d+)\}|(\d+)\/\(n\+(\d+)\)|(\d+)\/n)/);
+  const numerator = Number(termMatch?.[1] ?? termMatch?.[3] ?? termMatch?.[5] ?? 1);
+  const shift = termMatch?.[5] ? 0 : Number(termMatch?.[2] ?? termMatch?.[4] ?? 0);
+  const numeratorLatex = Number.isFinite(numerator) && numerator > 0 ? formatNumber(numerator) : "1";
+  const denominatorLatex = shift ? `n+${formatNumber(shift)}` : "n";
+  const denominatorNextLatex = shift ? `n+${formatNumber(shift + 1)}` : "n+1";
+  const bLatex = `\\frac{${numeratorLatex}}{${denominatorLatex}}`;
+  const bNextLatex = `\\frac{${numeratorLatex}}{${denominatorNextLatex}}`;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we use the Alternating Series Test. The board move is simple: ignore the sign for a second, check the positive piece, then bring the alternating sign back at the end."
+    : isProfessorMode
+      ? "So now we check the two AST requirements: decreasing positive terms and limit zero."
+      : "We will use the Alternating Series Test to determine convergence.";
+
+  const efficiencyTip = isProfessorMode
+    ? [
+      "",
+      "**Efficiency Tip**",
+      "For this kind of Calc 2 problem, do not try to find the sum. The test only asks whether the positive part decreases and goes to zero.",
+    ]
+    : [];
+
+  const conceptCheck = isLectureStyle
+    ? [
+      "",
+      "**Concept Check**",
+      "If the positive part goes to a nonzero number, which AST condition fails?",
+    ]
+    : [];
+
+  return [
+    "**Alternating Series Test**",
+    "",
+    intro,
+    ...(isLectureStyle
+      ? [
+        "",
+        "**Board Setup**",
+        "We will identify the alternating structure, isolate the positive part b_n, check decreasing behavior, check the limit, and then state convergence.",
+      ]
+      : []),
+    "",
+    "**Formula used:**",
+    displayMath("\\sum_{n=1}^{\\infty}(-1)^{n-1}b_n"),
+    "The Alternating Series Test applies when both conditions hold:",
+    displayMath("b_{n+1}\\le b_n"),
+    displayMath("\\lim_{n\\to\\infty}b_n=0"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Identify the positive part**",
+    displayMath(`b_n=${bLatex}`),
+    "",
+    "**Step 2: Check that the terms decrease**",
+    "As n increases, the denominator gets larger while the numerator stays fixed.",
+    displayMath(`b_{n+1}=${bNextLatex}<${bLatex}=b_n`),
+    "",
+    "**Step 3: Check the limit**",
+    displayMath(`\\lim_{n\\to\\infty}${bLatex}=0`),
+    "",
+    "**Step 4: Apply the test**",
+    "Both AST conditions are satisfied, so the alternating series converges.",
+    ...efficiencyTip,
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the Calc 2 series-test flow: identify the series type, check the test conditions, then state convergence without trying to compute the sum."
+    ),
+    ...conceptCheck,
+    "",
+    "## Final Answer",
+    "The series converges by the Alternating Series Test.",
+    displayMath(`\\sum_{n=1}^{\\infty}(-1)^{n-1}${bLatex}`),
+  ].join("\n");
+}
+
 function buildGradientReply({
   message,
   isProfessorMode,
@@ -4926,6 +5024,14 @@ function buildDeterministicMathReply({
     hasLectureContext,
   });
   if (ratioTestReply) return ratioTestReply;
+
+  const alternatingSeriesTestReply = buildAlternatingSeriesTestReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (alternatingSeriesTestReply) return alternatingSeriesTestReply;
 
   const gradientReply = buildGradientReply({
     message,

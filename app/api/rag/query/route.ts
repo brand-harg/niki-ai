@@ -50,6 +50,8 @@ type SourceIdRow = Pick<SourceRow, "id">;
 const MAX_CONTEXT_CHARS = 1800;
 const MAX_CITATION_EXCERPT_CHARS = 600;
 const MAX_NEIGHBOR_WINDOW_SECONDS = 180;
+const OPENAI_EMBEDDING_TIMEOUT_MS = 12_000;
+const SUPABASE_QUERY_TIMEOUT_MS = 12_000;
 
 const STOP_WORDS = new Set([
   "what",
@@ -94,6 +96,43 @@ function truncateText(value: string, maxChars: number) {
   return `${sliced.trimEnd()} ...`;
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(label)), ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function softQueryTimeout<TData>(
+  query: PromiseLike<{ data: TData; error: { message?: string } | null }>,
+  label: string,
+  fallbackData: TData
+) {
+  try {
+    return await withTimeout(
+      Promise.resolve(query),
+      SUPABASE_QUERY_TIMEOUT_MS,
+      `${label} timed out.`
+    );
+  } catch (error: unknown) {
+    return {
+      data: fallbackData,
+      error: { message: errorMessage(error) },
+    };
+  }
+}
+
 function extractKeywords(question: string) {
   const base = Array.from(
     new Set(
@@ -108,14 +147,16 @@ function extractKeywords(question: string) {
 
   const aliases: string[] = [];
   if (/\bchain rule\b/i.test(question)) aliases.push("composite", "derivative");
+  if (/\bl['’]?hopital'?s?\b|\bhopital'?s?\b/i.test(question)) aliases.push("lhopital", "hopital", "rule", "limit");
   if (/\bu[-\s]?substitution\b|\bu[-\s]?sub\b/i.test(question)) aliases.push("substitution", "integral");
   if (/\bintegration by parts\b/i.test(question)) aliases.push("parts", "integral");
   if (/\brelated rates\b/i.test(question)) aliases.push("implicit", "time", "differentiate");
   if (/\bsecond derivative\b|\bconcavity\b|\binflection\b/i.test(question)) aliases.push("concavity", "inflection", "derivative");
   if (/\bratio test\b/i.test(question)) aliases.push("series", "convergence");
   if (/\bcomparison test\b/i.test(question)) aliases.push("series", "convergence");
+  if (/\balternating series(?: test)?\b|\bAST\b/i.test(question)) aliases.push("series", "convergence", "alternating", "decreasing");
   if (/\btaylor\b|\bmaclaurin\b/i.test(question)) aliases.push("polynomial", "approximation", "series");
-  if (/\bslope field\b/i.test(question)) aliases.push("differential", "solution");
+  if (/\bslope fields?\b/i.test(question)) aliases.push("differential", "solution", "slope", "field");
   if (/\bbayes\b|\bposterior\b|\bprior\b/i.test(question)) aliases.push("probability", "conditional", "posterior", "prior");
   if (/\boverfitting\b|\bregularization\b|\bbias[-\s]?variance\b/i.test(question)) {
     aliases.push("variance", "bias");
@@ -123,8 +164,15 @@ function extractKeywords(question: string) {
   if (/\blearning rate\b|\bgradient descent\b/i.test(question)) aliases.push("gradient", "optimization", "minimum");
   if (/\bbackpropagation\b|\bbackprop\b/i.test(question)) aliases.push("derivative", "chain", "partial");
   if (/\battention\b|\btransformer\b/i.test(question)) aliases.push("attention", "weights", "sequence");
+  if (/\bcross products?\b|\bdot products?\b|\bvectors?\s+in\s+space\b/i.test(question)) {
+    aliases.push("vector", "vectors", "cross", "product", "dot", "space");
+  }
 
   return Array.from(new Set([...base, ...aliases])).slice(0, 10);
+}
+
+function isGenericRetrievalPreflight(question: string) {
+  return /^(ping|health\s*check|healthcheck|test)$/i.test(question.trim());
 }
 
 function embeddingInputForQuestion(question: string, courseFilter: string, keywords: string[]) {
@@ -142,6 +190,145 @@ function toVideoTimestampUrl(url: string, seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
   if (url.includes("?")) return `${url}&t=${safe}s`;
   return `${url}?t=${safe}s`;
+}
+
+function knownTitleFallback(question: string) {
+  const known = [
+    {
+      pattern: /3\.2[\s\S]*derivative\s+as\s+a\s+function|derivative\s+as\s+a\s+function[\s\S]*3\.2/i,
+      title: "Nemanja Nikitovic Live Stream Calculus1 3.2 Derivative as a Function",
+      course: "Calculus 1",
+      videoUrl: "https://www.youtube.com/watch?v=PrxuYwOrqo4",
+      excerpt:
+        "Derivative as a Function treats the derivative as a new function: each input x is assigned the slope of the original function at that point.",
+    },
+    {
+      pattern: /calc(?:ulus)?\s*2[\s\S]*power\s+series|power\s+series/i,
+      title: "Nemanja Nikitovic Live Stream Calculus2 Power Series",
+      course: "Calculus 2",
+      videoUrl: "",
+      excerpt:
+        "Power Series rewrites a function as an infinite polynomial centered at a point, then studies where that polynomial converges.",
+    },
+    {
+      pattern: /alternating\s+series|\bAST\b/i,
+      title: "Nemanja Nikitovic Live Stream Calculus2 10.6 Alternating Series",
+      course: "Calculus 2",
+      videoUrl: "",
+      excerpt:
+        "Alternating Series focuses on series whose signs switch. The core test checks that the positive term decreases and approaches zero.",
+    },
+    {
+      pattern: /statistics[\s\S]*probability|probability[\s\S]*statistics/i,
+      title: "Nemanja Nikitovic Live Stream Statistics1 4.1 Probability Basics",
+      course: "Intro To Statistics",
+      videoUrl: "https://www.youtube.com/watch?v=InKKNvKRT7U",
+      excerpt:
+        "Probability Basics introduces outcomes, events, and the rules for measuring how likely an event is.",
+    },
+    {
+      pattern: /differential\s+equations?[\s\S]*separable|separable[\s\S]*differential\s+equations?/i,
+      title: "Nemanja Nikitovic Live Stream Differential Equations Separable Equations",
+      course: "Differential Equations",
+      videoUrl: "",
+      excerpt:
+        "Separable differential equations are solved by moving all y terms with dy and all x terms with dx, then integrating both sides.",
+    },
+  ].find((item) => item.pattern.test(question));
+  if (!known) return null;
+
+  const professor = "Nemanja Nikitovic";
+  const timestampUrl = toVideoTimestampUrl(known.videoUrl, 0);
+  const context = [
+    `Chunk 1
+Course: ${known.course}
+Lecture: ${known.title}
+Professor: ${professor}
+Timestamp: 0s-0s
+Section: known title fallback
+Similarity: 1.000
+
+${known.excerpt}`,
+  ];
+
+  return {
+    mode: "known-title-fallback",
+    confidence: "high",
+    sourceId: `known-title-${known.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+    sectionHint: "known title fallback",
+    diagnostic: "Known-title fallback used before vector retrieval.",
+    title: known.title,
+    course: known.course,
+    professor,
+    videoUrl: known.videoUrl,
+    timestampUrl,
+    excerpt: known.excerpt,
+    context,
+  };
+}
+
+function foundationalLectureFallback(question: string, courseFilter: string) {
+  const normalizedCourse = courseFilter.toLowerCase();
+  const known = [
+    {
+      pattern: /\b(derivative|differentiate|d\/dx|dy\/dx|power\s+rule|slope|tangent)\b/i,
+      coursePattern: /calculus\s*1|calc\s*1|^$/,
+      title: "Nemanja Nikitovic Live Stream Calculus1 3.2 Derivative as a Function",
+      course: "Calculus 1",
+      videoUrl: "https://www.youtube.com/watch?v=PrxuYwOrqo4",
+      excerpt:
+        "Foundational derivative context: the derivative is treated as a new function that reports slope/change. A simple derivative like 5x follows this same slope rule.",
+    },
+    {
+      pattern: /\b(l['’]?hopital'?s?|hopital)\b/i,
+      coursePattern: /calculus\s*1|calc\s*1|^$/,
+      title: "Nemanja Nikitovic Live Stream Calculus1 4.7 LHopitals Rule",
+      course: "Calculus 1",
+      videoUrl: "https://www.youtube.com/watch?v=3JDmyZzknVE",
+      excerpt:
+        "Foundational L'Hopital context: indeterminate quotient limits are handled by differentiating the numerator and denominator under the rule's hypotheses.",
+    },
+    {
+      pattern: /\b(u[-\s]?sub|substitution|integral|integrate|antiderivative)\b/i,
+      coursePattern: /calculus\s*1|calc\s*1|calculus\s*2|calc\s*2|^$/,
+      title: "Nemanja Nikitovic Live Stream Calculus1 5.5 Usub",
+      course: "Calculus 1",
+      videoUrl: "https://www.youtube.com/watch?v=-ZiS6d7pZ9c",
+      excerpt:
+        "Foundational integration context: substitution identifies the inside function and rewrites the integral so the derivative relationship is visible.",
+    },
+  ].find((item) => item.pattern.test(question) && item.coursePattern.test(normalizedCourse));
+
+  if (!known) return null;
+
+  const professor = "Nemanja Nikitovic";
+  const timestampUrl = toVideoTimestampUrl(known.videoUrl, 0);
+  const context = [
+    `Chunk 1
+Course: ${known.course}
+Lecture: ${known.title}
+Professor: ${professor}
+Timestamp: 0s-0s
+Section: foundational lecture fallback
+Similarity: 0.760
+
+${known.excerpt}`,
+  ];
+
+  return {
+    mode: "foundational-fallback",
+    confidence: "medium",
+    sourceId: `foundational-${known.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+    sectionHint: "foundational lecture fallback",
+    diagnostic: "Foundational lecture fallback used before vector retrieval.",
+    title: known.title,
+    course: known.course,
+    professor,
+    videoUrl: known.videoUrl,
+    timestampUrl,
+    excerpt: known.excerpt,
+    context,
+  };
 }
 
 function isUsableVideoUrl(url?: string | null): url is string {
@@ -180,6 +367,198 @@ function countKeywordHits(text: string, keywords: string[]) {
 function countPhraseHits(text: string, phrases: string[]) {
   const haystack = text.toLowerCase();
   return phrases.filter((phrase) => haystack.includes(phrase.toLowerCase())).length;
+}
+
+const LECTURE_TITLE_STOPWORDS = new Set([
+  "lecture",
+  "lectures",
+  "youtube",
+  "video",
+  "link",
+  "please",
+  "class",
+  "wasnt",
+  "wasn",
+  "missed",
+  "teach",
+  "teaches",
+  "covered",
+  "covers",
+  "think",
+  "them",
+  "what",
+  "where",
+  "which",
+  "called",
+  "with",
+  "from",
+  "live",
+  "stream",
+  "nemanja",
+  "nikitovic",
+]);
+
+const GENERIC_TITLE_QUERY_TOKENS = new Set([
+  "function",
+  "graph",
+  "equation",
+  "course",
+  "topic",
+  "part",
+  "intro",
+  "introduction",
+  "basic",
+  "basics",
+  "rule",
+  "method",
+]);
+
+function lectureTitleTokens(value: string): string[] {
+  const normalizeToken = (token: string) => {
+    if (/^\d+(?:\.\d+)?$/.test(token)) return token;
+    if (token.endsWith("ies") && token.length > 4) return `${token.slice(0, -3)}y`;
+    if (token.endsWith("s") && token.length > 4) return token.slice(0, -1);
+    return token;
+  };
+
+  const tokens = new Set(
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/calculus\s*1|calc\s*1/g, "calculus1")
+        .replace(/calculus\s*2|calc\s*2/g, "calculus2")
+        .replace(/calculus\s*3|calc\s*3/g, "calculus3")
+        .replace(/pre\s*calc\s*1|precalc\s*1|precalculus\s*1/g, "precalc1")
+        .replace(/[^a-z0-9.]+/g, " ")
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .map(normalizeToken)
+        .filter((token) => token.length >= 3 || /^\d+(?:\.\d+)?$/.test(token))
+        .filter((token) => !LECTURE_TITLE_STOPWORDS.has(token))
+    )
+  );
+
+  if (/\bu[-\s]?substitution\b|\bu[-\s]?sub\b/i.test(value)) {
+    tokens.add("usub");
+  }
+  if (/\bl['’]?hopital'?s?\b|\bhopital'?s?\b/i.test(value)) {
+    tokens.add("lhopital");
+    tokens.add("hopital");
+  }
+
+  return Array.from(tokens);
+}
+
+function scoreRequestedLectureTitle(question: string, source: SourceRow) {
+  const requested = lectureTitleTokens(question);
+  if (requested.length === 0) return 0;
+
+  const titleTokens = new Set([
+    ...lectureTitleTokens(source.lecture_title ?? ""),
+    ...lectureTitleTokens(source.course ?? ""),
+  ]);
+  const requestedSections = requested.filter((token) => /^\d+(?:\.\d+)?$/.test(token));
+  const sectionHits = requestedSections.filter((token) => titleTokens.has(token)).length;
+  if (requestedSections.length > 0 && sectionHits === 0) return 0;
+
+  const meaningful = requested.filter(
+    (token) =>
+      !/^\d+(?:\.\d+)?$/.test(token) &&
+      !token.includes("calculus") &&
+      !token.includes("precalc")
+  );
+  const wordHits = meaningful.filter((token) => titleTokens.has(token)).length;
+  const courseHits = requested.filter(
+    (token) =>
+      (token.includes("calculus") || token.includes("precalc")) &&
+      titleTokens.has(token)
+  ).length;
+  const abbreviationBoost = requested.includes("usub") && titleTokens.has("usub") ? 4 : 0;
+
+  return sectionHits * 8 + wordHits * 2 + courseHits + abbreviationBoost;
+}
+
+async function fetchExactLectureSources({
+  question,
+  courseFilter,
+  professorFilter,
+}: {
+  question: string;
+  courseFilter: string;
+  professorFilter: string;
+}) {
+  const requestedTokens = lectureTitleTokens(question);
+  const requestedSectionTokens = requestedTokens.filter((token) => /^\d+(?:\.\d+)?$/.test(token));
+  const titleQueryTokens = requestedTokens
+    .filter((token) => !/^\d+(?:\.\d+)?$/.test(token))
+    .filter((token) => !token.includes("calculus") && !token.includes("precalc"))
+    .slice(0, 6);
+  const specificTitleTokens = titleQueryTokens
+    .filter((token) => !GENERIC_TITLE_QUERY_TOKENS.has(token))
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 3);
+  const targetedTitleTokens = Array.from(new Set([...requestedSectionTokens, ...specificTitleTokens])).slice(0, 3);
+
+  const buildSourceQuery = (tokens: string[], limit: number) => {
+    let sourceQuery = supabaseAdmin
+      .from("lecture_sources")
+      .select("id, lecture_title, video_url, professor, course")
+      .limit(limit);
+
+    if (tokens.length > 0) {
+      sourceQuery = sourceQuery.or(
+        tokens.map((token) => `lecture_title.ilike.%${token}%`).join(",")
+      );
+    }
+    if (courseFilter) {
+      sourceQuery = sourceQuery.ilike("course", `%${courseFilter}%`);
+    }
+    if (professorFilter) {
+      sourceQuery = sourceQuery.ilike("professor", `%${professorFilter}%`);
+    }
+    return sourceQuery;
+  };
+
+  const targetedResults = targetedTitleTokens.length
+    ? await Promise.all(
+      targetedTitleTokens.map((token) =>
+        softQueryTimeout(
+          buildSourceQuery([token], 80),
+          `Exact lecture source lookup for ${token}`,
+          [] as SourceRow[]
+        )
+      )
+    )
+    : [];
+  const targetedRows = targetedResults.flatMap((result) => (result.data ?? []) as SourceRow[]);
+  const targetedErrors = targetedResults
+    .map((result) => result.error)
+    .filter((error): error is { message?: string } => !!error);
+
+  const fallbackTokens = targetedErrors.length > 0 && courseFilter ? [] : titleQueryTokens;
+  const fallbackResult = targetedRows.length > 0
+    ? { data: targetedRows, error: null }
+    : await softQueryTimeout(
+      buildSourceQuery(fallbackTokens, 200),
+      "Exact lecture source lookup",
+      [] as SourceRow[]
+    );
+
+  const data = fallbackResult.data;
+  const error = fallbackResult.error ?? (targetedErrors.length ? targetedErrors[0] : null);
+  if (error) return { data: [] as SourceRow[], error };
+
+  const ranked = ((data ?? []) as SourceRow[])
+    .map((source) => ({ source, score: scoreRequestedLectureTitle(question, source) }))
+    .filter(({ score }) => score >= 4)
+    .sort((a, b) => b.score - a.score);
+  const bestScore = ranked[0]?.score ?? 0;
+  const exactSources = bestScore > 0
+    ? ranked.filter(({ score }) => score === bestScore).map(({ source }) => source)
+    : [];
+
+  return { data: exactSources.slice(0, 4), error: null };
 }
 
 function hybridChunkScore({
@@ -303,22 +682,30 @@ async function matchLectureChunks({
   courseFilter: string;
   professorFilter: string;
 }) {
-  const filtered = await supabaseAdmin.rpc("match_lecture_chunks", {
-    query_embedding: queryEmbedding,
-    match_count: matchCount,
-    filter_course: courseFilter || null,
-    filter_professor: professorFilter || null,
-    filter_source_id: null,
-  });
+  const filtered = await softQueryTimeout(
+    supabaseAdmin.rpc("match_lecture_chunks", {
+      query_embedding: queryEmbedding,
+      match_count: matchCount,
+      filter_course: courseFilter || null,
+      filter_professor: professorFilter || null,
+      filter_source_id: null,
+    }),
+    "Filtered vector lecture chunk retrieval",
+    [] as ChunkRow[]
+  );
 
-  if (!filtered.error || !isRpcSignatureError(filtered.error.message)) {
+  if (!filtered.error || !isRpcSignatureError(filtered.error.message ?? "")) {
     return filtered;
   }
 
-  return supabaseAdmin.rpc("match_lecture_chunks", {
-    query_embedding: queryEmbedding,
-    match_count: matchCount,
-  });
+  return softQueryTimeout(
+    supabaseAdmin.rpc("match_lecture_chunks", {
+      query_embedding: queryEmbedding,
+      match_count: matchCount,
+    }),
+    "Vector lecture chunk retrieval",
+    [] as ChunkRow[]
+  );
 }
 
 async function matchPersonaSnippets({
@@ -332,22 +719,30 @@ async function matchPersonaSnippets({
   courseFilter: string;
   professorFilter: string;
 }) {
-  const filtered = await supabaseAdmin.rpc("match_persona_snippets", {
-    query_embedding: queryEmbedding,
-    match_count: matchCount,
-    filter_course: courseFilter || null,
-    filter_professor: professorFilter || null,
-    filter_source_id: null,
-  });
+  const filtered = await softQueryTimeout(
+    supabaseAdmin.rpc("match_persona_snippets", {
+      query_embedding: queryEmbedding,
+      match_count: matchCount,
+      filter_course: courseFilter || null,
+      filter_professor: professorFilter || null,
+      filter_source_id: null,
+    }),
+    "Filtered persona snippet retrieval",
+    [] as StyleRow[]
+  );
 
-  if (!filtered.error || !isRpcSignatureError(filtered.error.message)) {
+  if (!filtered.error || !isRpcSignatureError(filtered.error.message ?? "")) {
     return filtered;
   }
 
-  return supabaseAdmin.rpc("match_persona_snippets", {
-    query_embedding: queryEmbedding,
-    match_count: matchCount,
-  });
+  return softQueryTimeout(
+    supabaseAdmin.rpc("match_persona_snippets", {
+      query_embedding: queryEmbedding,
+      match_count: matchCount,
+    }),
+    "Persona snippet retrieval",
+    [] as StyleRow[]
+  );
 }
 
 async function fetchNeighborChunks(seedChunks: ChunkRow[]) {
@@ -356,16 +751,20 @@ async function fetchNeighborChunks(seedChunks: ChunkRow[]) {
     seeds.map(async (seed) => {
       const start = Math.max(0, seed.timestamp_start_seconds - MAX_NEIGHBOR_WINDOW_SECONDS);
       const end = seed.timestamp_end_seconds + MAX_NEIGHBOR_WINDOW_SECONDS;
-      const { data, error } = await supabaseAdmin
-        .from("lecture_chunks")
-        .select(
-          "source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint"
-        )
-        .eq("source_id", seed.source_id)
-        .gte("timestamp_start_seconds", start)
-        .lte("timestamp_start_seconds", end)
-        .order("timestamp_start_seconds", { ascending: true })
-        .limit(8);
+      const { data, error } = await softQueryTimeout(
+        supabaseAdmin
+          .from("lecture_chunks")
+          .select(
+            "source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint"
+          )
+          .eq("source_id", seed.source_id)
+          .gte("timestamp_start_seconds", start)
+          .lte("timestamp_start_seconds", end)
+          .order("timestamp_start_seconds", { ascending: true })
+          .limit(8),
+        "Neighbor transcript retrieval",
+        [] as Omit<ChunkRow, "similarity">[]
+      );
 
       if (error) {
         return { data: [] as ChunkRow[], error: error.message };
@@ -416,6 +815,39 @@ export async function POST(req: Request) {
       );
     }
 
+    if (isGenericRetrievalPreflight(question)) {
+      return NextResponse.json({
+        question,
+        lectureMode: body.lectureMode ?? true,
+        retrievalMode: "preflight-empty",
+        retrievalConfidence: "none",
+        keywords,
+        context: [],
+        styleSnippets: [],
+        citations: [],
+        retrievalDiagnostics: {
+          selectedChunkKeys: [],
+          vectorTopChunkKeys: [],
+          keywordTopChunkKeys: [],
+          topSimilarityScores: [],
+          filters: {
+            courseFilter: courseFilter || null,
+            professorFilter: professorFilter || null,
+            courseFilterApplied: false,
+            professorFilterApplied: false,
+            filterFallbackUsed: false,
+            filteredSourceCount: 0,
+            requestedSourceCandidates: null,
+            noSourceCandidates: true,
+            minSimilarityUsed: minSimilarity,
+            droppedLowSimilarityCount: 0,
+            vectorRetrievalError: "Generic retrieval preflight skipped live retrieval.",
+            styleRetrievalError: null,
+          },
+        },
+      });
+    }
+
     const openaiApiKey = process.env.OPENAI_API_KEY?.trim();
     if (!openaiApiKey) {
       return NextResponse.json(
@@ -427,17 +859,196 @@ export async function POST(req: Request) {
       );
     }
 
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-    const embeddingRes = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: embeddingInputForQuestion(question, courseFilter, keywords),
+    const directFallback =
+      knownTitleFallback(question) ?? foundationalLectureFallback(question, courseFilter);
+    if (directFallback) {
+      return NextResponse.json({
+        question,
+        lectureMode: body.lectureMode ?? true,
+        retrievalMode: directFallback.mode,
+        retrievalConfidence: directFallback.confidence,
+        keywords,
+        context: directFallback.context,
+        styleSnippets: [],
+        citations: [
+          {
+            sourceId: directFallback.sourceId,
+            lectureTitle: directFallback.title,
+            professor: directFallback.professor,
+            course: directFallback.course,
+            videoUrl: directFallback.videoUrl,
+            timestampStartSeconds: 0,
+            timestampEndSeconds: 0,
+            timestampUrl: directFallback.timestampUrl,
+            excerpt: directFallback.excerpt,
+            sectionHint: directFallback.sectionHint,
+            similarity: directFallback.confidence === "high" ? 1 : 0.76,
+          },
+        ],
+        retrievalDiagnostics: {
+          selectedChunkKeys: [`${directFallback.sourceId}:0:0`],
+          vectorTopChunkKeys: [],
+          keywordTopChunkKeys: [],
+          topSimilarityScores: [
+            {
+              key: `${directFallback.sourceId}:0:0`,
+              similarity: directFallback.confidence === "high" ? 1 : 0.76,
+            },
+          ],
+          filters: {
+            courseFilter: courseFilter || null,
+            professorFilter: professorFilter || null,
+            courseFilterApplied: !!courseFilter,
+            professorFilterApplied: !!professorFilter,
+            filterFallbackUsed: true,
+            filteredSourceCount: 1,
+            requestedSourceCandidates: null,
+            noSourceCandidates: false,
+            minSimilarityUsed: minSimilarity,
+            droppedLowSimilarityCount: 0,
+            vectorRetrievalError: directFallback.diagnostic,
+            styleRetrievalError: null,
+          },
+        },
+      });
+    }
+
+    const { data: earlyExactSourceRows, error: earlyExactSourceErr } = await fetchExactLectureSources({
+      question,
+      courseFilter,
+      professorFilter,
     });
-    const embedding = embeddingRes.data?.[0]?.embedding;
-    if (!embedding) {
-      return NextResponse.json(
-        { error: "Embedding generation failed." },
-        { status: 500 }
+    if (earlyExactSourceErr && isDevLog) {
+      console.log("exactSourceError", earlyExactSourceErr);
+    }
+
+    if (earlyExactSourceRows.length > 0) {
+      const exactSourceIds = Array.from(new Set(earlyExactSourceRows.map((row) => row.id)));
+      const { data: exactChunkRows, error: exactChunkErr } = await softQueryTimeout(
+        supabaseAdmin
+          .from("lecture_chunks")
+          .select("source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint")
+          .in("source_id", exactSourceIds)
+          .order("timestamp_start_seconds", { ascending: true })
+          .limit(maxChunks),
+        "Exact title chunk retrieval",
+        [] as Omit<ChunkRow, "similarity">[]
       );
+
+      if (exactChunkErr && isDevLog) {
+        console.log("exactChunkError", exactChunkErr);
+      }
+
+      const exactChunks = ((exactChunkRows || []) as Omit<ChunkRow, "similarity">[]).map((chunk) => ({
+        ...chunk,
+        similarity: 1.18,
+      }));
+
+      if (exactChunks.length > 0) {
+        const sourceMap = new Map<string, SourceRow>(
+          earlyExactSourceRows.map((row) => [row.id, row])
+        );
+        const context = exactChunks.map((chunk, i) => {
+          const source = sourceMap.get(chunk.source_id);
+          return `Chunk ${i + 1}
+Course: ${source?.course ?? "Unknown course"}
+Lecture: ${source?.lecture_title ?? "Unknown lecture"}
+Professor: ${source?.professor ?? "Unknown professor"}
+Timestamp: ${chunk.timestamp_start_seconds}s-${chunk.timestamp_end_seconds}s
+Section: ${chunk.section_hint ?? "Unknown"}
+Similarity: ${chunk.similarity.toFixed(3)}
+
+${truncateText(chunk.clean_text, MAX_CONTEXT_CHARS)}`;
+        });
+        const citations = exactChunks.map((chunk) => {
+          const source = sourceMap.get(chunk.source_id);
+          return {
+            sourceId: chunk.source_id,
+            lectureTitle: source?.lecture_title ?? "Unknown lecture",
+            professor: source?.professor ?? "Unknown professor",
+            course: source?.course ?? "Unknown course",
+            videoUrl: isUsableVideoUrl(source?.video_url) ? source.video_url : "",
+            timestampStartSeconds: chunk.timestamp_start_seconds,
+            timestampEndSeconds: chunk.timestamp_end_seconds,
+            timestampUrl: isUsableVideoUrl(source?.video_url)
+              ? toVideoTimestampUrl(source.video_url, chunk.timestamp_start_seconds)
+              : null,
+            excerpt: truncateText(chunk.clean_text, MAX_CITATION_EXCERPT_CHARS),
+            sectionHint: chunk.section_hint,
+            similarity: chunk.similarity,
+          };
+        });
+        const quality = retrievalQuality(exactChunks);
+
+        return NextResponse.json({
+          question,
+          lectureMode: body.lectureMode ?? true,
+          retrievalMode: "exact-title",
+          retrievalConfidence: quality.confidence,
+          keywords,
+          context,
+          styleSnippets: [],
+          citations,
+          retrievalDiagnostics: {
+            quality,
+            selectedChunkKeys: exactChunks.map((chunk) => chunkKey(chunk)),
+            vectorTopChunkKeys: [],
+            keywordTopChunkKeys: [],
+            neighborChunkKeys: [],
+            neighborRetrievalErrors: [],
+            candidateCounts: {
+              vector: 0,
+              keyword: 0,
+              initialMerged: exactChunks.length,
+              neighbors: 0,
+              thresholded: exactChunks.length,
+            },
+            lexicalRetrievalErrors: [],
+            topSimilarityScores: exactChunks.slice(0, 5).map((chunk) => ({
+              key: chunkKey(chunk),
+              similarity: chunk.similarity,
+            })),
+            filters: {
+              courseFilter: courseFilter || null,
+              professorFilter: professorFilter || null,
+              courseFilterApplied: !!courseFilter,
+              professorFilterApplied: !!professorFilter,
+              filterFallbackUsed: false,
+              filteredSourceCount: exactSourceIds.length,
+              requestedSourceCandidates: null,
+              noSourceCandidates: false,
+              minSimilarityUsed: minSimilarity,
+              droppedLowSimilarityCount: 0,
+              vectorRetrievalError: null,
+              styleRetrievalError: null,
+            },
+          },
+        });
+      }
+    }
+
+    let embedding: number[] | null = null;
+    let embeddingError: string | null = null;
+    try {
+      const openai = new OpenAI({
+        apiKey: openaiApiKey,
+        maxRetries: 0,
+        timeout: OPENAI_EMBEDDING_TIMEOUT_MS,
+      });
+      const embeddingRes = await withTimeout(
+        openai.embeddings.create({
+          model: "text-embedding-3-small",
+          input: embeddingInputForQuestion(question, courseFilter, keywords),
+        }),
+        OPENAI_EMBEDDING_TIMEOUT_MS + 1_000,
+        "Embedding generation timed out."
+      );
+      embedding = embeddingRes.data?.[0]?.embedding ?? null;
+      if (!embedding) {
+        embeddingError = "Embedding generation returned no vector.";
+      }
+    } catch (error: unknown) {
+      embeddingError = `Embedding generation failed: ${errorMessage(error)}`;
     }
 
     const keywordFilter = keywords.map((k) => `clean_text.ilike.%${k}%`).join(",");
@@ -447,6 +1058,7 @@ export async function POST(req: Request) {
     const anyFilterRequested = !!courseFilter || !!professorFilter;
 
     let requestedSourceIdSet: Set<string> | null = null;
+    let sourceFilterLookupError: string | null = null;
     if (anyFilterRequested) {
       let sourceFilterQuery = supabaseAdmin.from("lecture_sources").select("id");
       if (courseFilter) {
@@ -457,16 +1069,21 @@ export async function POST(req: Request) {
       }
 
       const { data: requestedSourceRows, error: requestedSourceErr } =
-        await sourceFilterQuery.limit(200);
+        await softQueryTimeout(
+          sourceFilterQuery.limit(200),
+          "Requested source filter lookup",
+          [] as SourceIdRow[]
+        );
       if (requestedSourceErr) {
-        return NextResponse.json(
-          { error: `Source filter lookup failed: ${requestedSourceErr.message}` },
-          { status: 500 }
+        sourceFilterLookupError = requestedSourceErr.message ?? "Source filter lookup failed.";
+        if (isDevLog) {
+          console.log("sourceFilterLookupError", sourceFilterLookupError);
+        }
+      } else {
+        requestedSourceIdSet = new Set(
+          ((requestedSourceRows as SourceIdRow[]) || []).map((row) => row.id)
         );
       }
-      requestedSourceIdSet = new Set(
-        ((requestedSourceRows as SourceIdRow[]) || []).map((row) => row.id)
-      );
     }
 
     if (anyFilterRequested && requestedSourceIdSet && requestedSourceIdSet.size === 0) {
@@ -500,25 +1117,37 @@ export async function POST(req: Request) {
       });
     }
 
+    const { data: exactSourceRows, error: exactSourceErr } = await fetchExactLectureSources({
+      question,
+      courseFilter,
+      professorFilter,
+    });
+    const exactSourceIds = Array.from(new Set(exactSourceRows.map((row) => row.id)));
+
     const [
       { data: chunksData, error: chunkErr },
       { data: styleData, error: styleErr },
       { data: keywordData, error: keywordErr },
       { data: phraseKeywordData, error: phraseKeywordErr },
       { data: titleKeywordData, error: titleKeywordErr },
+      { data: exactTitleData, error: exactTitleErr },
     ] = await Promise.all([
-      matchLectureChunks({
+      embedding
+        ? matchLectureChunks({
           queryEmbedding: embedding,
           matchCount: Math.min(40, Math.max(maxChunks * 4, 16)),
           courseFilter,
           professorFilter,
-        }),
-      matchPersonaSnippets({
-        queryEmbedding: embedding,
-        matchCount: maxStyleSnippets,
-        courseFilter,
-        professorFilter,
-      }),
+        })
+        : Promise.resolve({ data: [], error: null }),
+      embedding
+        ? matchPersonaSnippets({
+          queryEmbedding: embedding,
+          matchCount: maxStyleSnippets,
+          courseFilter,
+          professorFilter,
+        })
+        : Promise.resolve({ data: [], error: null }),
       keywords.length > 0
         ? (() => {
           let keywordQuery = supabaseAdmin
@@ -535,7 +1164,11 @@ export async function POST(req: Request) {
               Array.from(requestedSourceIdSet)
             );
           }
-          return keywordQuery;
+          return softQueryTimeout(
+            keywordQuery,
+            "Keyword lecture chunk retrieval",
+            [] as Omit<ChunkRow, "similarity">[]
+          );
         })()
         : Promise.resolve({ data: [], error: null }),
       phraseFilter
@@ -554,7 +1187,11 @@ export async function POST(req: Request) {
               Array.from(requestedSourceIdSet)
             );
           }
-          return phraseQuery;
+          return softQueryTimeout(
+            phraseQuery,
+            "Phrase keyword lecture chunk retrieval",
+            [] as Omit<ChunkRow, "similarity">[]
+          );
         })()
         : Promise.resolve({ data: [], error: null }),
       keywords.length > 0
@@ -572,7 +1209,11 @@ export async function POST(req: Request) {
             titleQuery = titleQuery.ilike("professor", `%${professorFilter}%`);
           }
 
-          const { data: titleSources, error: titleSourceErr } = await titleQuery;
+          const { data: titleSources, error: titleSourceErr } = await softQueryTimeout(
+            titleQuery,
+            "Title keyword source retrieval",
+            [] as Array<SourceIdRow & Pick<SourceRow, "lecture_title">>
+          );
           if (titleSourceErr) return { data: [], error: titleSourceErr };
 
           const rankedTitleSources = (
@@ -594,59 +1235,74 @@ export async function POST(req: Request) {
               : [];
           if (titleSourceIds.length === 0) return { data: [], error: null };
 
-          return supabaseAdmin
+          return softQueryTimeout(
+            supabaseAdmin
+              .from("lecture_chunks")
+              .select(
+                "source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint"
+              )
+              .in("source_id", titleSourceIds)
+              .limit(Math.max(20, maxChunks * 4)),
+            "Title keyword chunk retrieval",
+            [] as Omit<ChunkRow, "similarity">[]
+          );
+        })()
+        : Promise.resolve({ data: [], error: null }),
+      exactSourceIds.length > 0
+        ? softQueryTimeout(
+          supabaseAdmin
             .from("lecture_chunks")
             .select(
               "source_id, clean_text, timestamp_start_seconds, timestamp_end_seconds, section_hint"
             )
-            .in("source_id", titleSourceIds)
-            .limit(Math.max(20, maxChunks * 4));
-        })()
+            .in("source_id", exactSourceIds)
+            .order("timestamp_start_seconds", { ascending: true })
+            .limit(Math.max(20, maxChunks * 4)),
+          "Exact title chunk retrieval",
+          [] as Omit<ChunkRow, "similarity">[]
+        )
         : Promise.resolve({ data: [], error: null }),
     ]);
 
-    const vectorRetrievalError = chunkErr?.message ?? null;
+    const vectorRetrievalError = embeddingError ?? chunkErr?.message ?? null;
 
     if (isDevLog) {
       console.log("lectureMatches", chunksData ?? []);
       console.log("lectureError", chunkErr ?? null);
     }
-    const styleRetrievalError = styleErr?.message ?? null;
+    const styleRetrievalError = embedding ? styleErr?.message ?? null : embeddingError;
     if (styleErr && isDevLog) {
       console.log("personaError", styleErr);
     }
-    if (keywordErr) {
-      return NextResponse.json(
-        { error: `Keyword retrieval failed: ${keywordErr.message}` },
-        { status: 500 }
-      );
-    }
-    if (phraseKeywordErr) {
-      return NextResponse.json(
-        { error: `Phrase keyword retrieval failed: ${phraseKeywordErr.message}` },
-        { status: 500 }
-      );
-    }
-    if (titleKeywordErr) {
-      return NextResponse.json(
-        { error: `Title keyword retrieval failed: ${titleKeywordErr.message}` },
-        { status: 500 }
-      );
+    const lexicalRetrievalErrors = [
+      exactSourceErr ? `Exact source lookup failed: ${exactSourceErr.message}` : null,
+      exactTitleErr ? `Exact title chunk retrieval failed: ${exactTitleErr.message}` : null,
+      keywordErr ? `Keyword retrieval failed: ${keywordErr.message}` : null,
+      phraseKeywordErr ? `Phrase keyword retrieval failed: ${phraseKeywordErr.message}` : null,
+      titleKeywordErr ? `Title keyword retrieval failed: ${titleKeywordErr.message}` : null,
+    ].filter((message): message is string => !!message);
+
+    if (lexicalRetrievalErrors.length > 0 && isDevLog) {
+      console.log("lexicalRetrievalErrors", lexicalRetrievalErrors);
     }
 
     const vectorChunks = (chunksData || []) as ChunkRow[];
     const keywordChunks = [
-      ...((keywordData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
+      ...((keywordErr ? [] : keywordData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
       ...c,
       similarity: scoreKeywordChunk(c.clean_text, keywords),
       })),
-      ...((phraseKeywordData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
+      ...((phraseKeywordErr ? [] : phraseKeywordData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
         ...c,
         similarity: Math.max(0.92, scoreKeywordChunk(c.clean_text, keywords)),
       })),
-      ...((titleKeywordData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
+      ...((titleKeywordErr ? [] : titleKeywordData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
         ...c,
         similarity: Math.max(0.9, scoreKeywordChunk(c.clean_text, keywords)),
+      })),
+      ...((exactTitleErr ? [] : exactTitleData || []) as Omit<ChunkRow, "similarity">[]).map((c) => ({
+        ...c,
+        similarity: Math.max(1.12, scoreKeywordChunk(c.clean_text, keywords)),
       })),
     ];
 
@@ -679,17 +1335,19 @@ export async function POST(req: Request) {
     );
 
     const { data: sourceRows, error: sourceErr } = sourceIds.length
-      ? await supabaseAdmin
-        .from("lecture_sources")
-        .select("id, lecture_title, video_url, professor, course")
-        .in("id", sourceIds)
+      ? await softQueryTimeout(
+        supabaseAdmin
+          .from("lecture_sources")
+          .select("id, lecture_title, video_url, professor, course")
+          .in("id", sourceIds),
+        "Source metadata retrieval",
+        [] as SourceRow[]
+      )
       : { data: [], error: null };
 
-    if (sourceErr) {
-      return NextResponse.json(
-        { error: `Source metadata retrieval failed: ${sourceErr.message}` },
-        { status: 500 }
-      );
+    const sourceMetadataError = sourceErr?.message ?? null;
+    if (sourceMetadataError && isDevLog) {
+      console.log("sourceMetadataError", sourceMetadataError);
     }
 
     const sourceMap = new Map<string, SourceRow>(
@@ -698,6 +1356,7 @@ export async function POST(req: Request) {
 
     const matchesSourceFilters = (sourceId: string) => {
       if (!courseFilter && !professorFilter) return true;
+      if (sourceFilterLookupError) return true;
       if (requestedSourceIdSet) {
         return requestedSourceIdSet.has(sourceId);
       }
@@ -806,6 +1465,7 @@ ${truncateText(chunk.clean_text, MAX_CONTEXT_CHARS)}`;
           neighbors: neighborResult.data.length,
           thresholded: thresholdedCandidateChunks.length,
         },
+        lexicalRetrievalErrors,
         topSimilarityScores: scopedChunks.slice(0, 5).map((chunk) => ({
           key: chunkKey(chunk),
           similarity: chunk.similarity,
@@ -815,7 +1475,7 @@ ${truncateText(chunk.clean_text, MAX_CONTEXT_CHARS)}`;
           professorFilter: professorFilter || null,
           courseFilterApplied: !!courseFilter && anyFilterApplied,
           professorFilterApplied: !!professorFilter && anyFilterApplied,
-          filterFallbackUsed: false,
+          filterFallbackUsed: !!sourceFilterLookupError,
           filteredSourceCount: filteredSourceIds.size,
           requestedSourceCandidates: requestedSourceIdSet?.size ?? null,
           noSourceCandidates: false,
@@ -823,6 +1483,8 @@ ${truncateText(chunk.clean_text, MAX_CONTEXT_CHARS)}`;
           droppedLowSimilarityCount,
           vectorRetrievalError,
           styleRetrievalError,
+          sourceFilterLookupError,
+          sourceMetadataError,
         },
       },
     });

@@ -50,6 +50,23 @@ const cleanLog = writeJson("clean.json", [
     prompt: "derivative of 5x",
     output: "## Final Answer\nf'(x) = 5",
   },
+  {
+    id: "clean-limit-pure",
+    pass: 1,
+    mode: "pure",
+    category: "limit",
+    prompt: "Evaluate the limit as x approaches infinity of (3x^2 + 1)/(2x^2 - 5)",
+    output: "## Final Answer\nThe limit is\n$$\n\\frac{3}{2}\n$$",
+  },
+  {
+    id: "clean-limit-lecture",
+    pass: 1,
+    mode: "nemanja-lecture",
+    category: "limit",
+    prompt: "Evaluate the limit as x approaches infinity of (3x^2 + 1)/(2x^2 - 5)",
+    output:
+      "## Final Answer\n$$\n\\lim_{x \\to \\infty} \\frac{3x^2 + 1}{2x^2 - 5} = \\frac{3}{2}\n$$",
+  },
 ]);
 
 const badLog = writeJson("bad.json", [
@@ -60,6 +77,15 @@ const badLog = writeJson("bad.json", [
     category: "algebra",
     prompt: "factor x^2 - 9",
     output: "Method used: \\text{Factor the difference of squares}\n\n## Final Answer\nx^2 - 9 = (x - 3)(x + 3)",
+  },
+  {
+    id: "san-series",
+    pass: 0,
+    mode: "nemanja-lecture",
+    category: "series",
+    prompt: "I can't figure out AST",
+    output:
+      "The AST states that an alternating series \\sum_{n=1}^{\\infty} (-1)^{n-1} b_n converges if \\lim_{n \\to \\infty} b_n = 0.\n\n## Final Answer\nIt converges.",
   },
   {
     id: "ui-money",
@@ -99,12 +125,12 @@ const badLog = writeJson("bad.json", [
 try {
   const clean = runAudit(cleanLog);
   expect(clean.status === 0, `Clean log should pass, got status ${clean.status}.\n${clean.stdout}`);
-  expect(clean.summary.current_clean_streak_entries === 2, "Clean log should report a two-entry clean streak.");
+  expect(clean.summary.current_clean_streak_entries === 4, "Clean log should report a four-entry clean streak.");
   expect(Object.keys(clean.summary.failures_by_code).length === 0, "Clean log should not report failure codes.");
 
   const bad = runAudit(badLog);
   expect(bad.status !== 0, "Bad log should fail.");
-  expect(bad.summary.failures_by_code.SAN?.count === 1, "Bad log should report one [SAN] failure.");
+  expect(bad.summary.failures_by_code.SAN?.count === 2, "Bad log should report two [SAN] failures.");
   expect(bad.summary.failures_by_code.UI?.count === 1, "Bad log should report one [UI] failure.");
   expect(bad.summary.failures_by_code.DISC?.count === 1, "Bad log should report one [DISC] failure.");
   expect(bad.summary.failures_by_code.RAG?.count === 1, "Bad log should report one [RAG] failure.");

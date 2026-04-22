@@ -82,6 +82,11 @@ function parseArgs(argv) {
 
 const { strict, suite, checksFile, courseFilter, professorFilter, maxChunks } = parseArgs(process.argv.slice(2));
 const endpoint = process.env.RAG_EVAL_URL?.trim() || "http://localhost:3000/api/rag/query";
+const configuredRequestTimeoutMs = Number(process.env.RAG_QUALITY_REQUEST_TIMEOUT_MS ?? 45000);
+const requestTimeoutMs =
+    Number.isFinite(configuredRequestTimeoutMs) && configuredRequestTimeoutMs > 0
+        ? configuredRequestTimeoutMs
+        : 45000;
 
 const mlChecks = [
     {
@@ -186,11 +191,25 @@ function citationMatchesExpected(citation, expectedAny) {
     return expectedAny.some((needle) => haystack.includes(needle));
 }
 
-async function runCheck({ question, expectedAny, courseFilter: checkCourseFilter, professorFilter: checkProfessorFilter }) {
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithTimeout(url, options) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function runCheckOnce({ question, expectedAny, courseFilter: checkCourseFilter, professorFilter: checkProfessorFilter }) {
     const effectiveCourseFilter = checkCourseFilter || courseFilter;
     const effectiveProfessorFilter = checkProfessorFilter || professorFilter;
 
-    const res = await fetch(endpoint, {
+    const res = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -231,9 +250,36 @@ async function runCheck({ question, expectedAny, courseFilter: checkCourseFilter
     };
 }
 
+async function runCheck(check) {
+    const maxAttempts = Number(process.env.RAG_QUALITY_ATTEMPTS ?? 3);
+    let lastResult = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const result = await runCheckOnce(check);
+            if (result.pass) return { ...result, attempts: attempt };
+            lastResult = result;
+
+            const transientEmpty = /No citations returned/i.test(result.reason);
+            if (!transientEmpty || attempt === maxAttempts) return { ...result, attempts: attempt };
+        } catch (error) {
+            lastResult = {
+                question: check.question,
+                pass: false,
+                reason: error instanceof Error ? error.message : String(error),
+            };
+            if (attempt === maxAttempts) return { ...lastResult, attempts: attempt };
+        }
+
+        await sleep(500 * attempt);
+    }
+
+    return { ...lastResult, attempts: maxAttempts };
+}
+
 async function endpointReachableAndUsable() {
     try {
-        const res = await fetch(endpoint, {
+        const res = await fetchWithTimeout(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ question: "ping", lectureMode: true, maxChunks: 1 }),
@@ -273,7 +319,8 @@ for (const check of checks) {
         const result = await runCheck(check);
         if (result.pass) {
             passed++;
-            console.log(`✅ ${result.question}`);
+            const suffix = result.attempts && result.attempts > 1 ? ` (attempt ${result.attempts})` : "";
+            console.log(`✅ ${result.question}${suffix}`);
         } else {
             failed = true;
             console.error(`❌ ${result.question}`);

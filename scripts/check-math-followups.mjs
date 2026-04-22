@@ -1,0 +1,112 @@
+const CHAT_URL = process.env.NIKI_CHAT_URL ?? "http://localhost:3000/api/chat";
+
+const scenarios = [
+  {
+    id: "derivative-followup-inherits-intent",
+    body: {
+      message: "do ln5x",
+      history: [
+        { role: "user", content: "Find the derivative of x^2" },
+        {
+          role: "assistant",
+          content: "**Derivative**\n\n## Final Answer\n$$\n2x\n$$",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/Derivative of ln\(5x\)/i, /f'\(x\)\s*=\s*\\frac\{1\}\{x\}/],
+    reject: [/What do you want me to do/i, /Qwen/i],
+  },
+  {
+    id: "integral-followup-inherits-intent",
+    body: {
+      message: "do ln5x",
+      history: [
+        { role: "user", content: "Integrate x^2" },
+        {
+          role: "assistant",
+          content: "**Integral**\n\n## Final Answer\n$$\n\\frac{x^3}{3}+C\n$$",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/Integral of ln\(5x\)/i, /x\\ln\(5x\)-x \+ C/],
+    reject: [/What do you want me to do/i, /Qwen/i],
+  },
+  {
+    id: "limit-followup-inherits-intent-but-asks-approach",
+    body: {
+      message: "do ln5x",
+      history: [
+        { role: "user", content: "Find the limit of x^2 as x approaches 3" },
+        {
+          role: "assistant",
+          content: "**Limit**\n\n## Final Answer\n$$\n9\n$$",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/evaluate a limit for ln5x/i, /approach value/i, /x approaches 0/i],
+    reject: [/What do you want me to do/i, /Qwen/i],
+  },
+  {
+    id: "ambiguous-followup-asks-operation",
+    body: {
+      message: "do ln5x",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/What do you want me to do with ln5x/i, /differentiate it, integrate it/i],
+    reject: [/Derivative of/i, /Integral of/i, /Qwen/i],
+  },
+];
+
+async function postText(body) {
+  const response = await fetch(CHAT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`${CHAT_URL} returned HTTP ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return text;
+}
+
+function checkScenario(scenario, output) {
+  const failures = [];
+  for (const pattern of scenario.expect) {
+    if (!pattern.test(output)) failures.push(`missing ${pattern}`);
+  }
+  for (const pattern of scenario.reject) {
+    if (pattern.test(output)) failures.push(`rejected pattern present ${pattern}`);
+  }
+  return failures;
+}
+
+let failed = false;
+for (const scenario of scenarios) {
+  try {
+    const output = await postText(scenario.body);
+    const failures = checkScenario(scenario, output);
+    if (failures.length) {
+      failed = true;
+      console.error(`❌ ${scenario.id}`);
+      console.error(`   ${failures.join("; ")}`);
+      console.error(output.slice(0, 1200));
+    } else {
+      console.log(`✅ ${scenario.id}`);
+    }
+  } catch (error) {
+    failed = true;
+    console.error(`❌ ${scenario.id}`);
+    console.error(error instanceof Error ? error.message : error);
+  }
+}
+
+if (failed) process.exit(1);

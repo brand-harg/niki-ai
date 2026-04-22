@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -64,6 +64,27 @@ export default function LoginPage() {
       ? 'selection:bg-amber-500/30'
       : 'selection:bg-cyan-500/30';
 
+  useEffect(() => {
+    let mounted = true;
+
+    const redirectIfSignedIn = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (mounted && session?.user?.id) {
+        router.replace('/');
+        router.refresh();
+      }
+    };
+
+    redirectIfSignedIn();
+
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
   // --- GOOGLE LOGIN ---
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({
@@ -78,20 +99,23 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (loginError) {
-      const { error: signUpError } = await supabase.auth.signUp({ email, password });
-      if (signUpError) {
-        setError(signUpError.message);
+      if (loginError) {
+        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        if (signUpError) {
+          setError(signUpError.message);
+        } else {
+          alert("Check your email for a confirmation link!");
+        }
       } else {
-        alert("Check your email for a confirmation link!");
+        router.replace('/');
+        router.refresh();
       }
-    } else {
-      router.push('/');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   // --- FORGOT PASSWORD ---

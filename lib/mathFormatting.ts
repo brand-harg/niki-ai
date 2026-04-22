@@ -235,13 +235,13 @@ function splitMathAndTrailingProse(rawMath: string): { math: string; suffix: str
   }
 
   const proseSplit = math.match(
-    /^([\s\S]*?(?:\}|[)\]]|[A-Za-z0-9]))\s+((?:for|where|when|which|because|since|therefore|so|then|this|that|is|are|can|will|means|gives|becomes)\b[\s\S]*)$/i
+    /^([\s\S]*?(?:\}|[)\]]|[A-Za-z0-9]))\s+((?:for|where|when|which|because|since|therefore|so|then|this|that|is|are|can|will|means|gives|becomes|converges|diverges|satisfies|fails|holds)\b[\s\S]*)$/i
   );
 
   if (proseSplit) {
     const candidate = (proseSplit[1] ?? "").trim();
     const suffix = (proseSplit[2] ?? "").trim();
-    const candidateHasEquation = /=|\\(?:frac|sqrt|int|sum|lim|begin|left|right|neq|leq|geq)\b/.test(candidate);
+    const candidateHasEquation = /=|\\(?:frac|sqrt|int|sum|lim|begin|left|right|infty|neq|leq|geq)\b/.test(candidate);
     if (candidateHasEquation && containsRawLatexCommand(candidate) && hasBalancedBraces(candidate)) {
       return { math: candidate.replace(/[,:;]\s*$/, "").trim(), suffix };
     }
@@ -281,7 +281,7 @@ function splitRawLatexLine(line: string): string | null {
   ];
   const isExpressionMatches = [
     ...beforeLatex.matchAll(/\bis\s+([A-Za-z0-9()[\]{}^_+\-*/\s]+)$/gi),
-  ];
+  ].filter((match) => /(?:[A-Za-z]\([^)]*\)|[A-Za-z]_[A-Za-z0-9{}]+|[A-Za-z]\s*=|\d|[+\-*/^])/.test(match[1] ?? ""));
   const startIndex = assignmentMatches.length
     ? assignmentMatches[assignmentMatches.length - 1].index ?? latexIndex
     : isExpressionMatches.length
@@ -390,6 +390,34 @@ function repairSplitInequalityBlocks(content: string): string {
   );
 }
 
+function repairSeriesTestProse(content: string): string {
+  return content
+    .replace(
+      /(The AST states that an alternating series)\s+(\\sum_\{n=1\}\^\{\\infty\}\s*\(-1\)\^\{n-1\}\s*b_n)\s+(converges if the following two conditions are met\.?)/gi,
+      (_match, prefix: string, formula: string, suffix: string) => {
+        return `${prefix}:\n$$\n${formula.trim()}\n$$\n${suffix}`;
+      }
+    )
+    .replace(
+      /(\d+\.\s*b_n is decreasing,\s*i\.e\.,)\s*(b_\{n\+1\}\s*\\leq\s*b_n)\s*(for all n\.?)/gi,
+      (_match, prefix: string, formula: string, suffix: string) => {
+        return `${prefix}\n$$\n${formula.trim()}\n$$\n${suffix}`;
+      }
+    )
+    .replace(
+      /(\d+\.\s*The limit of b_n as n approaches infinity is zero,\s*i\.e\.,)\s*(\\lim_\{n\s*\\to\s*\\infty\}\s*b_n\s*=\s*0)\.?/gi,
+      (_match, prefix: string, formula: string) => {
+        return `${prefix}\n$$\n${formula.trim()}\n$$`;
+      }
+    )
+    .replace(
+      /(Alternating Series Test \(AST\): An alternating series)\s+(\\sum_\{n=1\}\^\{\\infty\}\s*\(-1\)\^\{n-1\}\s*\\frac\{1\}\{n\})\s+(converges if)\s+(\\lim_\{n\s*\\to\s*\\infty\}\s*b_n\s*=\s*0)\.?/gi,
+      (_match, prefix: string, series: string, connector: string, limit: string) => {
+        return `${prefix}:\n$$\n${series.trim()}\n$$\n${connector}\n$$\n${limit.trim()}\n$$`;
+      }
+    );
+}
+
 function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureFinalAnswer: boolean }): string {
   if (!content || typeof content !== "string") return "";
 
@@ -429,6 +457,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = removeSingleDollarDelimiters(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
+  cleaned = repairSeriesTestProse(cleaned);
   cleaned = normalizeBrokenMarkdown(cleaned);
   cleaned = unwrapNonMathDisplayBlocks(cleaned);
   cleaned = repairSplitInequalityBlocks(cleaned);
@@ -468,6 +497,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = normalizeBrokenMarkdown(cleaned);
   cleaned = unwrapNonMathDisplayBlocks(cleaned);
   cleaned = repairSplitInequalityBlocks(cleaned);
+  cleaned = repairSeriesTestProse(cleaned);
   cleaned = cleaned.replace(/@@MATH_BLOCK_(\d+)@@/g, (_match, index: string) => {
     return displayBlocks[Number(index)] ?? "";
   });

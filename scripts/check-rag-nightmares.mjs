@@ -1,5 +1,6 @@
 const CHAT_URL = process.env.NIKI_CHAT_URL ?? "http://localhost:3000/api/chat";
 const RAG_URL = process.env.NIKI_RAG_URL ?? "http://localhost:3000/api/rag/query";
+const REQUEST_TIMEOUT_MS = Number(process.env.RAG_NIGHTMARE_REQUEST_TIMEOUT_MS ?? 45000);
 
 const chatHeaders = { "Content-Type": "application/json" };
 
@@ -71,6 +72,18 @@ const scenarios = [
       lectureMode: true,
     },
     expect: [/PreCalc/i, /Watch:/i],
+  },
+  {
+    id: "precalc1-question-mark-list",
+    description: "Precalc 1 with punctuation should not be mistaken for Calculus 1.",
+    body: {
+      message: "Precalc 1?",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/PreCalc1/i, /Precalculus/i, /Watch:/i],
+    reject: [/Calculus1 2\.2 Intro to Limits/i, /Derivative as a Function/i],
   },
   {
     id: "elementary-algebra-list",
@@ -145,7 +158,6 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: true,
     },
-    ragQuestion: "what is the youtube video for Calculus1 3.2 Derivative as a Function?",
     expect: [/Derivative as a Function/i, /https:\/\/www\.youtube\.com\/watch\?v=/i],
     reject: [/UNKNOWN/i, /link unavailable/i],
   },
@@ -159,8 +171,8 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "please lecture me on Calculus1 3.2 Derivative as a Function I wasnt in class",
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Lecture Trail/i, /Timestamped Clips/i],
-    reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Source Evidence/i, /Timestamped Clips/i],
+    reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
     id: "lecture-recovery-internal-fallback",
@@ -171,8 +183,8 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: true,
     },
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Lecture Trail/i, /Timestamped Clips/i],
-    reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Source Evidence/i, /Timestamped Clips/i],
+    reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
     id: "lecture-recovery-short-title",
@@ -184,7 +196,60 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "lecture me on 3.2 derivative as a function",
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    reject: [/Retrieved Lecture Trail/i],
+  },
+  {
+    id: "lecture-recovery-calc2-power-series",
+    description: "Course-topic lecture requests should recover a taught lesson, not list the course inventory.",
+    body: {
+      message: "Can we do a lecture on calc 2 power series?",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    ragQuestion: "Can we do a lecture on calc 2 power series?",
+    expect: [/Lecture Recovery/i, /Power Series/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    reject: [/^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im],
+  },
+  {
+    id: "lecture-recovery-calc2-alternating-series",
+    description: "Alternating Series Test requests should become a taught lesson and avoid raw transcript or red-LaTeX theorem dumps.",
+    body: {
+      message: "I can't figure out AST and don't understand alternating series",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    ragQuestion: "I can't figure out AST and don't understand alternating series",
+    expect: [/Lecture Recovery|Alternating Series|AST/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    reject: [/The AST states that an alternating series \\sum/i, /\\lim_\{n \\to \\infty\} b_n = 0/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
+  },
+  {
+    id: "lecture-recovery-stats-probability",
+    description: "Statistics lecture recovery should stay in statistics/probability instead of inheriting derivative language from noisy retrieval.",
+    body: {
+      message: "Lecture me on statistics probability",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    ragQuestion: "Lecture me on statistics probability",
+    expect: [/Lecture Recovery/i, /Probability|Statistics/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    reject: [/horizontal tangent/i, /derivative value 0/i, /local maximum and minimum/i],
+  },
+  {
+    id: "lecture-recovery-diffeq",
+    description: "Differential equations lecture recovery should become a real lesson with DE structure.",
+    body: {
+      message: "Lecture me on differential equations separable equations",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    ragQuestion: "Lecture me on differential equations separable equations",
+    expect: [/Lecture Recovery/i, /Differential|Equation|ODE/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    reject: [/^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im],
   },
   {
     id: "wrong-exact-lecture-safe",
@@ -213,11 +278,23 @@ const scenarios = [
 ];
 
 async function postText(url, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: chatHeaders,
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: chatHeaders,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${url} request failed or timed out after ${REQUEST_TIMEOUT_MS}ms: ${message}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+
   const text = await response.text();
   if (!response.ok) {
     throw new Error(`${url} returned HTTP ${response.status}: ${text.slice(0, 300)}`);

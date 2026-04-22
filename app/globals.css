@@ -92,6 +92,8 @@
   .prose :where(p) {
     margin-top: 0.55rem;
     margin-bottom: 0.55rem;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   .prose :where(ul, ol) {
@@ -102,6 +104,8 @@
   .prose :where(li) {
     margin-top: 0.15rem;
     margin-bottom: 0.15rem;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   .prose :where(h1, h2, h3, h4) {
@@ -165,6 +169,10 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
+  .prose .katex-display::-webkit-scrollbar {
+    height: 0.45rem;
+  }
+
   .chat-surface {
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 18rem),
@@ -198,6 +206,11 @@
     display: inline-block;
     margin: 0 auto;
     font-size: 1.1em;
+    max-width: 100%;
+  }
+
+  .prose .katex-html {
+    max-width: 100%;
   }
 
   .prose strong {
@@ -225,6 +238,8 @@
   .prose .math-step-label strong {
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
+    max-width: 100%;
     border-radius: 0.55rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.045);
@@ -235,7 +250,9 @@
 
   .prose .math-callout-label {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
+    overflow-wrap: break-word;
+    word-break: normal;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.04),
       0 14px 38px rgba(0, 0, 0, 0.22);
@@ -243,6 +260,8 @@
 
   .prose .math-callout-label strong {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     margin-right: 0.35rem;
     color: #f8fafc;
     font-weight: 900;

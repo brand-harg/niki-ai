@@ -54,6 +54,28 @@ type AppProfile = {
   current_unit?: string;
   compact_mode?: boolean;
 };
+
+const AUTH_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 type ChatItem = {
   id: string;
   title: string;
@@ -210,7 +232,9 @@ function confidenceFromCitations(
 function isLectureInventoryRequest(message: string) {
   return (
     /\b(?:what|which|list|show|all)\b[\s\S]{0,50}\blectures?\b/i.test(message) ||
-    /\blectures?\b[\s\S]{0,40}\b(?:have|got|available|list|show)\b/i.test(message)
+    /\blectures?\b[\s\S]{0,40}\b(?:have|got|available|list|show)\b/i.test(message) ||
+    /\b(?:show|list)\s+me\s+(?:all\s+)?(?:of\s+)?(?:calc(?:ulus)?\s*[123]|pre\s*calc(?:ulus)?\s*1?|precalc\s*1?|stats?|statistics|differential\s+equations?|elementary\s+algebra)\b/i.test(message) ||
+    /\b(?:calc(?:ulus)?\s*[123]|pre\s*calc(?:ulus)?\s*1?|precalc\s*1?|stats?|statistics|differential\s+equations?|elementary\s+algebra)\b[\s\S]{0,24}\b(?:lectures?|all)\b/i.test(message)
   );
 }
 
@@ -628,7 +652,7 @@ export default function Home() {
   const [isNikiMode, setIsNikiMode] = useState(false);
   const [lectureMode, setLectureMode] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -648,6 +672,7 @@ export default function Home() {
   const isUnmountingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(null);
+  const profileLoadedRef = useRef(false);
 
   // --- DYNAMIC THEME ENGINE ---
   const isGreen = profile?.theme_accent === "green";
@@ -669,6 +694,20 @@ export default function Home() {
   const resetGreeting = (mode = isNikiMode) => {
     setMessages(createGreeting(mode));
   };
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 768px)");
+    const syncSidebarToViewport = () => setIsSidebarOpen(query.matches);
+
+    syncSidebarToViewport();
+    query.addEventListener("change", syncSidebarToViewport);
+
+    return () => query.removeEventListener("change", syncSidebarToViewport);
+  }, []);
+
+  useEffect(() => {
+    profileLoadedRef.current = profileLoaded;
+  }, [profileLoaded]);
 
   const switchNikiMode = (mode: boolean) => {
     setIsNikiMode(mode);
@@ -786,11 +825,27 @@ export default function Home() {
     let mounted = true;
     isUnmountingRef.current = false;
 
+    const loadUserData = async (userId: string) => {
+      setProfileLoaded(false);
+      const results = await Promise.allSettled([
+        withTimeout(fetchHistory(userId), "fetchHistory"),
+        withTimeout(fetchProfile(userId), "fetchProfile"),
+      ]);
+
+      for (const result of results) {
+        if (result.status === "rejected") {
+          console.warn("User data load failed:", result.reason);
+        }
+      }
+
+      if (mounted) setProfileLoaded(true);
+    };
+
     const initialize = async () => {
       try {
         const {
           data: { session },
-        } = await supabase.auth.getSession();
+        } = await withTimeout(supabase.auth.getSession(), "getSession");
 
         if (!mounted) return;
 
@@ -832,11 +887,15 @@ export default function Home() {
           return;
         }
 
-        await fetchHistory(userId);
-        await fetchProfile(userId);
+        await loadUserData(userId);
       } catch (error) {
         if (mounted) {
           console.warn("Auth initialization failed:", error);
+          try {
+            await supabase.auth.signOut({ scope: "local" });
+          } catch (signOutError) {
+            console.warn("Local auth cleanup failed:", signOutError);
+          }
           setSession(null);
           setProfile(null);
           setProfileLoaded(true);
@@ -862,6 +921,9 @@ export default function Home() {
 
       if (newUserId && newUserId === lastSessionIdRef.current) {
         setSession(session);
+        if (!profileLoadedRef.current) {
+          await loadUserData(newUserId);
+        }
         return;
       }
 
@@ -869,23 +931,22 @@ export default function Home() {
         const {
           data: { user },
           error,
-        } = await supabase.auth.getUser();
+        } = await withTimeout(supabase.auth.getUser(), "getUser").catch((authError) => ({
+          data: { user: null },
+          error: authError,
+        }));
 
         if (error || !user) {
           console.warn("Auth user refresh failed; keeping session fallback:", error);
           lastSessionIdRef.current = newUserId;
           setSession(session);
-          setProfileLoaded(false);
-          await fetchHistory(newUserId);
-          await fetchProfile(newUserId);
+          await loadUserData(newUserId);
           return;
         }
 
         lastSessionIdRef.current = newUserId;
         setSession(session);
-        setProfileLoaded(false);
-        await fetchHistory(newUserId);
-        await fetchProfile(newUserId);
+        await loadUserData(newUserId);
       } else {
         lastSessionIdRef.current = null;
         setSession(null);
@@ -1659,7 +1720,7 @@ export default function Home() {
   );
 
   return (
-    <main className="flex h-screen overflow-hidden bg-[#030303] font-sans antialiased text-white">
+    <main className="flex h-[100dvh] overflow-hidden bg-[#030303] font-sans antialiased text-white">
       {isSidebarOpen && (
         <button
           type="button"
@@ -1767,7 +1828,7 @@ export default function Home() {
       </aside>
 
       {/* MAIN CONTENT */}
-      <section className="chat-surface flex-1 flex flex-col relative min-w-0">
+      <section className="chat-surface flex-1 flex min-h-0 flex-col relative min-w-0">
         {/* HEADER */}
         <header className="h-16 border-b border-white/10 flex items-center justify-between px-4 sm:px-8 bg-[#030303]/82 backdrop-blur-md z-20">
           <div className="flex items-center gap-5">
@@ -1838,7 +1899,7 @@ export default function Home() {
             chatViewportRef.current = el;
           }}
           data-chat-capture
-          className={`flex-1 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-32 text-[15px]" : "pt-7 sm:pt-10 pb-48 text-[17px] sm:text-[18px]"
+          className={`flex-1 min-h-0 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-6 text-[15px]" : "pt-7 sm:pt-10 pb-8 text-[17px] sm:text-[18px]"
             } px-3 sm:px-6 scroll-smooth`}
         >
           <div className="max-w-5xl mx-auto space-y-7 sm:space-y-10">
@@ -1954,7 +2015,7 @@ export default function Home() {
         </div>
 
         {/* FOOTER INPUT */}
-        <footer className="absolute bottom-0 left-0 right-0 px-3 sm:px-6 lg:px-8 pb-3 sm:pb-6 pt-12 bg-gradient-to-t from-[#030303] via-[#030303]/96 to-transparent">
+        <footer className="shrink-0 px-3 sm:px-6 lg:px-8 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-6 pt-4 sm:pt-6 border-t border-white/8 bg-[#030303]/98 backdrop-blur">
           <div className="max-w-[880px] mx-auto space-y-3">
             <div className="flex flex-wrap items-center justify-center gap-2">
               <div className="max-w-[340px] flex items-center p-1 bg-[#0b0b0b]/95 rounded-xl border border-white/10 shadow-2xl w-full sm:w-auto backdrop-blur">

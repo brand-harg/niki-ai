@@ -43,6 +43,7 @@ const basePrompts = [
   "Convert 3.2*10^5 into standard form and explain scientific notation",
   "Find the Taylor polynomial of degree 3 for e^x at x=0",
   "Use the ratio test on sum n!/5^n",
+  "Use the Alternating Series Test on sum (-1)^(n-1) * 2/(n+3)",
   "Find the cross product of <1,2,3> and <4,5,6>",
   "Find the gradient of f(x,y)=x^2y+sin(y)",
   "Use row reduction to solve x+y+z=6, 2x-y+z=3, x+2y-z=3",

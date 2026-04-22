@@ -144,6 +144,17 @@ $$
 R=\\infty
 $$`,
   },
+  {
+    name: "alternating-series-test-raw-latex-prose",
+    input: `**Alternating Series Test**
+The AST states that an alternating series \\sum_{n=1}^{\\infty} (-1)^{n-1} b_n converges if the following two conditions are met.
+
+1. b_n is decreasing, i.e., b_{n+1} \\leq b_n for all n.
+2. The limit of b_n as n approaches infinity is zero, i.e., \\lim_{n \\to \\infty} b_n = 0.
+
+## Final Answer
+Alternating Series Test (AST): An alternating series \\sum_{n=1}^{\\infty} (-1)^{n-1} \\frac{1}{n} converges if \\lim_{n \\to \\infty} b_n = 0.`,
+  },
 ];
 
 let failed = false;

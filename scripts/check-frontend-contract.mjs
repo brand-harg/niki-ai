@@ -37,6 +37,31 @@ const fixtures = [
     pattern: /keeping session fallback/,
   },
   {
+    name: "mobile-chat-shell-uses-dynamic-viewport",
+    source: pageSource,
+    pattern: /h-\[100dvh\]/,
+  },
+  {
+    name: "mobile-composer-does-not-overlay-chat",
+    source: pageSource,
+    pattern: /<footer className="shrink-0[\s\S]*safe-area-inset-bottom/,
+  },
+  {
+    name: "chat-scroll-region-has-min-height-boundary",
+    source: pageSource,
+    pattern: /flex-1 min-h-0 overflow-y-auto/,
+  },
+  {
+    name: "mobile-sidebar-starts-closed",
+    source: pageSource,
+    pattern: /const \[isSidebarOpen, setIsSidebarOpen\] = useState\(false\)/,
+  },
+  {
+    name: "desktop-sidebar-opens-from-media-query",
+    source: pageSource,
+    pattern: /matchMedia\("\(min-width: 768px\)"\)[\s\S]*setIsSidebarOpen\(query\.matches\)/,
+  },
+  {
     name: "screenshot-has-safe-color-normalizer",
     source: pageSource,
     pattern: /screenshotSafeColor/,

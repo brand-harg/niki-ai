@@ -16,7 +16,7 @@ const UI_BREAK_PATTERNS = {
   paren_inline: /\\\(|\\\)/,
   single_dollar_line: /^\s*\$(?!\$)\s*$/m,
   raw_latex_outside_display:
-    /\\(?:frac|sqrt|int|sum|lim|begin|left|right|cdot|text|operatorname)\b/,
+    /\\(?:frac|sqrt|int|sum|lim|prod|begin|end|left|right|cdot|times|text|operatorname|ln|log|sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|pi|theta|alpha|beta|gamma|delta|lambda|mu|sigma|infty|to|leq|geq|neq|le|ge|pm|nabla|partial|vec|bar|hat|overline|underline)\b/,
   invalid_backslash_number: /(?<!\\)\\[0-9]/,
 };
 
@@ -144,6 +144,9 @@ function normalizeAnswer(answer) {
 
   const valuePhrase = normalized.match(/(?:value|price|finalprice|equals|is)(?:[^-0-9]*)(-?\d+(?:\.\d+)?)\.?$/);
   if (valuePhrase) return valuePhrase[1];
+
+  const latexFractionRhs = normalized.match(/=(\\frac-?\d+(?:\.\d+)?-?\d+(?:\.\d+)?)\.?$/);
+  if (latexFractionRhs && [...normalized.matchAll(/=/g)].length === 1) return latexFractionRhs[1];
 
   const simpleRhs = normalized.match(/=(-?\d+(?:\.\d+)?)\.?$/);
   if (simpleRhs && [...normalized.matchAll(/=/g)].length === 1) return simpleRhs[1];

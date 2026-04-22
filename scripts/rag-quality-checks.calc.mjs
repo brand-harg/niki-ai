@@ -16,6 +16,10 @@ const calcQualityChecks = [
         expectedAny: ["ratio test", "convergence", "series", "inconclusive"],
     },
     {
+        question: "How does the Alternating Series Test decide convergence?",
+        expectedAny: ["alternating", "series", "convergence", "decreasing", "limit"],
+    },
+    {
         question: "Can you explain what a Taylor polynomial is approximating?",
         expectedAny: ["taylor", "polynomial", "approximation", "derivative"],
     },
