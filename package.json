@@ -19,6 +19,7 @@
     "test:api-route": "node scripts/check-api-route-contract.mjs",
     "check:ollama-tunnel": "node scripts/check-ollama-tunnel.mjs",
     "test:rag-route": "node scripts/check-rag-route-contract.mjs",
+    "test:rag-citations": "node scripts/check-rag-citation-policy.mjs",
     "test:rag-nightmares": "node scripts/check-rag-nightmares.mjs",
     "rag:ingest": "node scripts/ingest-lecture-transcript.mjs",
     "rag:sync-youtube-urls": "node scripts/sync-youtube-playlist-urls.mjs",

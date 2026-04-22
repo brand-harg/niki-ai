@@ -14,6 +14,7 @@ const commands = [
   ["npm", "run", "test:frontend-contract"],
   ["npm", "run", "test:api-route"],
   ["npm", "run", "test:rag-route"],
+  ["npm", "run", "test:rag-citations"],
   ["npm", "run", "test:rag-nightmares"],
   ["npm", "run", "test:response-audit"],
   ["npm", "run", "test:rag-quality:core-courses"],
