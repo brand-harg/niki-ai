@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const tempDir = mkdtempSync(join(tmpdir(), "niki-audit-contract-"));
+const overnightSource = readFileSync("scripts/overnight-run.mjs", "utf8");
 
 function writeJson(name, data) {
   const filePath = join(tempDir, name);
@@ -123,6 +124,11 @@ const badLog = writeJson("bad.json", [
 ]);
 
 try {
+  expect(
+    /--repeat=7/.test(overnightSource),
+    "Overnight live math run should use repeat=7 so the clean streak exceeds 1000 responses."
+  );
+
   const clean = runAudit(cleanLog);
   expect(clean.status === 0, `Clean log should pass, got status ${clean.status}.\n${clean.stdout}`);
   expect(clean.summary.current_clean_streak_entries === 4, "Clean log should report a four-entry clean streak.");

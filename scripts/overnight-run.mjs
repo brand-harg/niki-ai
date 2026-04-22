@@ -23,7 +23,7 @@ const commands = [
   [
     "node",
     "scripts/check-live-math-output.mjs",
-    "--repeat=6",
+    "--repeat=7",
     "--out=scripts/response_logs/live-clean-streak.json",
   ],
   ["node", "scripts/audit-response-logs.mjs", "scripts/response_logs/live-clean-streak.json"],
