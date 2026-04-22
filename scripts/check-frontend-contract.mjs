@@ -62,6 +62,11 @@ const fixtures = [
     pattern: /Screenshot Chat/,
   },
   {
+    name: "tools-menu-accepts-syllabus-csv-calendar-files",
+    source: fileUploadSource,
+    pattern: /text\/csv[\s\S]*text\/calendar[\s\S]*\.csv[\s\S]*\.ics[\s\S]*syllabus/,
+  },
+  {
     name: "voice-input-uses-browser-speech-recognition",
     source: pageSource,
     pattern: /getSpeechRecognitionConstructor[\s\S]*webkitSpeechRecognition[\s\S]*handleVoiceInput/,

@@ -10,7 +10,7 @@ type Props = {
   disabled?: boolean;
 };
 
-const ACCEPT = "image/png,image/jpeg,image/webp,text/plain,text/javascript,.ts,.tsx,.py,.md,.json";
+const ACCEPT = "image/png,image/jpeg,image/webp,text/plain,text/csv,text/calendar,text/javascript,.ts,.tsx,.py,.md,.json,.csv,.ics";
 
 const ACCENT = {
   cyan:  { text: "text-cyan-400",  border: "border-cyan-500/30",  bg: "bg-cyan-500/10"  },
@@ -101,7 +101,7 @@ export default function FileUploadButton({
                     Upload File
                   </div>
                   <div className="text-[10px] text-slate-500">
-                    Image, text, or code
+                    Image, text, code, syllabus
                   </div>
                 </div>
               </button>
@@ -157,7 +157,7 @@ export default function FileUploadButton({
             {/* File size note */}
             <div className="px-4 py-2.5 border-t border-white/10 bg-white/[0.015]">
               <span className="text-[9px] text-slate-600 font-mono uppercase tracking-wider">
-                Max 25 MB · PNG JPG WEBP TXT JS TS PY
+                Max 25 MB · PNG JPG WEBP TXT MD CSV ICS
               </span>
             </div>
           </div>

@@ -90,6 +90,14 @@ ollama serve
 ngrok http 11434
 ```
 
+You can verify that ngrok is exposing the correct port before touching Vercel:
+
+```bash
+npm run check:ollama-tunnel
+```
+
+If this reports that ngrok is pointing at `localhost:3000`, that tunnel is exposing the Next.js app, not Ollama. Vercel needs a tunnel to port `11434`.
+
 Set `OLLAMA_API_URL` in Vercel to the public ngrok HTTPS URL, then redeploy or restart the deployment. Use this diagnostic endpoint to verify the deployed app can see Ollama:
 
 ```text

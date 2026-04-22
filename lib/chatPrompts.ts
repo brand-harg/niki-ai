@@ -27,6 +27,40 @@ function isPracticeRequest(message: string): boolean {
   );
 }
 
+function isScheduleContextFile(fileName = "", fileContent = ""): boolean {
+  const combined = `${fileName}\n${fileContent.slice(0, 4000)}`;
+  return /(syllabus|canvas|assignment|assignments|calendar|schedule|due date|deadline|quiz|exam|test|module|chapter|unit|ics|csv|dtstart|dtend|summary:)/i.test(
+    combined
+  );
+}
+
+function buildAttachedFileContext({
+  textFileContent,
+  textFileName,
+}: {
+  textFileContent: string;
+  textFileName?: string;
+}): string {
+  const scheduleRules = isScheduleContextFile(textFileName, textFileContent)
+    ? `
+
+Schedule/syllabus context rules:
+- This attachment appears to include course schedule, syllabus, Canvas export, calendar, assignment, quiz, exam, or deadline information.
+- Use only explicit dates, topics, assignments, and course details present in the file.
+- If the user asks what to study, lecture, practice, or prioritize, connect the answer to the uploaded schedule when it is relevant.
+- Do not invent due dates, instructor policies, assignment names, or current course progress that are not present in the file.
+- If the file does not contain enough schedule detail for the user's request, say what is missing and continue with general help.
+`.trim()
+    : "";
+
+  return `The user attached a file named "${textFileName}".${scheduleRules ? `\n\n${scheduleRules}` : ""}
+
+File contents:
+\`\`\`
+${textFileContent}
+\`\`\``;
+}
+
 function buildDifficultyRules(difficulty: Difficulty): string {
   switch (difficulty) {
     case "easy":
@@ -447,7 +481,7 @@ function buildUserMessageContent({
   let userMessageContent = message;
 
   if (textFileContent) {
-    const fileContext = `The user attached a file named "${textFileName}".\n\nFile contents:\n\`\`\`\n${textFileContent}\n\`\`\``;
+    const fileContext = buildAttachedFileContext({ textFileContent, textFileName });
     userMessageContent = userMessageContent
       ? `${userMessageContent}\n\nAttached file context:\n${fileContext}`
       : fileContext;

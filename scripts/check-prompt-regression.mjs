@@ -73,6 +73,14 @@ const fixtures = [
     name: "passes-personal-context-into-system-prompt",
     pattern: /buildSystemPrompt\([\s\S]*personalContext,[\s\S]*styleInstructions[\s\S]*\)/,
   },
+  {
+    name: "attached-syllabus-context-has-no-hallucinated-dates-rule",
+    pattern: /Schedule\/syllabus context rules:[\s\S]*Use only explicit dates[\s\S]*Do not invent due dates/,
+  },
+  {
+    name: "attached-syllabus-context-guides-study-priorities",
+    pattern: /If the user asks what to study, lecture, practice, or prioritize[\s\S]*uploaded schedule/,
+  },
 ];
 
 let failed = false;
