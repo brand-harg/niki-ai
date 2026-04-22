@@ -192,6 +192,34 @@ function toVideoTimestampUrl(url: string, seconds: number) {
   return `${url}?t=${safe}s`;
 }
 
+function slugForSource(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+type DirectFallbackSource = {
+  title: string;
+  course: string;
+  professor: string;
+  videoUrl: string;
+  excerpt: string;
+  sectionHint: string;
+  similarity: number;
+};
+
+function sourceTrail(primary: DirectFallbackSource, related: DirectFallbackSource[] = []) {
+  const seen = new Set<string>();
+  return [primary, ...related].filter((source) => {
+    const key = `${source.title}|${source.videoUrl}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function hasExactSectionRequest(question: string) {
+  return /\b\d{1,2}\.\d{1,2}\b/.test(question);
+}
+
 function knownTitleFallback(question: string) {
   const known = [
     {
@@ -201,22 +229,51 @@ function knownTitleFallback(question: string) {
       videoUrl: "https://www.youtube.com/watch?v=PrxuYwOrqo4",
       excerpt:
         "Derivative as a Function treats the derivative as a new function: each input x is assigned the slope of the original function at that point.",
+      related: [],
     },
     {
       pattern: /calc(?:ulus)?\s*2[\s\S]*power\s+series|power\s+series/i,
-      title: "Nemanja Nikitovic Live Stream Calculus2 Power Series",
+      title: "Nemanja Nikitovic Live Stream (Calculus2s 11.1 and 11.3 Power Series (Taylor Series))",
       course: "Calculus 2",
-      videoUrl: "",
+      videoUrl: "https://www.youtube.com/watch?v=8HYQInPuaw0",
       excerpt:
         "Power Series rewrites a function as an infinite polynomial centered at a point, then studies where that polynomial converges.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2s 11.2 Properties and Converg. Of Power Series)",
+          videoUrl: "https://www.youtube.com/watch?v=UDvgn5T9oPc",
+          excerpt:
+            "Properties and convergence of power series continue the same topic by checking where the series representation is valid.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 11.2 and 11.4 Properties and Calculus of Power Series)",
+          videoUrl: "https://www.youtube.com/watch?v=Fw3tSYuOdEg",
+          excerpt:
+            "Calculus of power series connects the representation to differentiation and integration of series.",
+        },
+      ],
     },
     {
       pattern: /alternating\s+series|\bAST\b/i,
       title: "Nemanja Nikitovic Live Stream Calculus2 10.6 Alternating Series",
       course: "Calculus 2",
-      videoUrl: "",
+      videoUrl: "https://www.youtube.com/watch?v=0aIQFq-JAU0",
       excerpt:
         "Alternating Series focuses on series whose signs switch. The core test checks that the positive term decreases and approaches zero.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 10.3 Infinite Series)",
+          videoUrl: "https://www.youtube.com/watch?v=3tKW3z7UpCU",
+          excerpt:
+            "Infinite Series sets the foundation for deciding whether an infinite sum converges or diverges.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 10.5 Comparison Tests)",
+          videoUrl: "https://www.youtube.com/watch?v=W8TMD9jNumc",
+          excerpt:
+            "Comparison Tests give another convergence lens that supports the alternating-series unit.",
+        },
+      ],
     },
     {
       pattern: /statistics[\s\S]*probability|probability[\s\S]*statistics/i,
@@ -225,20 +282,58 @@ function knownTitleFallback(question: string) {
       videoUrl: "https://www.youtube.com/watch?v=InKKNvKRT7U",
       excerpt:
         "Probability Basics introduces outcomes, events, and the rules for measuring how likely an event is.",
+      related: [],
     },
     {
       pattern: /differential\s+equations?[\s\S]*separable|separable[\s\S]*differential\s+equations?/i,
-      title: "Nemanja Nikitovic Live Stream Differential Equations Separable Equations",
+      title: "Nemanja Nikitovic Live Stream (DIfeq 1.6 Substitution Methods and Exact Equations)",
       course: "Differential Equations",
-      videoUrl: "",
+      videoUrl: "https://www.youtube.com/watch?v=fo-QhBxIaEc",
       excerpt:
         "Separable differential equations are solved by moving all y terms with dy and all x terms with dx, then integrating both sides.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Difeq 1.3 Slope Fields)",
+          videoUrl: "https://www.youtube.com/watch?v=zvEi4-O_kCc",
+          excerpt:
+            "Slope Fields give the visual foundation for reading a differential equation as direction information.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (DifEq 1.5 Linear First-Order Equations)",
+          videoUrl: "https://www.youtube.com/watch?v=eqUT6oRxrnk",
+          excerpt:
+            "Linear First-Order Equations provide the neighboring first-order method when separability is not the main structure.",
+        },
+      ],
     },
   ].find((item) => item.pattern.test(question));
   if (!known) return null;
 
   const professor = "Nemanja Nikitovic";
   const timestampUrl = toVideoTimestampUrl(known.videoUrl, 0);
+  const primary: DirectFallbackSource = {
+    title: known.title,
+    course: known.course,
+    professor,
+    videoUrl: known.videoUrl,
+    excerpt: known.excerpt,
+    sectionHint: "known title fallback",
+    similarity: 1,
+  };
+  const sources = hasExactSectionRequest(question)
+    ? [primary]
+    : sourceTrail(
+    primary,
+    known.related.map((source) => ({
+      title: source.title,
+      course: known.course,
+      professor,
+      videoUrl: source.videoUrl,
+      excerpt: source.excerpt,
+      sectionHint: "related lecture fallback",
+      similarity: 0.78,
+    }))
+  ).slice(0, 4);
   const context = [
     `Chunk 1
 Course: ${known.course}
@@ -254,7 +349,7 @@ ${known.excerpt}`,
   return {
     mode: "known-title-fallback",
     confidence: "high",
-    sourceId: `known-title-${known.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+    sourceId: `known-title-${slugForSource(known.title)}`,
     sectionHint: "known title fallback",
     diagnostic: "Known-title fallback used before vector retrieval.",
     title: known.title,
@@ -264,12 +359,36 @@ ${known.excerpt}`,
     timestampUrl,
     excerpt: known.excerpt,
     context,
+    sources,
   };
 }
 
 function foundationalLectureFallback(question: string, courseFilter: string) {
   const normalizedCourse = courseFilter.toLowerCase();
   const known = [
+    {
+      pattern: /\b(limit|lim|approaches|continuity|continuous|infinity)\b/i,
+      coursePattern: /calculus\s*1|calc\s*1|^$/,
+      title: "Nemanja Nikitovic Live Stream (Calculus1s 2.2 Intro to Limits)",
+      course: "Calculus 1",
+      videoUrl: "https://www.youtube.com/watch?v=4TgJGRh56_U",
+      excerpt:
+        "Foundational limit context: a limit asks what value the function approaches near a point, before worrying about whether the function equals that value there.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1s 2.3 Techniques for Solving Limits)",
+          videoUrl: "https://www.youtube.com/watch?v=IT8ne5ETPNI",
+          excerpt:
+            "Techniques for Solving Limits gives the algebraic moves used when substitution is not enough.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1L 2.5 Limits at Infinity)",
+          videoUrl: "https://www.youtube.com/watch?v=MgV7KW5jKAo",
+          excerpt:
+            "Limits at Infinity connects limit reasoning to long-run behavior and horizontal asymptotes.",
+        },
+      ],
+    },
     {
       pattern: /\b(derivative|differentiate|d\/dx|dy\/dx|power\s+rule|slope|tangent)\b/i,
       coursePattern: /calculus\s*1|calc\s*1|^$/,
@@ -278,6 +397,26 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       videoUrl: "https://www.youtube.com/watch?v=PrxuYwOrqo4",
       excerpt:
         "Foundational derivative context: the derivative is treated as a new function that reports slope/change. A simple derivative like 5x follows this same slope rule.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1L 3.1 Intro to Derivative)",
+          videoUrl: "https://www.youtube.com/watch?v=Pz68o3etwiM",
+          excerpt:
+            "Intro to Derivative builds the slope/change intuition before the derivative rules are applied.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1L 3.3 Rules of Differentiation)",
+          videoUrl: "https://www.youtube.com/watch?v=a00SiV_0mLo",
+          excerpt:
+            "Rules of Differentiation is the foundation for fast derivatives such as constants times x.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1 3.4 Product and Quotient Rules)",
+          videoUrl: "https://www.youtube.com/watch?v=63p8sc_oMiA",
+          excerpt:
+            "Product and Quotient Rules extend the same derivative foundation to more complex expressions.",
+        },
+      ],
     },
     {
       pattern: /\b(l['’]?hopital'?s?|hopital)\b/i,
@@ -287,6 +426,20 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       videoUrl: "https://www.youtube.com/watch?v=3JDmyZzknVE",
       excerpt:
         "Foundational L'Hopital context: indeterminate quotient limits are handled by differentiating the numerator and denominator under the rule's hypotheses.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1s 2.3 Techniques for Solving Limits)",
+          videoUrl: "https://www.youtube.com/watch?v=IT8ne5ETPNI",
+          excerpt:
+            "Techniques for Solving Limits gives the earlier limit toolbox before L'Hopital is introduced.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1L 2.5 Limits at Infinity)",
+          videoUrl: "https://www.youtube.com/watch?v=MgV7KW5jKAo",
+          excerpt:
+            "Limits at Infinity connects the limit setting to long-run behavior before derivative-based limit shortcuts.",
+        },
+      ],
     },
     {
       pattern: /\b(u[-\s]?sub|substitution|integral|integrate|antiderivative)\b/i,
@@ -296,6 +449,194 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       videoUrl: "https://www.youtube.com/watch?v=-ZiS6d7pZ9c",
       excerpt:
         "Foundational integration context: substitution identifies the inside function and rewrites the integral so the derivative relationship is visible.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 8.1 Basics of Integration)",
+          videoUrl: "https://www.youtube.com/watch?v=JAq4xwhyuSE",
+          excerpt:
+            "Basics of Integration reviews the core antiderivative and accumulation routines.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 8.2 Integration by Parts)",
+          videoUrl: "https://www.youtube.com/watch?v=xLiFyUcVwKQ",
+          excerpt:
+            "Integration by Parts is the next major integration method after substitution.",
+        },
+      ],
+    },
+    {
+      pattern: /\b(series|sequence|converge|diverge|ratio\s+test|comparison\s+test|alternating|power\s+series|taylor|maclaurin)\b/i,
+      coursePattern: /calculus\s*2|calc\s*2|^$/,
+      title: "Nemanja Nikitovic Live Stream (Calculus2 10.3 Infinite Series)",
+      course: "Calculus 2",
+      videoUrl: "https://www.youtube.com/watch?v=3tKW3z7UpCU",
+      excerpt:
+        "Foundational series context: a series is an infinite sum, so the first question is whether the partial sums settle down or keep drifting.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 10.5 Comparison Tests)",
+          videoUrl: "https://www.youtube.com/watch?v=W8TMD9jNumc",
+          excerpt:
+            "Comparison Tests connect a new series to a known benchmark series.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 10.6 Alternating Series)",
+          videoUrl: "https://www.youtube.com/watch?v=0aIQFq-JAU0",
+          excerpt:
+            "Alternating Series focuses on sign-changing sums and the decreasing-to-zero structure.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2s 11.1 and 11.3 Power Series (Taylor Series))",
+          videoUrl: "https://www.youtube.com/watch?v=8HYQInPuaw0",
+          excerpt:
+            "Power Series connects series convergence to function approximation.",
+        },
+      ],
+    },
+    {
+      pattern: /\b(vector|vectors|dot\s+product|cross\s+product|planes?|space|gradient|partial\s+derivatives?|double\s+integrals?|triple\s+integrals?|line\s+integrals?|surface\s+integrals?|multivariable)\b/i,
+      coursePattern: /calculus\s*3|calc\s*3|^$/,
+      title: "Nemanja Nikitovic Live Stream (Calculus3 13.2 Vectors in 3D)",
+      course: "Calculus 3",
+      videoUrl: "https://www.youtube.com/watch?v=bHDaRcjshWY",
+      excerpt:
+        "Foundational Calc 3 context: multivariable calculus starts by treating points and directions as vectors in space.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus3 13.3 Dot Product)",
+          videoUrl: "https://www.youtube.com/watch?v=z-putp8nDWk",
+          excerpt:
+            "Dot Product gives the projection and angle logic behind directional change.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus3 13.4 Cross Product)",
+          videoUrl: "https://www.youtube.com/watch?v=7f9McubtScA",
+          excerpt:
+            "Cross Product builds the perpendicular-vector geometry used in planes, surfaces, and orientations.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus3 13.5 Lines and Planes in Space)",
+          videoUrl: "https://www.youtube.com/watch?v=lexRfK7BY-M",
+          excerpt:
+            "Lines and Planes in Space connects vector direction to geometric objects in 3D.",
+        },
+      ],
+    },
+    {
+      pattern: /\b(probability|statistics|mean|median|variance|standard\s+deviation|z[-\s]?scores?|confidence\s+interval|hypothesis|p[-\s]?value|normal\s+distribution|boxplots?|five[-\s]?number)\b/i,
+      coursePattern: /statistics|stats|^$/,
+      title: "Nemanja Nikitovic Live Stream (Statistics1 4.1 Probability Basics)",
+      course: "Statistics",
+      videoUrl: "https://www.youtube.com/watch?v=InKKNvKRT7U",
+      excerpt:
+        "Foundational statistics context: probability and data summaries give the language for measuring uncertainty and variation.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Statistics1 3.1 Measures of Center)",
+          videoUrl: "https://www.youtube.com/watch?v=SE-DDVCCHNE",
+          excerpt:
+            "Measures of Center gives the baseline vocabulary for summarizing a data set.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Statistics1 4.3 Some Rules of Probability)",
+          videoUrl: "https://www.youtube.com/watch?v=rp6hr4kE6J0",
+          excerpt:
+            "Rules of Probability builds the algebra of events used in later inference.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Statistics1 8.3 Confidence Intervals when Sigma is Unknown)",
+          videoUrl: "https://www.youtube.com/watch?v=M1KtYR3yqRI",
+          excerpt:
+            "Confidence Intervals connect sample evidence to uncertainty about a population parameter.",
+        },
+      ],
+    },
+    {
+      pattern: /\b(differential\s+equation|ode|slope\s+field|separable|first[-\s]?order|linear\s+first|laplace|eigenvalue|systems?\s+of\s+differential)\b/i,
+      coursePattern: /differential\s+equations?|diffeq|ode|^$/,
+      title: "Nemanja Nikitovic Live Stream (Difeq 1.3 Slope Fields)",
+      course: "Differential Equations",
+      videoUrl: "https://www.youtube.com/watch?v=zvEi4-O_kCc",
+      excerpt:
+        "Foundational ODE context: slope fields show a differential equation as local direction information before solving symbolically.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (DifEq 1.5 Linear First-Order Equations)",
+          videoUrl: "https://www.youtube.com/watch?v=eqUT6oRxrnk",
+          excerpt:
+            "Linear First-Order Equations introduce the standard structure for many solvable ODEs.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (DifEq 4.1 First Order Systems of DIfEq)",
+          videoUrl: "https://www.youtube.com/watch?v=LKbK7pYDCME",
+          excerpt:
+            "First Order Systems extend single-equation ODE thinking to coupled variables.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (DiffEq 7.1 Laplace Transforms and Inverse Transforms)",
+          videoUrl: "https://www.youtube.com/watch?v=cxizitNRM_s",
+          excerpt:
+            "Laplace Transforms shift differential equations into an algebraic transform setting.",
+        },
+      ],
+    },
+    {
+      pattern: /\b(factor|factoring|quadratic|polynomial|system\s+of\s+equations|exponents?|radicals?|special\s+products|solve\s+for|linear\s+equation)\b/i,
+      coursePattern: /elementary\s+algebra|algebra|precalc|precalculus|^$/,
+      title: "Nemanja Nikitovic Live Stream (Elementary Algebra 6.1 Intro to Factoring)",
+      course: "Elementary Algebra",
+      videoUrl: "https://www.youtube.com/watch?v=VLtXGzY3LIM",
+      excerpt:
+        "Foundational algebra context: factoring rewrites expressions into multiplicative structure so equations and simplifications become easier.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Elementary Algebra 6.2 Factoring Trinomials a=1)",
+          videoUrl: "https://www.youtube.com/watch?v=4cwEZaVjGiQ",
+          excerpt:
+            "Factoring Trinomials handles a common quadratic pattern.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Elementary Algebra 5.1 Rules for Exponents)",
+          videoUrl: "https://www.youtube.com/watch?v=qhLtBBZWyh0",
+          excerpt:
+            "Rules for Exponents support simplification before and after factoring.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Elementary Algebra 4.2 Solving Systems Using Substitution)",
+          videoUrl: "https://www.youtube.com/watch?v=mWZvEQfJicU",
+          excerpt:
+            "Solving Systems Using Substitution connects equation structure to a repeatable solving method.",
+        },
+      ],
+    },
+    {
+      pattern: /\b(complex\s+numbers?|inverse\s+functions?|rational\s+functions?|functions?\s+and\s+graphs?|precalc|precalculus)\b/i,
+      coursePattern: /precalc|precalculus|^$/,
+      title: "Nemanja Nikitovic Live Stream (Precalculus1 2.1 Complex Numbers)",
+      course: "PreCalc1",
+      videoUrl: "https://www.youtube.com/watch?v=iO4LlxWXDkQ",
+      excerpt:
+        "Foundational PreCalc context: complex numbers, functions, and graph behavior are the bridge into calculus topics.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Precalculus1 1.8 Inverse Functions)",
+          videoUrl: "https://www.youtube.com/watch?v=tTNxah7fgPs",
+          excerpt:
+            "Inverse Functions explains how functions reverse input-output relationships.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Precalculus1 2.2 Quadratic Functions)",
+          videoUrl: "https://www.youtube.com/watch?v=_fZzvaXU7DY",
+          excerpt:
+            "Quadratic Functions provide a core graph family used throughout algebra and calculus.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Precalculus 1 2.6 Rational Functions and Their Graphs)",
+          videoUrl: "https://www.youtube.com/watch?v=jKy7Cei7UV0",
+          excerpt:
+            "Rational Functions and Their Graphs covers asymptotes and quotient-based graph behavior.",
+        },
+      ],
     },
   ].find((item) => item.pattern.test(question) && item.coursePattern.test(normalizedCourse));
 
@@ -303,6 +644,27 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
 
   const professor = "Nemanja Nikitovic";
   const timestampUrl = toVideoTimestampUrl(known.videoUrl, 0);
+  const primary: DirectFallbackSource = {
+    title: known.title,
+    course: known.course,
+    professor,
+    videoUrl: known.videoUrl,
+    excerpt: known.excerpt,
+    sectionHint: "foundational lecture fallback",
+    similarity: 0.82,
+  };
+  const sources = sourceTrail(
+    primary,
+    known.related.map((source) => ({
+      title: source.title,
+      course: known.course,
+      professor,
+      videoUrl: source.videoUrl,
+      excerpt: source.excerpt,
+      sectionHint: "related foundational fallback",
+      similarity: 0.72,
+    }))
+  ).slice(0, 4);
   const context = [
     `Chunk 1
 Course: ${known.course}
@@ -318,7 +680,7 @@ ${known.excerpt}`,
   return {
     mode: "foundational-fallback",
     confidence: "medium",
-    sourceId: `foundational-${known.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+    sourceId: `foundational-${slugForSource(known.title)}`,
     sectionHint: "foundational lecture fallback",
     diagnostic: "Foundational lecture fallback used before vector retrieval.",
     title: known.title,
@@ -328,6 +690,7 @@ ${known.excerpt}`,
     timestampUrl,
     excerpt: known.excerpt,
     context,
+    sources,
   };
 }
 
@@ -870,38 +1233,36 @@ export async function POST(req: Request) {
         keywords,
         context: directFallback.context,
         styleSnippets: [],
-        citations: [
-          {
-            sourceId: directFallback.sourceId,
-            lectureTitle: directFallback.title,
-            professor: directFallback.professor,
-            course: directFallback.course,
-            videoUrl: directFallback.videoUrl,
-            timestampStartSeconds: 0,
-            timestampEndSeconds: 0,
-            timestampUrl: directFallback.timestampUrl,
-            excerpt: directFallback.excerpt,
-            sectionHint: directFallback.sectionHint,
-            similarity: directFallback.confidence === "high" ? 1 : 0.76,
-          },
-        ],
+        citations: directFallback.sources.map((source, index) => ({
+          sourceId: `${directFallback.sourceId}-${index + 1}`,
+          lectureTitle: source.title,
+          professor: source.professor,
+          course: source.course,
+          videoUrl: source.videoUrl,
+          timestampStartSeconds: 0,
+          timestampEndSeconds: 0,
+          timestampUrl: toVideoTimestampUrl(source.videoUrl, 0),
+          excerpt: source.excerpt,
+          sectionHint: source.sectionHint,
+          similarity: source.similarity,
+        })),
         retrievalDiagnostics: {
-          selectedChunkKeys: [`${directFallback.sourceId}:0:0`],
+          selectedChunkKeys: directFallback.sources.map(
+            (_source, index) => `${directFallback.sourceId}-${index + 1}:0:0`
+          ),
           vectorTopChunkKeys: [],
           keywordTopChunkKeys: [],
-          topSimilarityScores: [
-            {
-              key: `${directFallback.sourceId}:0:0`,
-              similarity: directFallback.confidence === "high" ? 1 : 0.76,
-            },
-          ],
+          topSimilarityScores: directFallback.sources.map((source, index) => ({
+            key: `${directFallback.sourceId}-${index + 1}:0:0`,
+            similarity: source.similarity,
+          })),
           filters: {
             courseFilter: courseFilter || null,
             professorFilter: professorFilter || null,
             courseFilterApplied: !!courseFilter,
             professorFilterApplied: !!professorFilter,
             filterFallbackUsed: true,
-            filteredSourceCount: 1,
+            filteredSourceCount: directFallback.sources.length,
             requestedSourceCandidates: null,
             noSourceCandidates: false,
             minSimilarityUsed: minSimilarity,
