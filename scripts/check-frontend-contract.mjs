@@ -87,6 +87,16 @@ const fixtures = [
     pattern: /href=\{c\.timestampUrl\}[\s\S]*target="_blank"/,
   },
   {
+    name: "source-cards-preview-youtube-clips-in-modal",
+    source: pageSource,
+    pattern: /getYouTubeEmbedUrl[\s\S]*setActiveClip\(c\)[\s\S]*Lecture clip preview[\s\S]*<iframe/,
+  },
+  {
+    name: "source-modal-keeps-youtube-fallback-link",
+    source: pageSource,
+    pattern: /Open on YouTube/,
+  },
+  {
     name: "source-cards-show-open-clip-affordance",
     source: pageSource,
     pattern: /Open clip/,

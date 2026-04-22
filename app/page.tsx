@@ -159,6 +159,16 @@ function getYouTubeVideoId(url?: string | null) {
   return null;
 }
 
+function getYouTubeEmbedUrl(url?: string | null, timestampStartSeconds?: number) {
+  const videoId = getYouTubeVideoId(url);
+  if (!videoId) return null;
+  const start =
+    typeof timestampStartSeconds === "number" && Number.isFinite(timestampStartSeconds)
+      ? Math.max(0, Math.floor(timestampStartSeconds))
+      : 0;
+  return `https://www.youtube.com/embed/${videoId}?start=${start}&autoplay=1&rel=0`;
+}
+
 function dedupeCitations(citations: RagCitation[] = []) {
   const seen = new Set<string>();
   const out: RagCitation[] = [];
@@ -245,6 +255,7 @@ const CitationCard = ({
   const accentBorder = isGreen ? "border-green-500/20" : isAmber ? "border-amber-500/20" : "border-cyan-500/20";
   const accentBg = isGreen ? "bg-green-500/5" : isAmber ? "bg-amber-500/5" : "bg-cyan-500/5";
   const unique = useMemo(() => dedupeCitations(citations).slice(0, 4), [citations]);
+  const [activeClip, setActiveClip] = useState<RagCitation | null>(null);
   const shownConfidence = confidence ?? confidenceFromCitations(unique);
   const confidenceLabel =
     shownConfidence === "high"
@@ -257,7 +268,10 @@ const CitationCard = ({
 
   if (!unique.length) return null;
 
+  const activeEmbedUrl = getYouTubeEmbedUrl(activeClip?.timestampUrl, activeClip?.timestampStartSeconds);
+
   return (
+    <>
     <div className={`mt-4 rounded-2xl border ${accentBorder} ${accentBg} p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_45px_rgba(0,0,0,0.18)]`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
@@ -318,8 +332,13 @@ const CitationCard = ({
               href={c.timestampUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(event) => {
+                if (!getYouTubeEmbedUrl(c.timestampUrl, c.timestampStartSeconds)) return;
+                event.preventDefault();
+                setActiveClip(c);
+              }}
               className={className}
-              title={`Open ${c.lectureTitle ?? "lecture"}${timestampLabel ? ` at ${timestampLabel}` : ""}`}
+              title={`Preview ${c.lectureTitle ?? "lecture"}${timestampLabel ? ` at ${timestampLabel}` : ""}`}
             >
               {cardContent}
             </a>
@@ -334,6 +353,63 @@ const CitationCard = ({
         })}
       </div>
     </div>
+      {activeClip && activeEmbedUrl && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Lecture clip preview"
+          onClick={() => setActiveClip(null)}
+        >
+          <div
+            className="w-full max-w-4xl overflow-hidden rounded-2xl border border-white/12 bg-[#101010] shadow-[0_30px_120px_rgba(0,0,0,0.65)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
+              <div className="min-w-0">
+                <p className="line-clamp-1 text-sm font-black text-slate-100">
+                  {activeClip.lectureTitle ?? "Lecture clip"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {activeClip.course ?? "Unknown course"}
+                  {formatTimestamp(activeClip.timestampStartSeconds)
+                    ? ` · ${formatTimestamp(activeClip.timestampStartSeconds)}`
+                    : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveClip(null)}
+                className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="aspect-video bg-black">
+              <iframe
+                className="h-full w-full"
+                src={activeEmbedUrl}
+                title={activeClip.lectureTitle ?? "Lecture clip"}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+            {activeClip.timestampUrl && (
+              <div className="border-t border-white/10 px-4 py-3">
+                <a
+                  href={activeClip.timestampUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`text-xs font-black uppercase tracking-widest ${accentText} hover:text-white`}
+                >
+                  Open on YouTube →
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

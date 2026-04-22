@@ -23,7 +23,7 @@ This architecture ensures zero API costs for token generation, total data privac
 * **Persistent Session Management:** Implements robust Supabase Auth with state hydration to maintain user sessions and chat histories across browser refreshes and tab switching.
 * **Advanced Mathematical Rendering:** Integrates `react-markdown`, `remark-math`, and `rehype-katex` with a sanitizer/audit layer so complex LaTeX formulas, deterministic math templates, and Qwen fallback responses render consistently in the UI.
 * **Dynamic Persona Toggling:** Allows the user to switch between Pure Logic, Nemanja Mode, and Lecture Mode while preserving the same math correctness target.
-* **Lecture-Grounded Source Cards:** RAG answers surface clickable YouTube timestamp cards with thumbnails and confidence labels, so the student can jump back to the exact lecture moment.
+* **Lecture-Grounded Source Cards:** RAG answers surface clickable YouTube timestamp cards with thumbnails, confidence labels, and an in-app clip preview modal, so the student can jump back to the exact lecture moment.
 * **Tutor Callouts:** Longer lecture-style answers can highlight Efficiency Tips, Lecture Connections, Common Mistakes, Checkpoints, and Concept Checks as distinct study aids.
 * **Push-to-Talk Input:** Chrome/Edge users can dictate a study question directly into the composer through the browser Speech Recognition API.
 
@@ -105,8 +105,6 @@ Free ngrok URLs change whenever the tunnel restarts. If Vercel still points at a
 These are intentionally tracked as product polish, not correctness blockers:
 
 1. Add optional syllabus/Canvas-style context from a local CSV or uploaded file.
-2. Add an embedded video modal or side player for source-card timestamp clips.
-3. Add a sticky lecture roadmap for long Board Setup answers.
 
 ---
 *Developed by Brandon Hargadon*
