@@ -34,6 +34,22 @@ const fixtures = [
     pattern: /Lecture Mode can run on top of either Pure Logic Mode or Nemanja Mode\.[\s\S]*changes content emphasis and teaching flow, not formatting\./,
   },
   {
+    name: "lecture-mode-keeps-simple-math-citations",
+    pattern: /For math questions in Lecture Mode, keep the lecture\/source connection active even when the math is simple\./,
+  },
+  {
+    name: "lecture-mode-uses-source-trails",
+    pattern: /Broad math questions normally use a 2-4 clip source trail\.[\s\S]*Exact chapter, section, or single-lecture requests should stay focused on that one requested source/,
+  },
+  {
+    name: "lecture-context-defines-source-trail-order",
+    pattern: /With 2-4 citations, connect the answer to that trail as: foundation\/prerequisite -> current method -> later application or extension when supported\./,
+  },
+  {
+    name: "lecture-context-requires-easy-math-connection",
+    pattern: /do not drop the lecture connection just because the calculation is easy\./,
+  },
+  {
     name: "code-supported-in-every-mode",
     pattern: /Work well for both math and code help in every mode\./,
   },
