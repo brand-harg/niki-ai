@@ -157,6 +157,30 @@ function hasSpecificUnsupportedLectureDomain(message: string): boolean {
   return remainingTerms.length >= 2;
 }
 
+function buildBroadLectureTopicClarification(message: string): string | null {
+  const topic = message.toLowerCase().replace(/[?.!,;:]+$/g, "").trim();
+  const options: Record<string, string[]> = {
+    integration: ["basic antiderivatives", "u-substitution", "integration by parts", "area/accumulation", "applications like disk, washer, or shell method"],
+    integrals: ["basic antiderivatives", "u-substitution", "integration by parts", "definite integrals", "applications like area or volume"],
+    derivative: ["definition as slope/change", "power/product/quotient rules", "chain rule", "implicit differentiation", "applications like related rates or optimization"],
+    derivatives: ["definition as slope/change", "power/product/quotient rules", "chain rule", "implicit differentiation", "applications like related rates or optimization"],
+    limits: ["intro limits", "algebraic techniques", "one-sided limits", "limits at infinity", "continuity"],
+    series: ["infinite series basics", "comparison tests", "alternating series", "ratio/root tests", "power series or Taylor series"],
+    vectors: ["vectors in 2D/3D", "dot product", "cross product", "lines and planes", "gradient or directional derivatives"],
+  };
+
+  const choices = options[topic];
+  if (!choices) return null;
+
+  return [
+    `Which part of ${topic} do you want lecture help with?`,
+    "",
+    ...choices.map((choice) => `- ${choice}`),
+    "",
+    "Pick one and I will connect it to the matching lecture clips.",
+  ].join("\n");
+}
+
 function isLikelyMathQuestion(message: string): boolean {
   return /(\barithmetic\b|\boperations?\b|\bfractions?\b|\bdecimals?\b|\bpercent(?:age)?s?\b|\bsales tax\b|\bdiscount\b|\bfinal price\b|\bvolume\b|\barea\b|\bradius\b|\bheight\b|\bcylinder\b|\broot\b|\broots\b|\bintegral\b|\bintegrate\b|\bantiderivative\b|\bderivative\b|\bdifferentiate\b|\bdy\/dx\b|\bd\/dx\b|\bsolve\b|\bevaluate\b|\bsimplify\b|\bisolate\b|\blimit\b|\bmatrix\b|\bmatrices\b|\bprobability\b|\bstatistic\b|\bmean\b|\bmedian\b|\bmode\b|\bvariance\b|\bstandard deviation\b|\bz[-\s]?score\b|\bp[-\s]?value\b|\bnormal distribution\b|\bbinomial\b|\btrig\b|\bsin\b|\bcos\b|\btan\b|\bsec\b|\bcsc\b|\bcot\b|\bidentity\b|\bproof\b|\bequation\b|\binequality\b|\bfunction\b|\bdomain\b|\brange\b|\basymptote\b|\bgraph\b|\bintercepts?\b|\bvertex\b|\bslope\b|\btangent\b|\bconcavity\b|\binflection\b|\bcritical point\b|\boptimization\b|\brelated rates\b|\bimplicit\b|\bvector\b|\bdot product\b|\bcross product\b|\bgradient\b|\bdeterminant\b|\beigen\b|\bdistribution\b|\bfactor\b|\bfactoring\b|\bpolynomial\b|\bsynthetic division\b|\blong division\b|\bcomplete the square\b|\bquadratic\b|\brational expression\b|\bexponent\b|\blogarithm\b|\bseries\b|\bsequence\b|\bsummation\b|\bsum\b|\bconverge\b|\bdiverge\b|\bratio test\b|\bcomparison test\b|\btaylor\b|\bmaclaurin\b|\bdifferential equation\b|\brow reduce\b|\brow reduction\b|\bgaussian elimination\b|\bscientific notation\b|\bcomplex\b|\ba\s*\+\s*bi\b|\bln\b|\blog\b|\bsqrt\b|\bpi\b|\bdo\s+\d*\s*[a-z]\b|\d+\s*[a-z]\b|[a-z]\^\d|[\dxy]\s*[\+\-\*\/\^]\s*[\dxy]|\\int|\\frac|\\sum|\\lim|\$)/i.test(
     message
@@ -472,6 +496,18 @@ export async function POST(req: Request) {
           },
         }
       );
+    }
+
+    if (lectureMode && !wantsLectureRecovery) {
+      const broadTopicReply = buildBroadLectureTopicClarification(message);
+      if (broadTopicReply) {
+        return new Response(broadTopicReply, {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
     }
 
     if (isLectureCountIntent(message)) {

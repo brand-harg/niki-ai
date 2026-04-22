@@ -138,6 +138,18 @@ const scenarios = [
     expect: [/unique lectures indexed/i, /By course/i],
   },
   {
+    id: "broad-integration-clarification",
+    description: "Bare broad topics should ask for a subtopic instead of guessing a lecture path.",
+    body: {
+      message: "integration",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Which part of integration/i, /u-substitution/i, /integration by parts/i],
+    reject: [/Watch:/i, /Final Answer/i],
+  },
+  {
     id: "unknown-course-safe",
     description: "Unknown lecture domain should not hallucinate a course list.",
     body: {
