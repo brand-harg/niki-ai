@@ -6,45 +6,90 @@ const DEFAULT_FILE = "transcripts/desktop_batch_processed.json";
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MAX_SNIPPETS_PER_LECTURE = 10;
 
-const STYLE_PATTERNS = [
-  "think about",
-  "intuition",
-  "common mistake",
-  "remember",
-  "keep in mind",
-  "important idea",
-  "geometric meaning",
-  "what do we do",
-  "what is the only thing",
-  "do you see",
-  "there we go",
-  "that's it",
-  "not a big deal",
-  "make sense",
-  "on the exam",
-  "you need to know",
-  "must know",
-  "the idea is",
-  "the point is",
-  "this tells us",
-  "this means",
-  "in other words",
-  "so now",
-  "now we",
-  "let's translate",
-  "plug everything",
-  "we immediately",
-  "be careful",
-  "domain",
-  "vertical asymptote",
-  "slope",
-  "change",
-  "squeeze",
-  "kalk",
-  "calc two",
-  "calc three",
-  "calc 2",
-  "calc 3",
+const PERSONA_TAG_PATTERNS = {
+  nemanja_shortcut: [
+    "shortcut",
+    "quick way",
+    "faster",
+    "immediately",
+    "plug everything",
+    "we immediately",
+    "instead of",
+    "the trick",
+    "the move",
+    "what do we do",
+  ],
+  nemanja_exam_warning: [
+    "on the exam",
+    "common mistake",
+    "be careful",
+    "students",
+    "trip",
+    "you need to know",
+    "must know",
+    "do not forget",
+    "watch the sign",
+    "domain",
+  ],
+  nemanja_visual_description: [
+    "graph",
+    "curve",
+    "board",
+    "draw",
+    "picture",
+    "horizontal",
+    "vertical",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "asymptote",
+  ],
+  nemanja_analogy: [
+    "think about",
+    "imagine",
+    "like a",
+    "as if",
+    "same idea",
+    "in other words",
+    "translate",
+    "geometric meaning",
+  ],
+  nemanja_teaching_style: [
+    "intuition",
+    "remember",
+    "keep in mind",
+    "important idea",
+    "what is the only thing",
+    "do you see",
+    "there we go",
+    "that's it",
+    "not a big deal",
+    "make sense",
+    "the idea is",
+    "the point is",
+    "this tells us",
+    "this means",
+    "so now",
+    "now we",
+    "slope",
+    "change",
+    "squeeze",
+    "kalk",
+    "calc two",
+    "calc three",
+    "calc 2",
+    "calc 3",
+  ],
+};
+
+const STYLE_PATTERNS = Object.values(PERSONA_TAG_PATTERNS).flat();
+const PERSONA_TAG_ORDER = [
+  "nemanja_shortcut",
+  "nemanja_exam_warning",
+  "nemanja_visual_description",
+  "nemanja_analogy",
+  "nemanja_teaching_style",
 ];
 
 const STYLE_RE = new RegExp(STYLE_PATTERNS.map(escapeRegExp).join("|"), "i");
@@ -126,6 +171,15 @@ function styleScore(text) {
   return hits + directnessBonus + conceptBonus;
 }
 
+function personaTagForSnippet(text) {
+  for (const tag of PERSONA_TAG_ORDER) {
+    const patterns = PERSONA_TAG_PATTERNS[tag] ?? [];
+    const re = new RegExp(patterns.map(escapeRegExp).join("|"), "i");
+    if (re.test(text)) return tag;
+  }
+  return "nemanja_teaching_style";
+}
+
 function extractPersonaSnippets(text) {
   const seen = new Set();
   return makeWindows(splitSentences(text))
@@ -144,7 +198,7 @@ function extractPersonaSnippets(text) {
     .map((snippet) => ({
       snippet_text: snippet,
       timestamp_start_seconds: 0,
-      persona_tag: "nemanja_teaching_style",
+      persona_tag: personaTagForSnippet(snippet),
     }));
 }
 

@@ -11,6 +11,7 @@ const commands = [
   ["npm", "run", "test:math-sanitizer"],
   ["npm", "run", "test:math-followups"],
   ["npm", "run", "test:prompt"],
+  ["npm", "run", "test:persona-extraction"],
   ["npm", "run", "test:frontend-contract"],
   ["npm", "run", "test:api-route"],
   ["npm", "run", "test:rag-route"],
