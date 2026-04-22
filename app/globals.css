@@ -249,6 +249,11 @@
     letter-spacing: 0.01em;
   }
 
+  .prose .math-board-setup-label strong {
+    color: inherit;
+    font-weight: 950;
+  }
+
   .prose .math-callout-efficiency {
     border-color: rgba(34, 211, 238, 0.22);
     background: linear-gradient(135deg, rgba(34, 211, 238, 0.09), rgba(255, 255, 255, 0.025));

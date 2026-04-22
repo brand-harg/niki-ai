@@ -102,6 +102,11 @@ const fixtures = [
     pattern: /function\s+getNodeText[\s\S]*React\.isValidElement[\s\S]*const text = getNodeText\(children\)\.trim\(\)/,
   },
   {
+    name: "board-setup-label-is-sticky-roadmap",
+    source: pageSource,
+    pattern: /isBoardSetup[\s\S]*math-board-setup-label sticky/,
+  },
+  {
     name: "math-callouts-render-with-dedicated-class",
     source: pageSource,
     pattern: /math-callout-label\s+\$\{calloutKind\}/,

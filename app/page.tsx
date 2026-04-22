@@ -627,12 +627,25 @@ export default function Home() {
       const text = getNodeText(children).trim();
       const isStepLabel = /^Step\s+\d+:/i.test(text);
       const calloutKind = getCalloutKind(text);
+      const isBoardSetup = /^Board Setup$/i.test(text);
       const isMainTitle =
         !isStepLabel &&
         !calloutKind &&
+        !isBoardSetup &&
         /^(Derivative|Integral|Factoring|Solving|Simplifying|Limit|Matrix|System|Probability|Statistics)\b/i.test(
           text
         );
+
+      if (isBoardSetup) {
+        return (
+          <p
+            className={`math-board-setup-label sticky top-20 z-10 my-4 rounded-xl border ${accentBorder} bg-[#101010]/95 px-4 py-3 text-[0.78rem] font-black uppercase tracking-widest ${accentColor} shadow-[0_12px_34px_rgba(0,0,0,0.28)] backdrop-blur`}
+            {...props}
+          >
+            {children}
+          </p>
+        );
+      }
 
       if (calloutKind) {
         return (
