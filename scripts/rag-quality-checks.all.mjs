@@ -1,5 +1,15 @@
 const allCourseQualityChecks = [
     {
+        courseFilter: "PreCalc1",
+        question: "How do inverse functions and rational functions prepare me for calculus?",
+        expectedAny: ["inverse functions", "rational functions", "precalculus", "function"],
+    },
+    {
+        courseFilter: "PreCalc1",
+        question: "Where do complex numbers and quadratic functions show up in PreCalc?",
+        expectedAny: ["complex numbers", "quadratic functions", "precalculus"],
+    },
+    {
         courseFilter: "Calculus 1",
         question: "How does the chain rule work for composite functions?",
         expectedAny: ["chain rule", "composite", "derivative", "calculus1"],

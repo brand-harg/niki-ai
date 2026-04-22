@@ -398,7 +398,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
-      pattern: /\b(derivative|differentiate|d\/dx|dy\/dx|power\s+rule|slope|tangent)\b/i,
+      pattern: /\b(derivative|differentiate|d\/dx|dy\/dx|power\s+rule|chain\s+rule|product\s+rule|quotient\s+rule|slope|tangent)\b/i,
       coursePattern: /calculus\s*1|calc\s*1|^$/,
       title: "Nemanja Nikitovic Live Stream Calculus1 3.2 Derivative as a Function",
       course: "Calculus 1",
@@ -416,7 +416,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
           title: "Nemanja Nikitovic Live Stream (Calculus1L 3.3 Rules of Differentiation)",
           videoUrl: "https://www.youtube.com/watch?v=a00SiV_0mLo",
           excerpt:
-            "Rules of Differentiation is the foundation for fast derivatives such as constants times x.",
+            "Rules of Differentiation is the foundation for fast derivative rules, including power, product, quotient, and chain-rule style structure.",
         },
         {
           title: "Nemanja Nikitovic Live Stream (Calculus1 3.4 Product and Quotient Rules)",
