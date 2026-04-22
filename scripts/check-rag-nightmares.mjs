@@ -171,7 +171,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "please lecture me on Calculus1 3.2 Derivative as a Function I wasnt in class",
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i, /Source Evidence/i, /Timestamped Clips/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Visual\/Board Memory/i, /Office Hours Check/i, /Source Trail/i, /Source Evidence/i, /Timestamped Clips/i],
     reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
@@ -183,7 +183,7 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: true,
     },
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i, /Source Evidence/i, /Timestamped Clips/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Visual\/Board Memory/i, /Office Hours Check/i, /Source Trail/i, /Source Evidence/i, /Timestamped Clips/i],
     reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
@@ -196,7 +196,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "lecture me on 3.2 derivative as a function",
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Visual\/Board Memory/i, /Office Hours Check/i, /Source Trail/i],
     reject: [/Retrieved Lecture Trail/i],
   },
   {

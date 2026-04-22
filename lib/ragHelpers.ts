@@ -1063,6 +1063,49 @@ function buildSourceTrailLines(citations: LectureCitation[], lectureTitle: strin
   ];
 }
 
+function buildVisualBoardMemoryLines({
+  lectureTitle,
+  course,
+  lower,
+}: {
+  lectureTitle: string;
+  course: string;
+  lower: string;
+}): string[] {
+  const combined = `${course} ${lectureTitle} ${lower}`.toLowerCase();
+  const hasVisualCue =
+    /\b(graph|curve|board|draw|drawing|sketch|picture|axis|axes|table|horizontal|vertical|tangent|slope|derivative|rate of change|asymptote|left|right|top|bottom)\b/.test(
+      combined
+    );
+  if (!hasVisualCue) return [];
+
+  let anchor =
+    "Use the visual cue as an anchor: identify the object on the board, name the relationship being shown, then connect that picture back to the rule.";
+
+  if (/derivative|rate of change|differentiation|tangent|slope|horizontal/.test(combined)) {
+    anchor =
+      "Anchor the picture as a slope story: the curve is the object, the tangent line is the local measuring tool, and a horizontal tangent means slope 0.";
+  } else if (/limit|continuity|continuous|asymptote/.test(combined)) {
+    anchor =
+      "Anchor the picture as approach behavior: trace where the graph heads from the left and right before deciding the limit or asymptote statement.";
+  } else if (/integral|area|shell|washer|volume/.test(combined)) {
+    anchor =
+      "Anchor the picture as accumulation: identify the region, the representative slice or shell, and the direction the pieces are being added.";
+  } else if (/vector|gradient|line|plane|surface|double integral|triple integral/.test(combined)) {
+    anchor =
+      "Anchor the picture spatially: name the axes or plane first, then say which vector, curve, or region is being measured.";
+  } else if (/statistic|probability|boxplot|histogram|normal|distribution/.test(combined)) {
+    anchor =
+      "Anchor the visual as data shape: identify center, spread, tail behavior, or the marked probability region before computing.";
+  }
+
+  return [
+    "**Visual/Board Memory**",
+    anchor,
+    "Do not invent a screen location. If a clip mentions left, right, top, or bottom, preserve that relationship; otherwise describe only the visible math relationship.",
+  ];
+}
+
 function buildOfficeHoursCheckLines({
   lectureTitle,
   course,
@@ -1229,6 +1272,8 @@ function buildLectureRecoveryReply({
     `${course} · ${professor}${watch}`,
     "",
     ...buildGroundedLectureWalkthrough({ lectureTitle, course, lower, keyIdeas, excerpts }),
+    "",
+    ...buildVisualBoardMemoryLines({ lectureTitle, course, lower }),
     "",
     ...buildOfficeHoursCheckLines({ lectureTitle, course }),
     "",
