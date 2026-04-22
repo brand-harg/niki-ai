@@ -423,6 +423,35 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
+      pattern: /\b(related\s+rates?|rate\s+of\s+change|implicit\s+differentiation|optimization)\b/i,
+      coursePattern: /calculus\s*1|calc\s*1|^$/,
+      title: "Nemanja Nikitovic Live Stream (Calculus1L 3.11 Related Rates)",
+      course: "Calculus 1",
+      videoUrl: "https://www.youtube.com/watch?v=T4YEMlfi4DM",
+      excerpt:
+        "Foundational related-rates context: translate changing quantities into variables, relate them with an equation, then differentiate with respect to time.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1 3.6 Derivatives as Rate of Change)",
+          videoUrl: "https://www.youtube.com/watch?v=uLHouu1JppA",
+          excerpt:
+            "Derivatives as Rate of Change gives the core interpretation behind related rates.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1 3.8 Implicit Differentiation)",
+          videoUrl: "https://www.youtube.com/watch?v=huMgGBoYbYk",
+          excerpt:
+            "Implicit Differentiation supplies the differentiation move used in many related-rates setups.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus1 4.5 Optimization Problems)",
+          videoUrl: "https://www.youtube.com/watch?v=37gAXY55MF0",
+          excerpt:
+            "Optimization Problems show another application workflow built from derivative modeling.",
+        },
+      ],
+    },
+    {
       pattern: /\b(l['’]?hopital'?s?|hopital)\b/i,
       coursePattern: /calculus\s*1|calc\s*1|^$/,
       title: "Nemanja Nikitovic Live Stream Calculus1 4.7 LHopitals Rule",
@@ -469,6 +498,35 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
+      pattern: /\b(shell\s+method|disk\s+method|washer|area\s+between|parametric\s+equations?|polar\s+coordinates?|surface\s+area|length\s+of\s+curves?)\b/i,
+      coursePattern: /calculus\s*2|calc\s*2|^$/,
+      title: "Nemanja Nikitovic Live Stream (Calculus2 6.4 Shell Method)",
+      course: "Calculus 2",
+      videoUrl: "https://www.youtube.com/watch?v=xeyaYNeRarQ",
+      excerpt:
+        "Foundational Calc 2 applications context: shell, disk, and area methods convert geometry into definite integrals.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2s 6.3 Disk Method)",
+          videoUrl: "https://www.youtube.com/watch?v=5mon8Jf_AvE",
+          excerpt:
+            "Disk Method gives the neighboring volume setup to compare against shell method.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2 12.1 Parametric Equations)",
+          videoUrl: "https://www.youtube.com/watch?v=X6SPY_nwup8",
+          excerpt:
+            "Parametric Equations introduce curves described by a parameter instead of a single y=f(x) rule.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (Calculus2s 12.2 and 12.3 Polar Coordinates)",
+          videoUrl: "https://www.youtube.com/watch?v=kiTekKqSXbE",
+          excerpt:
+            "Polar Coordinates give another curve description system used after parametric equations.",
+        },
+      ],
+    },
+    {
       pattern: /\b(series|sequence|converge|diverge|ratio\s+test|comparison\s+test|alternating|power\s+series|taylor|maclaurin)\b/i,
       coursePattern: /calculus\s*2|calc\s*2|^$/,
       title: "Nemanja Nikitovic Live Stream (Calculus2 10.3 Infinite Series)",
@@ -498,7 +556,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
-      pattern: /\b(vector|vectors|dot\s+product|cross\s+product|planes?|space|gradient|partial\s+derivatives?|double\s+integrals?|triple\s+integrals?|line\s+integrals?|surface\s+integrals?|multivariable)\b/i,
+      pattern: /\b(vector|vectors|dot\s+products?|cross\s+products?|planes?|space|gradient|partial\s+derivatives?|double\s+integrals?|triple\s+integrals?|line\s+integrals?|surface\s+integrals?|multivariable)\b/i,
       coursePattern: /calculus\s*3|calc\s*3|^$/,
       title: "Nemanja Nikitovic Live Stream (Calculus3 13.2 Vectors in 3D)",
       course: "Calculus 3",
@@ -527,7 +585,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
-      pattern: /\b(probability|statistics|mean|median|variance|standard\s+deviation|z[-\s]?scores?|confidence\s+interval|hypothesis|p[-\s]?value|normal\s+distribution|boxplots?|five[-\s]?number)\b/i,
+      pattern: /\b(probability|statistics|mean|median|measures?\s+of\s+center|variance|standard\s+deviation|z[-\s]?scores?|confidence\s+intervals?|hypothesis|p[-\s]?value|normal\s+distribution|boxplots?|five[-\s]?number)\b/i,
       coursePattern: /statistics|stats|^$/,
       title: "Nemanja Nikitovic Live Stream (Statistics1 4.1 Probability Basics)",
       course: "Statistics",
@@ -556,7 +614,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
-      pattern: /\b(differential\s+equation|ode|slope\s+field|separable|first[-\s]?order|linear\s+first|laplace|eigenvalue|systems?\s+of\s+differential)\b/i,
+      pattern: /\b(differential\s+equation|ode|slope\s+fields?|separable|first[-\s]?order|linear\s+first|laplace|eigenvalue|systems?\s+of\s+differential)\b/i,
       coursePattern: /differential\s+equations?|diffeq|ode|^$/,
       title: "Nemanja Nikitovic Live Stream (Difeq 1.3 Slope Fields)",
       course: "Differential Equations",
@@ -614,8 +672,8 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
-      pattern: /\b(factor|factoring|quadratic|polynomial|system\s+of\s+equations|exponents?|radicals?|special\s+products|solve\s+for|linear\s+equation)\b/i,
-      coursePattern: /elementary\s+algebra|algebra|precalc|precalculus|^$/,
+      pattern: /\b(factor|factoring|quadratic|polynomial|systems?(?:\s+of\s+equations|\s+using\s+substitution)?|exponents?|radicals?|special\s+products|solve\s+for|linear\s+equation)\b/i,
+      coursePattern: /elementary\s+algebra|algebra|^$/,
       title: "Nemanja Nikitovic Live Stream (Elementary Algebra 6.1 Intro to Factoring)",
       course: "Elementary Algebra",
       videoUrl: "https://www.youtube.com/watch?v=VLtXGzY3LIM",
@@ -643,7 +701,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
-      pattern: /\b(complex\s+numbers?|inverse\s+functions?|rational\s+functions?|functions?\s+and\s+graphs?|precalc|precalculus)\b/i,
+      pattern: /\b(complex\s+numbers?|inverse\s+functions?|rational\s+functions?|quadratic\s+functions?|polynomial\s+functions?|functions?\s+and\s+graphs?|precalc|precalculus)\b/i,
       coursePattern: /precalc|precalculus|^$/,
       title: "Nemanja Nikitovic Live Stream (Precalculus1 2.1 Complex Numbers)",
       course: "PreCalc1",
