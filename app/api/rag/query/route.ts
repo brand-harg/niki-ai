@@ -216,6 +216,20 @@ function sourceTrail(primary: DirectFallbackSource, related: DirectFallbackSourc
   });
 }
 
+function contextFromDirectSources(sources: DirectFallbackSource[]) {
+  return sources.map(
+    (source, index) => `Chunk ${index + 1}
+Course: ${source.course}
+Lecture: ${source.title}
+Professor: ${source.professor}
+Timestamp: 0s-0s
+Section: ${source.sectionHint}
+Similarity: ${source.similarity.toFixed(3)}
+
+${source.excerpt}`
+  );
+}
+
 function hasExactSectionRequest(question: string) {
   return /\b\d{1,2}\.\d{1,2}\b/.test(question);
 }
@@ -338,17 +352,7 @@ function knownTitleFallback(question: string) {
       similarity: 0.78,
     }))
   ).slice(0, 4);
-  const context = [
-    `Chunk 1
-Course: ${known.course}
-Lecture: ${known.title}
-Professor: ${professor}
-Timestamp: 0s-0s
-Section: known title fallback
-Similarity: 1.000
-
-${known.excerpt}`,
-  ];
+  const context = contextFromDirectSources(sources);
 
   return {
     mode: "known-title-fallback",
@@ -776,17 +780,7 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       similarity: 0.72,
     }))
   ).slice(0, 4);
-  const context = [
-    `Chunk 1
-Course: ${known.course}
-Lecture: ${known.title}
-Professor: ${professor}
-Timestamp: 0s-0s
-Section: foundational lecture fallback
-Similarity: 0.760
-
-${known.excerpt}`,
-  ];
+  const context = contextFromDirectSources(sources);
 
   return {
     mode: "foundational-fallback",
