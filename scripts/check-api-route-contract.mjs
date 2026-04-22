@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 const routeSource = readFileSync("app/api/chat/route.ts", "utf8");
+const ollamaHealthSource = readFileSync("app/api/ollama/health/route.ts", "utf8");
 
 const fixtures = [
   {
@@ -24,14 +25,52 @@ const fixtures = [
     pattern: /\{ status: 502 \}/,
   },
   {
+    name: "chat-skips-ngrok-browser-warning",
+    pattern: /ngrok-skip-browser-warning[\s\S]*true/,
+  },
+  {
+    name: "chat-error-explains-vercel-ngrok-url",
+    pattern: /Vercel[\s\S]*public ngrok HTTPS URL[\s\S]*not localhost/,
+  },
+  {
     name: "fatal-failure-returns-500",
     pattern: /\{ status: 500 \}/,
+  },
+  {
+    name: "ollama-health-has-get-handler",
+    source: ollamaHealthSource,
+    pattern: /export async function GET\(\)/,
+  },
+  {
+    name: "ollama-health-checks-tags-endpoint",
+    source: ollamaHealthSource,
+    pattern: /\/api\/tags/,
+  },
+  {
+    name: "ollama-health-skips-ngrok-browser-warning",
+    source: ollamaHealthSource,
+    pattern: /ngrok-skip-browser-warning[\s\S]*true/,
+  },
+  {
+    name: "ollama-health-masks-backend-url",
+    source: ollamaHealthSource,
+    pattern: /maskUrl\(ollamaBaseUrl\)/,
+  },
+  {
+    name: "ollama-health-times-out",
+    source: ollamaHealthSource,
+    pattern: /setTimeout\(\(\) => controller\.abort\(\), 5000\)/,
+  },
+  {
+    name: "ollama-health-failure-returns-502",
+    source: ollamaHealthSource,
+    pattern: /\{ status: 502 \}/,
   },
 ];
 
 let failed = false;
 for (const fixture of fixtures) {
-  const pass = fixture.pattern.test(routeSource);
+  const pass = fixture.pattern.test(fixture.source ?? routeSource);
   if (pass) {
     console.log(`✅ ${fixture.name}`);
   } else {

@@ -39,6 +39,51 @@ const scenarios = [
     expect: [/Calculus2/i, /Watch:/i],
   },
   {
+    id: "calculus1-nospace-list",
+    description: "No-space Calculus1 alias should list Calculus 1 lectures.",
+    body: {
+      message: "Calculus1",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Calculus1/i, /Watch:/i],
+    reject: [/Board Setup/i, /Step-by-Step Solution/i],
+  },
+  {
+    id: "calc3-list",
+    description: "Calc 3 should list Calc 3 lectures.",
+    body: {
+      message: "Calc 3",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Calculus3/i, /Watch:/i],
+  },
+  {
+    id: "precalc-list",
+    description: "PreCalc alias should list PreCalc lectures.",
+    body: {
+      message: "PreCalc",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/PreCalc/i, /Watch:/i],
+  },
+  {
+    id: "elementary-algebra-list",
+    description: "Elementary Algebra should list algebra lectures.",
+    body: {
+      message: "Elementary Algebra",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Algebra/i, /Watch:/i],
+  },
+  {
     id: "course-history-followup-list",
     description: "After a course is mentioned, show all lectures should use that course instead of asking again.",
     body: {
@@ -118,6 +163,18 @@ const scenarios = [
     reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i],
   },
   {
+    id: "lecture-recovery-internal-fallback",
+    description: "Exact missed-class request should recover the lecture even when the frontend did not prefetch RAG context.",
+    body: {
+      message: "please lecture me on Calculus1 3.2 Derivative as a Function I wasnt in class",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Lecture Trail/i, /Timestamped Clips/i],
+    reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i],
+  },
+  {
     id: "lecture-recovery-short-title",
     description: "Short title request should still recover the target lecture.",
     body: {
@@ -128,6 +185,18 @@ const scenarios = [
     },
     ragQuestion: "lecture me on 3.2 derivative as a function",
     expect: [/Lecture Recovery/i, /Derivative as a Function/i],
+  },
+  {
+    id: "wrong-exact-lecture-safe",
+    description: "A made-up exact lecture number/title should not be presented as a real lecture.",
+    body: {
+      message: "lecture me on Calculus1 99.9 Dragon Integrals",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/no lecture retrieval context|specific lecture|provide|available|do not have/i],
+    reject: [/Lecture Recovery/i, /Dragon Integrals[\s\S]{0,200}Watch:/i],
   },
   {
     id: "no-hallucinated-empty-lecture-mode",

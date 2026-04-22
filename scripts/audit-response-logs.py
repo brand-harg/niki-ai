@@ -11,8 +11,9 @@ UI_BREAK_PATTERNS = {
     "paren_inline": re.compile(r"\\\(|\\\)"),
     "single_dollar_line": re.compile(r"(?m)^\s*\$(?!\$)\s*$"),
     "raw_latex_outside_display": re.compile(
-        r"\\(?:frac|sqrt|int|sum|lim|begin|left|right|cdot)\b"
+        r"\\(?:frac|sqrt|int|sum|lim|begin|left|right|cdot|text|operatorname)\b"
     ),
+    "invalid_backslash_number": re.compile(r"(?<!\\)\\[0-9]"),
 }
 
 NEMANJA_MARKERS = [
@@ -41,9 +42,9 @@ FAILURE_TAXONOMY = {
 
 def code_for_failure(failure: str) -> str:
     text = failure.lower()
-    if any(token in text for token in ["prose inside display math", "raw latex outside", "broken step", "placeholder"]):
+    if any(token in text for token in ["prose inside display math", "raw latex outside", "raw_latex_outside", "raw latex command", "broken step", "placeholder"]):
         return "SAN"
-    if any(token in text for token in ["boxed", "bracket", "paren", "single_dollar", "unsupported", "unbalanced", "empty_display"]):
+    if any(token in text for token in ["boxed", "bracket", "paren", "single_dollar", "unsupported", "unbalanced", "empty_display", "invalid_backslash"]):
         return "UI"
     if any(token in text for token in ["mismatch", "final answer", "logic"]):
         return "DISC"

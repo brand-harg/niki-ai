@@ -2,9 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { detectCourseFilter } from "@/lib/courseFilters";
-import { normalizeModelMathOutput } from "@/lib/mathFormatting";
+import { detectCourseFilter, inferCourseFromMathTopic } from "@/lib/courseFilters";
+import { normalizeModelMathOutput, sanitizeMathContent } from "@/lib/mathFormatting";
 import {
   buildLectureContextSystemMessage,
   buildModeReminderSystemMessage,
@@ -19,7 +18,6 @@ import {
   buildLectureCountReply,
   buildLectureTopicPrompt,
   dedupeCitations,
-  formatSeconds,
   getAvailableLectureCourses,
   getLectureCourseCounts,
   getLecturesByCourse,
@@ -27,7 +25,6 @@ import {
   isLectureCountIntent,
   isLectureListIntent,
   isUsableVideoUrl,
-  type LectureCitation,
 } from "@/lib/ragHelpers";
 import {
   buildDeterministicMathReply,
@@ -64,6 +61,19 @@ type ChatRequest = {
   }[];
 };
 
+type InternalRagResponse = {
+  context?: string[];
+  styleSnippets?: { text: string; personaTag?: string }[];
+  citations?: {
+    lectureTitle?: string;
+    professor?: string;
+    course?: string;
+    timestampStartSeconds?: number;
+    timestampUrl?: string | null;
+    similarity?: number;
+  }[];
+};
+
 const UI_GREETING_TEXTS = new Set([
   "What do you need help with?",
   "What are we solving today?",
@@ -80,6 +90,29 @@ const UI_GREETING_TEXTS = new Set([
 
 function isUiGreeting(content?: string): boolean {
   return UI_GREETING_TEXTS.has(content?.trim() ?? "");
+}
+
+function maskBackendUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return value.replace(/\/\/([^/@]+)@/, "//***@");
+  }
+}
+
+function ollamaErrorReply(baseUrl: string, status?: number): string {
+  const statusText = status ? ` Ollama returned HTTP ${status}.` : "";
+  return [
+    "System Error: Could not reach the local model backend.",
+    statusText.trim(),
+    `Configured backend: ${maskBackendUrl(baseUrl)}.`,
+    "Open /api/ollama/health on this same deployed site to test connectivity.",
+    "For Vercel, OLLAMA_API_URL must be your current public ngrok HTTPS URL, not localhost.",
+    "Also confirm Ollama is running, the model is installed, and the ngrok tunnel points to port 11434.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function wantsStepByStep(message: string): boolean {
@@ -240,9 +273,9 @@ export async function POST(req: Request) {
     const difficulty = body.difficulty ?? "exam";
     const practiceMode = body.practiceMode ?? false;
 
-    const ragContext = body.ragContext ?? [];
-    const ragStyleSnippets = body.ragStyleSnippets ?? [];
-    const ragCitations = dedupeCitations(body.ragCitations ?? []);
+    let ragContext = body.ragContext ?? [];
+    let ragStyleSnippets = body.ragStyleSnippets ?? [];
+    let ragCitations = dedupeCitations(body.ragCitations ?? []);
 
     const hasImage = !!base64Image;
     const hasTextFile = !!textFileContent;
@@ -360,6 +393,39 @@ export async function POST(req: Request) {
       });
     }
 
+    if (
+      lectureMode &&
+      isLectureSummaryRequest(message) &&
+      ragContext.length === 0 &&
+      ragCitations.length === 0
+    ) {
+      try {
+        const ragRes = await fetch(new URL("/api/rag/query", req.url), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: message,
+            lectureMode: true,
+            courseFilter: inferCourseFromMathTopic(message),
+            minSimilarity: 0.2,
+            maxChunks: 8,
+            maxStyleSnippets: isNikiMode ? 6 : 3,
+          }),
+        });
+
+        if (ragRes.ok) {
+          const ragJson = (await ragRes.json()) as InternalRagResponse;
+          ragContext = ragJson.context ?? [];
+          ragStyleSnippets = ragJson.styleSnippets ?? [];
+          ragCitations = dedupeCitations(ragJson.citations ?? []);
+        } else if (isDevLog) {
+          console.log("Lecture recovery RAG fallback failed:", ragRes.status, await ragRes.text());
+        }
+      } catch (error) {
+        if (isDevLog) console.log("Lecture recovery RAG fallback error:", error);
+      }
+    }
+
     if (lectureMode) {
       const lectureRecoveryReply = buildLectureRecoveryReply({
         message,
@@ -367,7 +433,7 @@ export async function POST(req: Request) {
         citations: ragCitations,
       });
       if (lectureRecoveryReply) {
-        return new Response(lectureRecoveryReply, {
+        return new Response(sanitizeMathContent(lectureRecoveryReply), {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -563,7 +629,10 @@ export async function POST(req: Request) {
     if (shouldBufferForRepair) {
       const stableMathResponse = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
         body: JSON.stringify({
           model,
           stream: false,
@@ -589,8 +658,7 @@ export async function POST(req: Request) {
 
         return NextResponse.json(
           {
-            reply:
-              "System Error: Local model request failed. Check OLLAMA_API_URL and model availability.",
+            reply: ollamaErrorReply(ollamaBaseUrl, stableMathResponse.status),
           },
           { status: 502 }
         );
@@ -600,7 +668,7 @@ export async function POST(req: Request) {
       const stableContent = String(stableJson?.message?.content ?? "");
       const stableOutput = forceStructuredMath
         ? normalizeModelMathOutput(stableContent)
-        : normalizeBufferedModelOutput(stableContent);
+        : sanitizeMathContent(normalizeBufferedModelOutput(stableContent));
 
       return new Response(stableOutput, {
         headers: {
@@ -612,7 +680,10 @@ export async function POST(req: Request) {
 
     const ollamaResponse = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+      },
       body: JSON.stringify({
         model,
         stream: true,
@@ -638,8 +709,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json(
         {
-          reply:
-            "System Error: Local model request failed. Check OLLAMA_API_URL and model availability.",
+          reply: ollamaErrorReply(ollamaBaseUrl, ollamaResponse.status),
         },
         { status: 502 }
       );
@@ -728,8 +798,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        reply:
-          "System Error: Could not reach model backend. Verify OLLAMA_API_URL and server connectivity.",
+        reply: ollamaErrorReply(process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434"),
       },
       { status: 500 }
     );

@@ -23,6 +23,11 @@ function wrapBareLatexEnvironments(content: string): string {
     const envName = trimmed.match(/^\\begin\{([^}]+)\}/)?.[1];
     const block = [trimmed];
 
+    if (envName && trimmed.includes(`\\end{${envName}}`)) {
+      out.push("$$", block.join("\n"), "$$");
+      continue;
+    }
+
     while (envName && i + 1 < lines.length) {
       i++;
       const next = (lines[i] ?? "").trim();
@@ -122,7 +127,7 @@ function repairLooseMathLines(content: string): string {
   let inDisplay = false;
 
   const startsRawLatex = (line: string) =>
-    /^\\(?:begin|end|frac|sqrt|int|sum|lim|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq)\b/.test(
+    /^\\(?:begin|end|frac|sqrt|int|sum|lim|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)\b/.test(
       line
     );
 
@@ -139,6 +144,11 @@ function repairLooseMathLines(content: string): string {
     if (!inDisplay && /^\\begin\{[A-Za-z*]+\}/.test(trimmed)) {
       const block = [trimmed];
       const envName = trimmed.match(/^\\begin\{([A-Za-z*]+)\}/)?.[1];
+
+      if (envName && trimmed.includes(`\\end{${envName}}`)) {
+        out.push("$$", block.join("\n"), "$$");
+        continue;
+      }
 
       while (envName && i + 1 < lines.length) {
         i++;
@@ -164,9 +174,13 @@ function repairLooseMathLines(content: string): string {
 }
 
 function containsRawLatexCommand(line: string): boolean {
-  return /\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq)\b/.test(
+  return /\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)\b/.test(
     line
   );
+}
+
+function repairInvalidBackslashNumbers(content: string): string {
+  return content.replace(/(?<!\\)\\(?=\d)/g, "");
 }
 
 function cleanExtractedMathExpression(expression: string): string {
@@ -221,13 +235,26 @@ function splitMathAndTrailingProse(rawMath: string): { math: string; suffix: str
   }
 
   const proseSplit = math.match(
-    /^([\s\S]*?(?:\}|[)\]]|[A-Za-z0-9]))\s+((?:where|when|which|because|since|therefore|so|then|is|are|gives|becomes)\b[\s\S]*)$/i
+    /^([\s\S]*?(?:\}|[)\]]|[A-Za-z0-9]))\s+((?:for|where|when|which|because|since|therefore|so|then|this|that|is|are|can|will|means|gives|becomes)\b[\s\S]*)$/i
   );
 
   if (proseSplit) {
     const candidate = (proseSplit[1] ?? "").trim();
     const suffix = (proseSplit[2] ?? "").trim();
-    const candidateHasEquation = /=|\\(?:frac|sqrt|int|sum|lim|begin|left|right)\b/.test(candidate);
+    const candidateHasEquation = /=|\\(?:frac|sqrt|int|sum|lim|begin|left|right|neq|leq|geq)\b/.test(candidate);
+    if (candidateHasEquation && containsRawLatexCommand(candidate) && hasBalancedBraces(candidate)) {
+      return { math: candidate.replace(/[,:;]\s*$/, "").trim(), suffix };
+    }
+  }
+
+  const commaProseSplit = math.match(
+    /^([\s\S]*?(?:\}|[)\]]|[A-Za-z0-9]))\s*[,;:]\s+((?:this|that|which|so|therefore|meaning|means|for|where|when|because|since)\b[\s\S]*)$/i
+  );
+
+  if (commaProseSplit) {
+    const candidate = (commaProseSplit[1] ?? "").trim();
+    const suffix = (commaProseSplit[2] ?? "").trim();
+    const candidateHasEquation = /=|\\(?:frac|sqrt|int|sum|lim|begin|left|right|infty|neq|leq|geq)\b/.test(candidate);
     if (candidateHasEquation && containsRawLatexCommand(candidate) && hasBalancedBraces(candidate)) {
       return { math: candidate.replace(/[,:;]\s*$/, "").trim(), suffix };
     }
@@ -244,7 +271,7 @@ function splitRawLatexLine(line: string): string | null {
   if (!trimmed || /^#{1,6}\s/.test(trimmed)) return null;
 
   const latexIndex = trimmed.search(
-    /\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq)\b/
+    /\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)\b/
   );
   if (latexIndex < 0) return null;
 
@@ -265,6 +292,12 @@ function splitRawLatexLine(line: string): string | null {
 
   let prefix = trimmed.slice(0, startIndex).trim();
   let math = trimmed.slice(startIndex).trim();
+
+  const variablePrefix = prefix.match(/^(.*?\b(?:for|if|when|where|since)\s+)([A-Za-z][A-Za-z0-9]*)$/i);
+  if (variablePrefix && /^\\(?:neq|leq|geq)\b/.test(math)) {
+    prefix = (variablePrefix[1] ?? "").trim();
+    math = `${variablePrefix[2] ?? ""} ${math}`.trim();
+  }
 
   const colonIndex = prefix.lastIndexOf(":");
   if (startIndex === latexIndex && colonIndex >= 0) {
@@ -348,15 +381,13 @@ function unwrapNonMathDisplayBlocks(content: string): string {
   });
 }
 
-function looksLikeProseMath(expr: string): boolean {
-  const trimmed = expr.trim();
-  const words = trimmed.match(/[A-Za-z]{2,}/g) ?? [];
-  const mathSignals = /\\|=|\^|_|\d|[+\-*/]|[()[\]{}]|'/.test(trimmed);
-  const sentenceSignals = /[,.!?;:]|\b(the|this|that|remember|because|since|therefore|slope|line|result|answer|step|formula)\b/i.test(
-    trimmed
+function repairSplitInequalityBlocks(content: string): string {
+  return content.replace(
+    /\b(For|If|When|Where|Since)\b\s*\n+\$\$\n([A-Za-z][A-Za-z0-9]*)\n\$\$\s*\n+\$\$\n\\(neq|leq|geq)\s+([^,\n]+),\s*([\s\S]*?)\n\$\$/g,
+    (_match, lead: string, variable: string, operator: string, value: string, suffix: string) => {
+      return `${lead}\n$$\n${variable} \\${operator} ${value.trim()}\n$$\n\n${suffix.trim()}`;
+    }
   );
-
-  return words.length >= 5 && sentenceSignals && !mathSignals;
 }
 
 function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureFinalAnswer: boolean }): string {
@@ -382,7 +413,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
     .replace(/\r\n/g, "\n")
     .replace(/\\boxed\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$1")
     .replace(
-      /\\\\(frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq)\b/g,
+      /\\\\(frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)\b/g,
       "\\$1"
     )
     .replace(/\\\[/g, "$$$$")
@@ -397,8 +428,10 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
 
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = removeSingleDollarDelimiters(cleaned);
+  cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = normalizeBrokenMarkdown(cleaned);
   cleaned = unwrapNonMathDisplayBlocks(cleaned);
+  cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
   cleaned = wrapBareLatexEnvironments(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
@@ -410,13 +443,19 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
     const trimmed = expr.trim();
     if (!trimmed || trimmed === "$" || trimmed === "$$") return "";
     const token = `@@MATH_BLOCK_${displayBlocks.length}@@`;
+    const split = splitMathAndTrailingProse(trimmed);
+    if (split.suffix && split.math && containsRawLatexCommand(split.math)) {
+      displayBlocks.push(`$$\n${cleanExtractedMathExpression(split.math)}\n$$`);
+      return `${token}\n\n${split.suffix}`;
+    }
+
     displayBlocks.push(`$$\n${trimmed}\n$$`);
     return token;
   });
 
   cleaned = repairRawLatexOutsideDisplay(cleaned);
 
-  cleaned = cleaned.replace(/^([^\n]*\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq)[^\n]*)$/gm, (line) => {
+  cleaned = cleaned.replace(/^([^\n]*\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)[^\n]*)$/gm, (line) => {
     const trimmed = line.trim();
     if (!trimmed || trimmed.includes("@@CODE_BLOCK_") || trimmed.includes("@@MATH_BLOCK_")) return line;
     if (/^[*-]\s/.test(trimmed)) return line;
@@ -428,12 +467,14 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
 
   cleaned = normalizeBrokenMarkdown(cleaned);
   cleaned = unwrapNonMathDisplayBlocks(cleaned);
+  cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = cleaned.replace(/@@MATH_BLOCK_(\d+)@@/g, (_match, index: string) => {
     return displayBlocks[Number(index)] ?? "";
   });
   cleaned = collapseNestedDisplayMath(cleaned);
   cleaned = repairLooseMathLines(cleaned);
   cleaned = repairRawLatexOutsideDisplay(cleaned);
+  cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
 
@@ -453,11 +494,14 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
 
   cleaned = normalizeBrokenMarkdown(cleaned);
   cleaned = unwrapNonMathDisplayBlocks(cleaned);
+  cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
   cleaned = repairLooseMathLines(cleaned);
   cleaned = repairRawLatexOutsideDisplay(cleaned);
+  cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = removeSingleDollarDelimiters(cleaned);
+  cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
 
   const fenceCount = (cleaned.match(/\$\$/g) ?? []).length;

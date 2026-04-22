@@ -136,7 +136,8 @@ VISIBLE MODE STYLE — NEMANJA + LECTURE:
 - The answer must look and sound different from Pure Logic and from Nemanja Mode without Lecture Mode.
 - Use Nemanja's classroom voice, and when retrieval context exists, add a short **Lecture Connection** section before ## Final Answer.
 - In **Lecture Connection**, connect the problem to the retrieved lecture idea, method order, phrase, or emphasis. Keep it grounded and brief.
-- For longer answers, use this visible structure: **Board Setup**, **Step-by-Step Solution**, **Lecture Connection**, then ## Final Answer.
+- For longer answers, use this visible structure: **Board Setup**, **Step-by-Step Solution**, **Lecture Connection**, **Concept Check**, then ## Final Answer.
+- **Concept Check** should be one short active-recall question based on the answer, not a new full problem solution.
 - Quote or paraphrase only short lecture-supported ideas. Mention the lecture title only when it is present in retrieved context.
 - For calculus topics, it is okay to say "kalk" once if it sounds natural.
 - Include one practical classroom warning or checkpoint when useful, such as a sign error, rule choice, domain issue, or algebra trap.
@@ -506,7 +507,7 @@ function buildModeReminderSystemMessage({
   }
 
   if (hasLectureContext) {
-    return `Current response mode: Nemanja Mode with Lecture Mode. Make the style visibly lecture-aligned: board setup, lecture-supported terminology/order, and a brief Lecture Connection when relevant.${longFormSuffix}`;
+    return `Current response mode: Nemanja Mode with Lecture Mode. Make the style visibly lecture-aligned: board setup, lecture-supported terminology/order, a brief Lecture Connection when relevant, and a short Concept Check for longer lecture/tutorial answers.${longFormSuffix}`;
   }
 
   return `Current response mode: Nemanja Mode with Lecture Mode, but no lecture context was retrieved. Use Nemanja classroom style without inventing lecture details.${longFormSuffix}`;

@@ -290,6 +290,74 @@ function timestampStartValue(timestamp?: string): number {
   return Number(seconds);
 }
 
+const LECTURE_TITLE_STOPWORDS = new Set([
+  "lecture",
+  "lectures",
+  "teach",
+  "summarize",
+  "explain",
+  "missed",
+  "class",
+  "called",
+  "please",
+  "real",
+  "from",
+  "with",
+  "what",
+  "cover",
+  "covered",
+  "wasnt",
+  "wasn",
+  "were",
+  "have",
+  "into",
+]);
+
+function lectureTitleTokens(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/calculus\s*1|calc\s*1/g, "calculus1")
+        .replace(/calculus\s*2|calc\s*2/g, "calculus2")
+        .replace(/calculus\s*3|calc\s*3/g, "calculus3")
+        .replace(/[^a-z0-9.]+/g, " ")
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .filter((token) => token.length >= 3 || /^\d+(?:\.\d+)?$/.test(token))
+        .filter((token) => !LECTURE_TITLE_STOPWORDS.has(token))
+    )
+  );
+}
+
+function hasCredibleLectureTitleMatch(message: string, title: string): boolean {
+  const requested = lectureTitleTokens(message);
+  if (requested.length === 0) return true;
+
+  const titleTokens = new Set(lectureTitleTokens(title));
+  const meaningfulRequested = requested.filter(
+    (token) =>
+      /^\d+(?:\.\d+)?$/.test(token) ||
+      token.includes("calculus") ||
+      token.length >= 4
+  );
+  if (meaningfulRequested.length === 0) return true;
+
+  const hits = meaningfulRequested.filter((token) => titleTokens.has(token));
+  const requestedSections = meaningfulRequested.filter((token) => /^\d+(?:\.\d+)?$/.test(token));
+  if (requestedSections.length > 0 && !requestedSections.some((token) => titleTokens.has(token))) {
+    return false;
+  }
+
+  const hasSectionHit = hits.some((token) => /^\d+(?:\.\d+)?$/.test(token));
+  const hasWordHit = hits.some((token) => !/^\d+(?:\.\d+)?$/.test(token));
+  const explicitCalledRequest = /\bcalled\b/i.test(message);
+
+  if (explicitCalledRequest) return hits.length >= 2 || (hasSectionHit && hasWordHit);
+  return hits.length >= 2 || hasSectionHit || hasWordHit;
+}
+
 function chooseRepresentativeLectureContexts(contexts: string[], citations: LectureCitation[]) {
   const topTitle = citations[0]?.lectureTitle || extractLectureMetadata(contexts[0] ?? "").title || "";
   const matching = contexts.filter((context) => {
@@ -322,6 +390,14 @@ function buildLectureRecoveryReply({
   const course = metadata.course ?? firstCitation?.course ?? "Unknown course";
   const professor = metadata.professor ?? firstCitation?.professor ?? "Unknown professor";
   const watch = firstCitation?.timestampUrl ? `\nWatch from here: ${firstCitation.timestampUrl}` : "";
+
+  if (!hasCredibleLectureTitleMatch(message, lectureTitle)) {
+    return [
+      "I do not have lecture retrieval context for that specific lecture.",
+      "",
+      "Give me a real course, topic, or lecture title from the indexed lectures and I can reconstruct it from the transcript instead of inventing details.",
+    ].join("\n");
+  }
 
   const excerpts = relevantContexts
     .map((context) => {

@@ -3,7 +3,7 @@ export const COURSE_PATTERNS: Array<{ label: string; patterns: RegExp[] }> = [
   { label: "Calculus 2", patterns: [/calc\s*2/i, /calculus\s*ii\b/i, /calculus\s*2/i] },
   { label: "Calculus 3", patterns: [/calc\s*3/i, /calculus\s*iii\b/i, /calculus\s*3/i] },
   { label: "Differential Equations", patterns: [/differential\s*equations?/i, /\bde\b/i] },
-  { label: "PreCalc1", patterns: [/pre\s*calc\s*1/i, /precalc\s*1/i, /precalculus\s*1/i, /pracalc\s*1/i] },
+  { label: "PreCalc1", patterns: [/pre\s*calc(?:\s*1)?/i, /precalc(?:\s*1)?/i, /precalculus(?:\s*1)?/i, /pracalc\s*1/i] },
   { label: "Statistics", patterns: [/\bstats?\b/i, /\bstatistics\b/i] },
   { label: "Elementary Algebra", patterns: [/elementary\s*algebra/i, /\balgebra\b/i] },
 ];

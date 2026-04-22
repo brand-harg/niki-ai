@@ -125,8 +125,11 @@ function validateOutput(text) {
   }
   if (/(Short Topic Title|Specific Title)/i.test(text)) failures.push("template placeholder leaked");
   if (inlineLatexCommands.test(text)) failures.push("fragile inline latex command");
-  if (/\\(?:frac|sqrt|int|sum|lim|begin|left|right|cdot)\b/.test(outsideDisplay.replace(/\$[^$\n]*\$/g, ""))) {
+  if (/\\(?:frac|sqrt|int|sum|lim|begin|left|right|cdot|text|operatorname)\b/.test(outsideDisplay.replace(/\$[^$\n]*\$/g, ""))) {
     failures.push("raw latex command outside math block");
+  }
+  if (/(?<!\\)\\[0-9]/.test(text)) {
+    failures.push("invalid backslash-number escape");
   }
   for (const block of text.matchAll(/\$\$([\s\S]*?)\$\$/g)) {
     const expr = block[1] ?? "";
@@ -146,7 +149,7 @@ function failureCode(failure) {
   if (/prose inside display math|raw latex command outside math block|broken step markdown|template placeholder/i.test(failure)) {
     return "SAN";
   }
-  if (/boxed|unsupported latex delimiters|standalone single dollar|unbalanced display math fences|empty display math block/i.test(failure)) {
+  if (/boxed|unsupported latex delimiters|standalone single dollar|unbalanced display math fences|empty display math block|invalid backslash-number/i.test(failure)) {
     return "UI";
   }
   if (/missing final answer/i.test(failure)) {

@@ -74,6 +74,25 @@ type RagResponse = {
   retrievalConfidence?: "high" | "medium" | "low" | "none";
   error?: string;
 };
+type SpeechRecognitionResultLike = {
+  [index: number]: { transcript: string };
+  isFinal?: boolean;
+};
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 const PURE_LOGIC_GREETINGS = [
   "What are we solving today?",
   "Send the math, code, or technical problem.",
@@ -105,11 +124,39 @@ function isGreetingOnly(messages: Message[]) {
   );
 }
 
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as Window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
 function formatTimestamp(seconds?: number) {
   if (typeof seconds !== "number" || Number.isNaN(seconds)) return "";
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function getYouTubeVideoId(url?: string | null) {
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.includes("youtu.be")) {
+      return parsed.pathname.split("/").filter(Boolean)[0] ?? null;
+    }
+
+    if (parsed.hostname.includes("youtube.com")) {
+      return parsed.searchParams.get("v");
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function dedupeCitations(citations: RagCitation[] = []) {
@@ -157,6 +204,32 @@ function isLectureInventoryRequest(message: string) {
   );
 }
 
+function getCalloutKind(text: string) {
+  if (/^Efficiency Tip\b/i.test(text)) return "math-callout-efficiency";
+  if (/^Concept Check\b/i.test(text)) return "math-callout-concept";
+  if (/^Common Mistake\b/i.test(text)) return "math-callout-warning";
+  if (/^Checkpoint\b/i.test(text)) return "math-callout-checkpoint";
+  if (/^Lecture Connection\b/i.test(text)) return "math-callout-lecture";
+  return "";
+}
+
+function getNodeText(children: React.ReactNode): string {
+  return React.Children.toArray(children)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") {
+        return String(child);
+      }
+
+      if (React.isValidElement(child)) {
+        const props = child.props as { children?: React.ReactNode };
+        return getNodeText(props.children);
+      }
+
+      return "";
+    })
+    .join("");
+}
+
 const CitationCard = ({
   citations,
   confidence,
@@ -197,35 +270,68 @@ const CitationCard = ({
         )}
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
-        {unique.map((c, i) => (
-          <div
-            key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`}
-            className="flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5"
-          >
-            <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/20 text-[9px] font-black ${accentText}`}>{i + 1}</span>
-            <div className="min-w-0">
-              <p className="line-clamp-2 text-[11px] font-bold leading-snug text-slate-300">
-                {c.lectureTitle ?? "Unknown lecture"}
-              </p>
-              <p className="mt-1 text-[10px] text-slate-500">
-                {c.course ?? "Unknown course"}
-                {typeof c.timestampStartSeconds === "number"
-                  ? ` · ${formatTimestamp(c.timestampStartSeconds)}`
-                  : ""}
-                {c.timestampUrl && (
-                  <a
-                    href={c.timestampUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`ml-2 ${accentText} hover:underline`}
-                  >
-                    Watch →
-                  </a>
-                )}
-              </p>
+        {unique.map((c, i) => {
+          const videoId = getYouTubeVideoId(c.timestampUrl);
+          const timestampLabel = formatTimestamp(c.timestampStartSeconds);
+          const cardContent = (
+            <>
+              {videoId && (
+                <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/30">
+                  <Image
+                    src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                    alt=""
+                    fill
+                    sizes="80px"
+                    className="object-cover opacity-80 transition group-hover:scale-105 group-hover:opacity-100"
+                  />
+                  {timestampLabel && (
+                    <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1.5 py-0.5 font-mono text-[8px] font-bold text-white">
+                      {timestampLabel}
+                    </span>
+                  )}
+                </div>
+              )}
+              <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/20 text-[9px] font-black ${accentText}`}>{i + 1}</span>
+              <div className="min-w-0">
+                <p className="line-clamp-2 text-[11px] font-bold leading-snug text-slate-300">
+                  {c.lectureTitle ?? "Unknown lecture"}
+                </p>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  {c.course ?? "Unknown course"}
+                  {timestampLabel ? ` · ${timestampLabel}` : ""}
+                  {c.timestampUrl && (
+                    <span className={`ml-2 ${accentText}`}>
+                      Open clip →
+                    </span>
+                  )}
+                </p>
+              </div>
+            </>
+          );
+
+          const className =
+            "group flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 transition hover:border-white/20 hover:bg-white/[0.035]";
+
+          return c.timestampUrl ? (
+            <a
+              key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`}
+              href={c.timestampUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={className}
+              title={`Open ${c.lectureTitle ?? "lecture"}${timestampLabel ? ` at ${timestampLabel}` : ""}`}
+            >
+              {cardContent}
+            </a>
+          ) : (
+            <div
+              key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`}
+              className={className}
+            >
+              {cardContent}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -451,6 +557,8 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   // --- RENAME STATE ---
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
@@ -460,6 +568,7 @@ export default function Home() {
   const chatViewportRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const isUnmountingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(null);
@@ -515,13 +624,26 @@ export default function Home() {
     ),
     hr: ({ ...props }) => <hr className="my-5 border-white/15" {...props} />,
     p: ({ children, ...props }) => {
-      const text = React.Children.toArray(children).join("").trim();
+      const text = getNodeText(children).trim();
       const isStepLabel = /^Step\s+\d+:/i.test(text);
+      const calloutKind = getCalloutKind(text);
       const isMainTitle =
         !isStepLabel &&
+        !calloutKind &&
         /^(Derivative|Integral|Factoring|Solving|Simplifying|Limit|Matrix|System|Probability|Statistics)\b/i.test(
           text
         );
+
+      if (calloutKind) {
+        return (
+          <p
+            className={`math-callout-label ${calloutKind} my-4 rounded-xl border px-4 py-3 leading-7 text-slate-100`}
+            {...props}
+          >
+            {children}
+          </p>
+        );
+      }
 
       return (
         <p
@@ -562,42 +684,81 @@ export default function Home() {
   };
 
 
+  useEffect(() => {
+    setSpeechSupported(!!getSpeechRecognitionConstructor());
+    return () => {
+      speechRecognitionRef.current?.abort();
+      speechRecognitionRef.current = null;
+    };
+  }, []);
+
   // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
     let mounted = true;
     isUnmountingRef.current = false;
 
     const initialize = async () => {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      if (error || !user) {
-        setSession(null);
-        setProfile(null);
-        setProfileLoaded(true);
-        setChatHistory([]);
-        setCurrentChatId(null);
-        currentChatIdRef.current = null;
-        setMessages(createGreeting(false));
-        lastSessionIdRef.current = null;
+        if (!session?.user?.id) {
+          setSession(null);
+          setProfile(null);
+          setProfileLoaded(true);
+          setChatHistory([]);
+          setCurrentChatId(null);
+          currentChatIdRef.current = null;
+          setMessages(createGreeting(false));
+          lastSessionIdRef.current = null;
+          setAuthChecked(true);
+          return;
+        }
+
+        setSession(session);
         setAuthChecked(true);
-        return;
+        lastSessionIdRef.current = session.user.id;
+
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
+
+        if (!mounted) return;
+
+        const userId = user?.id ?? session.user.id;
+
+        if (error && !session.user.id) {
+          setSession(null);
+          setProfile(null);
+          setProfileLoaded(true);
+          setChatHistory([]);
+          setCurrentChatId(null);
+          currentChatIdRef.current = null;
+          setMessages(createGreeting(false));
+          lastSessionIdRef.current = null;
+          return;
+        }
+
+        await fetchHistory(userId);
+        await fetchProfile(userId);
+      } catch (error) {
+        if (mounted) {
+          console.warn("Auth initialization failed:", error);
+          setSession(null);
+          setProfile(null);
+          setProfileLoaded(true);
+          setChatHistory([]);
+          setCurrentChatId(null);
+          currentChatIdRef.current = null;
+          setMessages(createGreeting(false));
+          lastSessionIdRef.current = null;
+          setAuthChecked(true);
+        }
       }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      setSession(session);
-      setAuthChecked(true);
-      lastSessionIdRef.current = user.id;
-
-      await fetchHistory(user.id);
-      await fetchProfile(user.id);
     };
 
     initialize();
@@ -622,14 +783,12 @@ export default function Home() {
         } = await supabase.auth.getUser();
 
         if (error || !user) {
-          setSession(null);
-          setProfile(null);
-          setProfileLoaded(true);
-          setChatHistory([]);
-          setCurrentChatId(null);
-          currentChatIdRef.current = null;
-          setMessages(createGreeting(false));
-          lastSessionIdRef.current = null;
+          console.warn("Auth user refresh failed; keeping session fallback:", error);
+          lastSessionIdRef.current = newUserId;
+          setSession(session);
+          setProfileLoaded(false);
+          await fetchHistory(newUserId);
+          await fetchProfile(newUserId);
           return;
         }
 
@@ -1013,6 +1172,56 @@ export default function Home() {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleVoiceInput = () => {
+    if (isLoading) return;
+
+    if (isListening) {
+      speechRecognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = getSpeechRecognitionConstructor();
+    if (!SpeechRecognition) {
+      setSpeechSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    const startingText = inputValue.trim();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!transcript) return;
+      setInputValue(startingText ? `${startingText} ${transcript}` : transcript);
+    };
+
+    recognition.onerror = (event) => {
+      console.warn("Speech recognition failed:", event.error ?? "unknown error");
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      if (speechRecognitionRef.current === recognition) {
+        speechRecognitionRef.current = null;
+      }
+      setIsListening(false);
+    };
+
+    speechRecognitionRef.current?.abort();
+    speechRecognitionRef.current = recognition;
+    setIsListening(true);
+    recognition.start();
   };
 
   const fetchRag = async (question: string): Promise<RagResponse | null> => {
@@ -1718,6 +1927,30 @@ export default function Home() {
                   className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
                     } placeholder:text-slate-500 shadow-none`}
                 />
+
+                <button
+                  type="button"
+                  onClick={handleVoiceInput}
+                  disabled={isLoading || !speechSupported}
+                  aria-pressed={isListening}
+                  aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                  title={
+                    speechSupported
+                      ? isListening
+                        ? "Stop voice input"
+                        : "Push to talk"
+                      : "Voice input is not supported in this browser"
+                  }
+                  className={`grid h-11 w-full shrink-0 place-items-center rounded-[1rem] border text-slate-300 transition sm:w-11 ${isListening
+                    ? `${accentBorder} bg-cyan-500/10 text-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.16)]`
+                    : "border-white/10 bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
+                    }`}
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
+                  </svg>
+                </button>
 
                 <button
                   onClick={handleSend}
