@@ -220,6 +220,10 @@ function hasExactSectionRequest(question: string) {
   return /\b\d{1,2}\.\d{1,2}\b/.test(question);
 }
 
+function isMathLikeFallbackQuestion(question: string) {
+  return /\b(derivative|differentiate|limit|integral|integrate|series|sequence|vector|gradient|partial|matrix|matrices|eigen|probability|statistics|z[-\s]?scores?|differential\s+equation|ode|factor|quadratic|complex|function|graph|solve|simplify|equation|polynomial|trig|log|ln|sqrt)\b|[0-9xyzt]\s*[\^+\-*/=()]|\\(?:frac|int|sum|lim)/i.test(question);
+}
+
 function knownTitleFallback(question: string) {
   const known = [
     {
@@ -365,7 +369,7 @@ ${known.excerpt}`,
 
 function foundationalLectureFallback(question: string, courseFilter: string) {
   const normalizedCourse = courseFilter.toLowerCase();
-  const known = [
+  const knownSources = [
     {
       pattern: /\b(limit|lim|approaches|continuity|continuous|infinity)\b/i,
       coursePattern: /calculus\s*1|calc\s*1|^$/,
@@ -581,6 +585,35 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
       ],
     },
     {
+      pattern: /\b(matrix|matrices|eigenvalues?|eigenvectors?|row\s+reduce|row\s+reduction|linear\s+systems?|linear\s+algebra)\b/i,
+      coursePattern: /differential\s+equations?|diffeq|ode|linear\s+algebra|^$/,
+      title: "Nemanja Nikitovic Live Stream (DiffEq 5.1 Matrices and Linear Systems)",
+      course: "Differential Equations",
+      videoUrl: "https://www.youtube.com/watch?v=p_J_3ETDK94",
+      excerpt:
+        "Foundational matrix context: systems of equations can be organized as matrix equations so structure and solution behavior become visible.",
+      related: [
+        {
+          title: "Nemanja Nikitovic Live Stream (DiffEq 5.1 Matrices and Linear Systems part2)",
+          videoUrl: "https://www.youtube.com/watch?v=kaTH-M48IoY",
+          excerpt:
+            "Matrices and Linear Systems part 2 continues the row and system structure.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (DiffEq 5.2 The Eigenvalue Problem for Homogeneous Systems)",
+          videoUrl: "https://www.youtube.com/watch?v=VuaORii0Hjk",
+          excerpt:
+            "The Eigenvalue Problem connects matrices to modes and solution behavior.",
+        },
+        {
+          title: "Nemanja Nikitovic Live Stream (DiffEq 5.2 The Eigenvalue Problem for Homogeneous Systems Pt2)",
+          videoUrl: "https://www.youtube.com/watch?v=o94gN1EvfT4",
+          excerpt:
+            "The second eigenvalue lecture extends the homogeneous-system method.",
+        },
+      ],
+    },
+    {
       pattern: /\b(factor|factoring|quadratic|polynomial|system\s+of\s+equations|exponents?|radicals?|special\s+products|solve\s+for|linear\s+equation)\b/i,
       coursePattern: /elementary\s+algebra|algebra|precalc|precalculus|^$/,
       title: "Nemanja Nikitovic Live Stream (Elementary Algebra 6.1 Intro to Factoring)",
@@ -638,7 +671,27 @@ function foundationalLectureFallback(question: string, courseFilter: string) {
         },
       ],
     },
-  ].find((item) => item.pattern.test(question) && item.coursePattern.test(normalizedCourse));
+  ];
+
+  let known = knownSources.find((item) => item.pattern.test(question) && item.coursePattern.test(normalizedCourse));
+
+  if (!known && isMathLikeFallbackQuestion(question)) {
+    if (/calculus\s*3|calc\s*3/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Vectors in 3D/i.test(item.title));
+    } else if (/calculus\s*2|calc\s*2/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Basics of Integration|Infinite Series/i.test(item.title));
+    } else if (/calculus\s*1|calc\s*1/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Intro to Limits/i.test(item.title));
+    } else if (/stat/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Probability Basics/i.test(item.title));
+    } else if (/diff|ode|linear\s+algebra/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Matrices and Linear Systems/i.test(item.title));
+    } else if (/precalc|precalculus/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Complex Numbers/i.test(item.title));
+    } else if (/algebra/.test(normalizedCourse)) {
+      known = knownSources.find((item) => /Intro to Factoring/i.test(item.title));
+    }
+  }
 
   if (!known) return null;
 

@@ -51,6 +51,14 @@ const cases = [
     expect: [/Difeq|Differential|Slope Fields|Linear First/i],
   },
   {
+    id: "matrix-eigen-source-trail",
+    question: "how do matrix eigenvalues work?",
+    courseFilter: "Differential Equations",
+    min: 2,
+    max: 4,
+    expect: [/Matrices|Eigenvalue|Linear Systems/i],
+  },
+  {
     id: "exact-section-stays-single-source",
     question: "lecture me on Calculus1 3.2 Derivative as a Function",
     courseFilter: "Calculus 1",

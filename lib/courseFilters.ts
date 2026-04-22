@@ -35,6 +35,10 @@ export function inferCourseFromMathTopic(question: string, fallback?: string): s
     return "Statistics";
   }
 
+  if (/\b(matrix|matrices|eigenvalue|eigenvector|row reduce|row reduction|linear algebra|linear system)\b/i.test(question)) {
+    return "Differential Equations";
+  }
+
   if (/\b(differential equation|slope field|separable|first[-\s]?order|laplace|linear equation|initial value)\b/i.test(question)) {
     return "Differential Equations";
   }
