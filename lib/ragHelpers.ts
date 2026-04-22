@@ -1035,6 +1035,77 @@ function buildGroundedLectureWalkthrough({
   return lines;
 }
 
+function formatCitationTrailItem(cite: LectureCitation): string {
+  const title = cite.lectureTitle ?? "Unknown lecture";
+  const course = cite.course ?? "Unknown course";
+  const time = formatSeconds(cite.timestampStartSeconds);
+  const link = cite.timestampUrl ? ` -> ${cite.timestampUrl}` : "";
+  return `${title} (${course}) @ ${time}${link}`;
+}
+
+function buildSourceTrailLines(citations: LectureCitation[], lectureTitle: string): string[] {
+  const trail = uniqueLectures(dedupeCitations(citations)).slice(0, 4);
+  if (trail.length === 0) return [];
+
+  if (trail.length === 1) {
+    return [
+      "**Source Trail**",
+      `- Focused clip: ${formatCitationTrailItem(trail[0])}`,
+      "- Use this as the exact source for the recovered lecture, then use the timestamped evidence below for the board details.",
+    ];
+  }
+
+  const labels = ["Foundational clip", "Main method clip", "Extension clip", "Review/application clip"];
+  return [
+    "**Source Trail**",
+    ...trail.map((cite, index) => `- ${labels[index] ?? "Related clip"}: ${formatCitationTrailItem(cite)}`),
+    `- These are related lecture anchors for **${lectureTitle}**. Treat them as a watch path, not proof that every clip says the same thing.`,
+  ];
+}
+
+function buildOfficeHoursCheckLines({
+  lectureTitle,
+  course,
+}: {
+  lectureTitle: string;
+  course: string;
+}): string[] {
+  const combined = `${course} ${lectureTitle}`.toLowerCase();
+  let prompt =
+    "Before rewatching, cover the solution and say the first rule, definition, or method the board is asking for.";
+
+  if (/derivative|rate of change|differentiation/.test(combined)) {
+    prompt =
+      "If I hide the formula, can you explain why the derivative is slope/change first, then choose the shortcut rule second?";
+  } else if (/series|power series|radius|interval of convergence|alternating/.test(combined)) {
+    prompt =
+      "Can you name the convergence test before doing algebra, and can you say what must be checked after the main test finishes?";
+  } else if (/integral|integration|antiderivative|area|substitution|parts/.test(combined)) {
+    prompt =
+      "Can you identify whether this is accumulation, a basic antiderivative, substitution, or parts before touching the algebra?";
+  } else if (/differential equation|difeq|diff eq|ode|laplace|homogeneous|nonhomogeneous/.test(combined)) {
+    prompt =
+      "Can you classify the differential equation first, then explain why that classification chooses the method?";
+  } else if (/linear algebra|matrix|matrices|determinant|eigen|vector|row reduction/.test(combined)) {
+    prompt =
+      "Can you name the matrix task first: row reduction, determinant, multiplication, vector relation, or eigenvalue?";
+  } else if (/statistic|statistics|probability|mean|variance|standard deviation|normal|z-score|confidence/.test(combined)) {
+    prompt =
+      "Can you identify the measured quantity and interpret the result in context, not just compute the number?";
+  } else if (/algebra|factor|quadratic|polynomial|rational|synthetic|system/.test(combined)) {
+    prompt =
+      "Can you explain which form makes the next move easiest: factored form, expanded form, solved form, or a substituted system?";
+  } else if (/trig|sine|cosine|tangent|unit circle|identity/.test(combined)) {
+    prompt =
+      "Can you name the identity or unit-circle fact before rewriting the expression?";
+  }
+
+  return [
+    "**Office Hours Check**",
+    prompt,
+  ];
+}
+
 function buildLectureRecoveryReply({
   message,
   ragContext,
@@ -1158,6 +1229,10 @@ function buildLectureRecoveryReply({
     `${course} · ${professor}${watch}`,
     "",
     ...buildGroundedLectureWalkthrough({ lectureTitle, course, lower, keyIdeas, excerpts }),
+    "",
+    ...buildOfficeHoursCheckLines({ lectureTitle, course }),
+    "",
+    ...buildSourceTrailLines(citations, lectureTitle),
     "",
     "**Source Evidence**",
     ...evidenceLines,

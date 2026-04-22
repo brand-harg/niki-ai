@@ -171,7 +171,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "please lecture me on Calculus1 3.2 Derivative as a Function I wasnt in class",
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Source Evidence/i, /Timestamped Clips/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i, /Source Evidence/i, /Timestamped Clips/i],
     reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
@@ -183,7 +183,7 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: true,
     },
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Source Evidence/i, /Timestamped Clips/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i, /Source Evidence/i, /Timestamped Clips/i],
     reject: [/Board Setup[\s\S]{0,200}Suppose we need to find/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
@@ -196,7 +196,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "lecture me on 3.2 derivative as a function",
-    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    expect: [/Lecture Recovery/i, /Derivative as a Function/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i],
     reject: [/Retrieved Lecture Trail/i],
   },
   {
@@ -209,7 +209,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "Can we do a lecture on calc 2 power series?",
-    expect: [/Lecture Recovery/i, /Power Series/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    expect: [/Lecture Recovery/i, /Power Series/i, /Board Setup/i, /Lecture Walkthrough/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i],
     reject: [/^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im],
   },
   {
@@ -222,7 +222,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "I can't figure out AST and don't understand alternating series",
-    expect: [/Lecture Recovery|Alternating Series|AST/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    expect: [/Lecture Recovery|Alternating Series|AST/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i],
     reject: [/The AST states that an alternating series \\sum/i, /\\lim_\{n \\to \\infty\} b_n = 0/i, /^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im, /Retrieved Lecture Trail/i],
   },
   {
@@ -235,7 +235,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "Lecture me on statistics probability",
-    expect: [/Lecture Recovery/i, /Probability|Statistics/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    expect: [/Lecture Recovery/i, /Probability|Statistics/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i],
     reject: [/horizontal tangent/i, /derivative value 0/i, /local maximum and minimum/i],
   },
   {
@@ -248,7 +248,7 @@ const scenarios = [
       lectureMode: true,
     },
     ragQuestion: "Lecture me on differential equations separable equations",
-    expect: [/Lecture Recovery/i, /Differential|Equation|ODE/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i],
+    expect: [/Lecture Recovery/i, /Differential|Equation|ODE/i, /Board Setup/i, /Intuition/i, /Definition/i, /Shortcut/i, /Application/i, /Concept Check/i, /Office Hours Check/i, /Source Trail/i],
     reject: [/^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im],
   },
   {
