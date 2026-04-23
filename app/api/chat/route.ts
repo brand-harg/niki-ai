@@ -48,6 +48,7 @@ type ChatRequest = {
   lectureMode?: boolean;
   difficulty?: Difficulty;
   practiceMode?: boolean;
+  calendarContext?: string;
 
   ragContext?: string[];
   ragStyleSnippets?: { text: string; personaTag?: string }[];
@@ -273,6 +274,182 @@ function extractBareMathFollowupExpression(message: string): string | null {
   return hasMathClue ? source : null;
 }
 
+type CourseSectionLookup = {
+  course: string;
+  section: string;
+};
+
+type CourseTopicShorthand = {
+  course: string;
+  topic: string;
+};
+
+const COURSE_ALIAS_PATTERN =
+  String.raw`(?:pre\s*calc(?:\s*1)?|precalc(?:\s*1)?|precalculus(?:\s*1)?|calc\s*[123]|calculus\s*(?:[123]|i{1,3})|diff(?:erential)?\s*eq(?:uations?)?|stats?|statistics|elem(?:entary)?\s*alg(?:ebra)?|elementary\s*algebra)`;
+
+function detectCourseSectionLookup(message: string): CourseSectionLookup | null {
+  const match = message.match(
+    new RegExp(
+      String.raw`\b(${COURSE_ALIAS_PATTERN})\s+(?:section\s+|sec\s+|chapter\s+|ch\s+|lecture\s+)?(\d{1,2}\.\d{1,2})\b`,
+      "i"
+    )
+  );
+
+  const course = match?.[1] ? detectCourseFilter(match[1]) : undefined;
+  const section = match?.[2];
+  return course && section ? { course, section } : null;
+}
+
+function isBareCourseOnlyMessage(message: string, course?: string): boolean {
+  if (!course) return false;
+  const compact = message
+    .toLowerCase()
+    .replace(/[?.!,;:]+$/g, "")
+    .replace(/\bpre\s*calc(?:\s*1)?\b|\bprecalc(?:\s*1)?\b|\bprecalculus(?:\s*1)?\b/g, "")
+    .replace(/\bcalc\s*[123]\b|\bcalculus\s*(?:[123]|i{1,3})\b/g, "")
+    .replace(/\bdiff(?:erential)?\s*eq(?:uations?)?\b/g, "")
+    .replace(/\bstats?\b|\bstatistics\b/g, "")
+    .replace(/\belem(?:entary)?\s*alg(?:ebra)?\b|\belementary\s*algebra\b/g, "")
+    .trim();
+  return compact.length === 0;
+}
+
+function normalizeCourseTopic(topic: string): string {
+  return topic
+    .replace(/\bibp\b/gi, "integration by parts")
+    .replace(/\bast\b/gi, "alternating series test")
+    .replace(/\busub\b|\bu-sub\b/gi, "u substitution")
+    .replace(/\bsep(?:arable)?\b/gi, "separable equations")
+    .replace(/\blin(?:ear)?\s+eq(?:uations?)?\b/gi, "linear equations")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectCourseTopicShorthand(message: string): CourseTopicShorthand | null {
+  const compact = message.trim().replace(/[?.!,;:]+$/g, "");
+  if (compact.length > 90 || /\b(?:what|which|list|show|all|how many)\b/i.test(compact)) {
+    return null;
+  }
+  if (detectCourseSectionLookup(compact)) return null;
+
+  const match = compact.match(new RegExp(String.raw`\b(${COURSE_ALIAS_PATTERN})\b\s*(.*)$`, "i"));
+  const course = match?.[1] ? detectCourseFilter(match[1]) : undefined;
+  const topic = normalizeCourseTopic(match?.[2] ?? "");
+  if (!course || !topic || topic.length < 2) return null;
+
+  return { course, topic };
+}
+
+function sectionTitleMatches(title: string | null | undefined, section: string): boolean {
+  const [whole, part] = section.split(".");
+  if (!whole || !part) return false;
+  return new RegExp(String.raw`(^|[^0-9])${whole}\s*\.\s*${part}([^0-9]|$)`).test(title ?? "");
+}
+
+async function buildCourseSectionLookupReply(lookup: CourseSectionLookup): Promise<string> {
+  const lectures = await getLecturesByCourse(lookup.course);
+  const matches = lectures.filter((lecture) => sectionTitleMatches(lecture.lecture_title, lookup.section));
+
+  if (matches.length === 1) {
+    const lecture = matches[0];
+    const watch = isUsableVideoUrl(lecture.video_url) ? lecture.video_url : "link unavailable";
+    return [
+      `I found the likely ${lookup.course} section ${lookup.section} lecture.`,
+      "",
+      `1. ${lecture.lecture_title ?? "Unknown lecture"}`,
+      `${lecture.course ?? lookup.course} · ${lecture.professor ?? "Unknown professor"}`,
+      `Watch: ${watch}`,
+    ].join("\n");
+  }
+
+  if (matches.length > 1) {
+    return [
+      `I found a few possible ${lookup.course} section ${lookup.section} matches. Which one do you want?`,
+      "",
+      ...matches.slice(0, 4).map((lecture, index) => {
+        const watch = isUsableVideoUrl(lecture.video_url) ? `\nWatch: ${lecture.video_url}` : "";
+        return `${index + 1}. ${lecture.lecture_title ?? "Unknown lecture"}\n${lecture.course ?? lookup.course} · ${lecture.professor ?? "Unknown professor"}${watch}`;
+      }),
+    ].join("\n\n");
+  }
+
+  return [
+    `I recognize ${lookup.course} section ${lookup.section}, but I do not have a reliable exact lecture match for that section.`,
+    "",
+    `Send the section topic, or ask for a nearby ${lookup.course} section, and I will narrow it instead of dumping the whole lecture list.`,
+  ].join("\n");
+}
+
+function buildMathIntentClarification(message: string): string | null {
+  const compact = message.trim().replace(/[?.!,;:]+$/g, "");
+  if (!compact || compact.length > 120) return null;
+  if (detectSimpleMathIntent(compact) || detectCourseFilter(compact) || detectCourseSectionLookup(compact)) {
+    return null;
+  }
+  if (/\b(lecture|lectures|study|quiz|test|exam|notes|explain|why|how|what|when|where|who)\b/i.test(compact)) {
+    return null;
+  }
+
+  const mathOnly = /^[0-9a-zA-Z\s+\-*/^=().,\\]+$/.test(compact);
+  const hasMathShape =
+    /\b(?:ln|log|sqrt|sin|cos|tan|sec|csc|cot|pi|theta)\b/i.test(compact) ||
+    /[a-z]\s*\^\s*\d|\d\s*[a-z]|[a-z]\s*[+\-*/=]\s*[0-9a-z]|[0-9)]\s*[+\-*/=]\s*[a-z(]/i.test(compact) ||
+    /[+\-*/^=()]/.test(compact);
+
+  if (!mathOnly || !hasMathShape) return null;
+
+  if (compact.includes("=")) {
+    return `Do you want to solve, graph, simplify, or rearrange ${compact}?`;
+  }
+
+  return `Do you want to solve, factor, simplify, or graph ${compact}?`;
+}
+
+function isShortAcademicFollowup(message: string): boolean {
+  return /^(do another one|another one|explain that again|why\??|harder example|easier example|what about this one\??|same thing|one more|show another|try another)$/i.test(
+    message.trim()
+  );
+}
+
+function isStudyHelpIntent(message: string, calendarContext: string): boolean {
+  return (
+    /\b(help me study|study for|review for|practice for|quiz|test|exam|midterm|final|need notes|make notes|study guide|review sheet)\b/i.test(
+      message
+    ) ||
+    (!!calendarContext && /\b(tomorrow|wednesday|thursday|friday|monday|tuesday|saturday|sunday|upcoming|soon)\b/i.test(message))
+  );
+}
+
+function buildIntentResolutionSystemMessage(input: {
+  studyIntent: boolean;
+  shortFollowup: boolean;
+  courseTopicShorthand: CourseTopicShorthand | null;
+}): string {
+  const lines = [
+    "Intent resolution rules:",
+    "- If the user's intent is strongly implied, act on it directly.",
+    "- If only a few meanings are plausible, ask one targeted clarifying question with the likely options.",
+    "- If the missing piece makes the request unsafe to answer, ask for that missing piece specifically.",
+    "- Do not dump broad lecture lists or ask vague clarification questions when a narrower route is available.",
+  ];
+
+  if (input.shortFollowup) {
+    lines.push("- This is a short follow-up. Use recent context and the previous math operation/topic when it is unambiguous.");
+  }
+
+  if (input.studyIntent) {
+    lines.push("- This is likely study-help intent. Offer a concise plan, practice, or notes; if the exam/topic is missing, ask what it covers.");
+  }
+
+  if (input.courseTopicShorthand) {
+    lines.push(
+      `- The user likely means a ${input.courseTopicShorthand.course} topic lookup for "${input.courseTopicShorthand.topic}". Prefer the most relevant result or a small narrowed set.`
+    );
+  }
+
+  return lines.join("\n");
+}
+
 function buildContextualMathMessage(intent: ReturnType<typeof detectSimpleMathIntent>, expression: string): string | null {
   if (!intent) return null;
   if (intent === "limit") return null;
@@ -386,6 +563,28 @@ function normalizeBufferedModelOutput(content: string): string {
     .trim();
 }
 
+function normalizeCalendarContext(content?: string): string {
+  return String(content ?? "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .join("\n");
+}
+
+function buildCalendarContextSystemMessage(calendarContext: string): string {
+  return [
+    "Upcoming calendar events from the user's saved calendar:",
+    calendarContext,
+    "",
+    "Calendar behavior rules:",
+    "- Use this only when it is relevant to the current request.",
+    "- If an event title includes test, exam, quiz, midterm, or final, naturally offer concise study help or prioritization.",
+    "- Do not repeatedly mention calendar events and do not invent dates, courses, or assignments.",
+  ].join("\n");
+}
+
 export async function POST(req: Request) {
   try {
     const body: ChatRequest = await req.json();
@@ -402,6 +601,7 @@ export async function POST(req: Request) {
     const lectureMode = body.lectureMode ?? false;
     const difficulty = body.difficulty ?? "exam";
     const practiceMode = body.practiceMode ?? false;
+    const calendarContext = normalizeCalendarContext(body.calendarContext);
 
     let ragContext = body.ragContext ?? [];
     let ragStyleSnippets = body.ragStyleSnippets ?? [];
@@ -442,9 +642,14 @@ export async function POST(req: Request) {
       ).data
       : null;
 
-    const personalContext = profile?.about_user
-      ? `User context: ${profile.about_user}`
-      : "";
+    const personalContext = [
+      profile?.about_user ? `User context: ${profile.about_user}` : "",
+      calendarContext
+        ? `Calendar context available: The user has upcoming saved events. Use the dedicated calendar system message for exact event details.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     const styleInstructions = profile?.response_style
       ? `Response style: ${profile.response_style}`
@@ -452,6 +657,9 @@ export async function POST(req: Request) {
 
     const detectedCourse = detectCourseFilter(message);
     const inferredMathCourse = inferCourseFromMathTopic(message);
+    const courseSectionLookup = detectCourseSectionLookup(message);
+    const courseTopicShorthand = detectCourseTopicShorthand(message);
+    const bareCourseOnlyMessage = isBareCourseOnlyMessage(message, detectedCourse);
     const recentCourseFromHistory = detectRecentCourseFromHistory(historyWithoutCurrent);
     const courseForLectureList = detectedCourse ?? recentCourseFromHistory;
     const latestAssistantForLectureTopic = [...history]
@@ -468,7 +676,7 @@ export async function POST(req: Request) {
     const isDetectedCourseLectureIntent =
       (!!detectedCourse && !wantsLectureRecovery && /(list|lectures|all|show)/i.test(message)) ||
       isLectureTopicFollowup ||
-      (!!detectedCourse && !wantsLectureRecovery && message.trim().length <= 40);
+      (!!detectedCourse && !wantsLectureRecovery && bareCourseOnlyMessage);
     const isRecentCourseLectureFollowup =
       !detectedCourse &&
       !!recentCourseFromHistory &&
@@ -508,6 +716,16 @@ export async function POST(req: Request) {
           },
         });
       }
+    }
+
+    if (courseSectionLookup && !wantsLectureRecovery) {
+      const reply = await buildCourseSectionLookupReply(courseSectionLookup);
+      return new Response(reply, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
     }
 
     if (isLectureCountIntent(message)) {
@@ -617,6 +835,45 @@ export async function POST(req: Request) {
         }
       } catch (error) {
         if (isDevLog) console.log("Lecture recovery RAG fallback error:", error);
+      } finally {
+        clearTimeout(ragTimeout);
+      }
+    }
+
+    if (
+      lectureMode &&
+      courseTopicShorthand &&
+      ragContext.length === 0 &&
+      ragCitations.length === 0
+    ) {
+      const ragController = new AbortController();
+      const ragTimeout = setTimeout(() => ragController.abort(), INTERNAL_RAG_TIMEOUT_MS);
+
+      try {
+        const ragRes = await fetch(new URL("/api/rag/query", req.url), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ragController.signal,
+          body: JSON.stringify({
+            question: `${courseTopicShorthand.topic} ${courseTopicShorthand.course}`,
+            lectureMode: true,
+            courseFilter: courseTopicShorthand.course,
+            minSimilarity: 0.2,
+            maxChunks: 8,
+            maxStyleSnippets: isNikiMode ? 6 : 3,
+          }),
+        });
+
+        if (ragRes.ok) {
+          const ragJson = (await ragRes.json()) as InternalRagResponse;
+          ragContext = ragJson.context ?? [];
+          ragStyleSnippets = ragJson.styleSnippets ?? [];
+          ragCitations = dedupeCitations(ragJson.citations ?? []);
+        } else if (isDevLog) {
+          console.log("Course-topic shorthand RAG fallback failed:", ragRes.status, await ragRes.text());
+        }
+      } catch (error) {
+        if (isDevLog) console.log("Course-topic shorthand RAG fallback error:", error);
       } finally {
         clearTimeout(ragTimeout);
       }
@@ -741,6 +998,16 @@ export async function POST(req: Request) {
           },
         });
       }
+
+      const mathIntentClarification = buildMathIntentClarification(message);
+      if (mathIntentClarification) {
+        return new Response(mathIntentClarification, {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
     }
 
     const formattedHistory = historyWithoutCurrent
@@ -766,13 +1033,15 @@ export async function POST(req: Request) {
       )?.content;
 
     const includeThoughtTrace = wantsThoughtTrace(message);
+    const studyIntent = isStudyHelpIntent(message, calendarContext);
+    const shortFollowup = isShortAcademicFollowup(message);
     const forceStructuredMath =
       isLikelyMathQuestion(message) ||
       wantsStepByStep(message) ||
       wantsDeeperExplanation(message);
     const longFormNonDeterministic =
       !forceStructuredMath &&
-      isLongFormNonDeterministicRequest(message);
+      (isLongFormNonDeterministicRequest(message) || studyIntent || shortFollowup || !!courseTopicShorthand);
 
     const isCoding =
       isCodingQuestion(message, textFileName, textFileContent) ||
@@ -816,6 +1085,14 @@ export async function POST(req: Request) {
       hasLectureContext: !!lectureContextSystemContent,
       longFormNonDeterministic,
     });
+    const intentResolutionSystemContent =
+      studyIntent || shortFollowup || courseTopicShorthand
+        ? buildIntentResolutionSystemMessage({
+          studyIntent,
+          shortFollowup,
+          courseTopicShorthand,
+        })
+        : "";
 
     const userMessage: Record<string, unknown> = {
       role: "user",
@@ -829,6 +1106,12 @@ export async function POST(req: Request) {
     const ollamaMessages = [
       { role: "system", content: systemPrompt },
       { role: "system" as const, content: modeReminderSystemContent },
+      ...(intentResolutionSystemContent
+        ? [{ role: "system" as const, content: intentResolutionSystemContent }]
+        : []),
+      ...(calendarContext
+        ? [{ role: "system" as const, content: buildCalendarContextSystemMessage(calendarContext) }]
+        : []),
       ...(lectureContextSystemContent
         ? [{ role: "system" as const, content: lectureContextSystemContent }]
         : lectureMode

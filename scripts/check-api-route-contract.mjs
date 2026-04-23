@@ -37,6 +37,26 @@ const fixtures = [
     pattern: /\{ status: 500 \}/,
   },
   {
+    name: "course-section-shorthand-routes-before-lecture-list",
+    pattern: /detectCourseSectionLookup[\s\S]*buildCourseSectionLookupReply[\s\S]*I will narrow it instead of dumping the whole lecture list/,
+  },
+  {
+    name: "course-topic-shorthand-uses-rag-not-full-list",
+    pattern: /integration by parts[\s\S]*detectCourseTopicShorthand[\s\S]*Course-topic shorthand RAG fallback/,
+  },
+  {
+    name: "bare-course-only-guards-short-course-listing",
+    pattern: /bareCourseOnlyMessage[\s\S]*isDetectedCourseLectureIntent[\s\S]*bareCourseOnlyMessage/,
+  },
+  {
+    name: "ambiguous-math-asks-specific-options",
+    pattern: /buildMathIntentClarification[\s\S]*Do you want to solve, factor, simplify, or graph/,
+  },
+  {
+    name: "study-and-followup-intent-system-layer",
+    pattern: /buildIntentResolutionSystemMessage[\s\S]*Use recent context[\s\S]*likely study-help intent/,
+  },
+  {
     name: "ollama-health-has-get-handler",
     source: ollamaHealthSource,
     pattern: /export async function GET\(\)/,

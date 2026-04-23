@@ -2,19 +2,14 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [themeAccent] = useState(() => {
-    if (typeof window === 'undefined') return 'cyan';
-    const savedAccent = localStorage.getItem('theme_accent');
-    return savedAccent === 'green' || savedAccent === 'amber' || savedAccent === 'cyan'
-      ? savedAccent
-      : 'cyan';
-  });
+  const [themeAccent, setThemeAccent] = useState<'cyan' | 'green' | 'amber'>('cyan');
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [forgotSent, setForgotSent] = useState(false);
   const router = useRouter();
@@ -67,6 +62,11 @@ export default function LoginPage() {
   useEffect(() => {
     let mounted = true;
 
+    const savedAccent = localStorage.getItem('theme_accent');
+    if (savedAccent === 'green' || savedAccent === 'amber' || savedAccent === 'cyan') {
+      setThemeAccent(savedAccent);
+    }
+
     const redirectIfSignedIn = async () => {
       const {
         data: { session },
@@ -93,7 +93,7 @@ export default function LoginPage() {
     });
   };
 
-  // --- EMAIL LOGIN / SIGNUP ---
+  // --- EMAIL LOGIN ---
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -103,12 +103,7 @@ export default function LoginPage() {
       const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
 
       if (loginError) {
-        const { error: signUpError } = await supabase.auth.signUp({ email, password });
-        if (signUpError) {
-          setError(signUpError.message);
-        } else {
-          alert("Check your email for a confirmation link!");
-        }
+        setError(loginError.message);
       } else {
         router.replace('/');
         router.refresh();
@@ -282,12 +277,21 @@ export default function LoginPage() {
                   {loading ? "Authenticating..." : "Access System"}
                 </button>
               </form>
+
+              <div className="mt-6 text-center">
+                <p className="text-slate-600 text-[10px] font-black uppercase tracking-widest">
+                  New here?{' '}
+                  <Link href="/signup" className={`${accentText} opacity-80 hover:opacity-100 transition-opacity`}>
+                    Create Account
+                  </Link>
+                </p>
+              </div>
             </>
           )}
         </div>
 
         <p className="text-center text-slate-600 text-[10px] font-mono mt-8 uppercase tracking-widest">
-          Secure Academic Environment • RVCC PRECALC V.1
+          Secure Academic Environment
         </p>
       </div>
     </main>

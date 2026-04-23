@@ -155,6 +155,13 @@ export default function CommandPalette({
         description: "Set your context and response style",
         action: () => router.push("/personalization"),
       },
+      {
+        id: "calendar",
+        icon: "□",
+        label: "Calendar",
+        description: "Add tests, quizzes, and study events",
+        action: () => router.push("/calendar"),
+      },
     ];
 
     const modes: Command[] = [

@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 
 const pageSource = readFileSync("app/page.tsx", "utf8");
+const loginSource = readFileSync("app/login/page.tsx", "utf8");
+const signupSource = readFileSync("app/signup/page.tsx", "utf8");
+const calendarSource = readFileSync("app/calendar/page.tsx", "utf8");
+const chatRouteSource = readFileSync("app/api/chat/route.ts", "utf8");
+const calendarSqlSource = readFileSync("scripts/sql/calendar-events.sql", "utf8");
 const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
 const nextConfigSource = readFileSync("next.config.ts", "utf8");
@@ -30,6 +35,56 @@ const fixtures = [
     name: "home-loads-session-before-user-refresh",
     source: pageSource,
     pattern: /supabase\.auth\.getSession\(\)[\s\S]*supabase\.auth\.getUser\(\)/,
+  },
+  {
+    name: "login-links-to-dedicated-signup",
+    source: loginSource,
+    pattern: /href=["']\/signup["'][\s\S]*Create Account/,
+  },
+  {
+    name: "signup-uses-existing-supabase-auth",
+    source: signupSource,
+    pattern: /supabase\.auth\.signUp\([\s\S]*emailRedirectTo/,
+  },
+  {
+    name: "signup-validates-confirm-password",
+    source: signupSource,
+    pattern: /password !== confirmPassword[\s\S]*Passwords do not match/,
+  },
+  {
+    name: "signup-redirects-after-success",
+    source: signupSource,
+    pattern: /router\.replace\(["']\/["']\)[\s\S]*router\.replace\(["']\/login["']\)/,
+  },
+  {
+    name: "calendar-route-requires-auth-session",
+    source: calendarSource,
+    pattern: /supabase\.auth\.getSession\(\)[\s\S]*router\.replace\(["']\/login["']\)/,
+  },
+  {
+    name: "calendar-stores-events-in-supabase-table",
+    source: calendarSource,
+    pattern: /from\(["']calendar_events["']\)[\s\S]*insert\([\s\S]*event_date[\s\S]*event_time[\s\S]*course/,
+  },
+  {
+    name: "calendar-supports-all-core-courses",
+    source: calendarSource,
+    pattern: /Elementary Algebra[\s\S]*PreCalc 1[\s\S]*Calc 1[\s\S]*Calc 2[\s\S]*Calc 3[\s\S]*Differential Equations[\s\S]*Statistics/,
+  },
+  {
+    name: "calendar-schema-has-rls-and-owner-policies",
+    source: calendarSqlSource,
+    pattern: /create table if not exists public\.calendar_events[\s\S]*enable row level security[\s\S]*auth\.uid\(\) = user_id/,
+  },
+  {
+    name: "home-injects-calendar-context-into-chat-request",
+    source: pageSource,
+    pattern: /fetchUpcomingCalendarContext[\s\S]*from\(["']calendar_events["']\)[\s\S]*calendarContext: calendarContext \|\| undefined/,
+  },
+  {
+    name: "chat-route-uses-calendar-context-non-intrusively",
+    source: chatRouteSource,
+    pattern: /calendarContext\?: string[\s\S]*buildCalendarContextSystemMessage[\s\S]*Use this only when it is relevant[\s\S]*test, exam, quiz, midterm, or final/,
   },
   {
     name: "home-keeps-session-fallback-on-user-refresh-failure",

@@ -96,6 +96,12 @@ type RagResponse = {
   retrievalConfidence?: "high" | "medium" | "low" | "none";
   error?: string;
 };
+type CalendarEventContextRow = {
+  title: string;
+  event_date: string;
+  event_time: string;
+  course: string | null;
+};
 type SpeechRecognitionResultLike = {
   [index: number]: { transcript: string };
   isFinal?: boolean;
@@ -1410,6 +1416,36 @@ export default function Home() {
     }
   };
 
+  const fetchUpcomingCalendarContext = async (userId: string): Promise<string> => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from("calendar_events")
+        .select("title,event_date,event_time,course")
+        .eq("user_id", userId)
+        .gte("event_date", today)
+        .order("event_date", { ascending: true })
+        .order("event_time", { ascending: true })
+        .limit(8);
+
+      if (error || !data?.length) {
+        if (error && error.code !== "42P01") console.warn("Calendar context fetch failed:", error);
+        return "";
+      }
+
+      const rows = data as CalendarEventContextRow[];
+      return rows
+        .map((event) => {
+          const courseLabel = event.course ? ` | ${event.course}` : "";
+          return `- ${event.event_date} ${event.event_time}${courseLabel} | ${event.title}`;
+        })
+        .join("\n");
+    } catch (error) {
+      console.warn("Calendar context unavailable:", error);
+      return "";
+    }
+  };
+
   // --- CORE SEND ENGINE ---
   const handleSend = async () => {
     if (!inputValue.trim() && !attachedFile) return;
@@ -1492,6 +1528,9 @@ export default function Home() {
       let base64Image: string | null = null;
       let textFileContent: string | null = null;
       const rag = await fetchRag(userText);
+      const calendarContext = session?.user?.id
+        ? await fetchUpcomingCalendarContext(session.user.id)
+        : "";
 
       if (currentAttached?.type === "image") {
         const arrayBuffer = await currentAttached.file.arrayBuffer();
@@ -1518,6 +1557,7 @@ export default function Home() {
           ragContext: rag?.context ?? [],
           ragStyleSnippets: rag?.styleSnippets ?? [],
           ragCitations: rag?.citations ?? [],
+          calendarContext: calendarContext || undefined,
           base64Image: base64Image ?? undefined,
           imageMediaType:
             currentAttached?.type === "image"
