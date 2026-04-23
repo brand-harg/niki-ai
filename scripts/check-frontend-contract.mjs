@@ -91,7 +91,27 @@ const fixtures = [
   {
     name: "calendar-route-allows-guests-but-locks-editing",
     source: calendarSource,
-    pattern: /supabase\.auth\.getSession\(\)[\s\S]*setUserId\(null\)[\s\S]*Log In to Add Events[\s\S]*disabled=\{!canEdit\}/,
+    pattern: /supabase\.auth\.getSession\(\)[\s\S]*setUserId\(null\)[\s\S]*Calendar editing is locked while logged out[\s\S]*disabled=\{!canEdit\}/,
+  },
+  {
+    name: "calendar-empty-state-has-demo-events",
+    source: calendarSource,
+    pattern: /EXAMPLE_EVENTS[\s\S]*Calc 2 Test[\s\S]*Statistics Quiz[\s\S]*Example event/,
+  },
+  {
+    name: "calendar-title-guides-natural-input",
+    source: calendarSource,
+    pattern: /Try: Calc 2 test Wednesday 1pm/,
+  },
+  {
+    name: "calendar-auto-suggests-course-from-title",
+    source: calendarSource,
+    pattern: /function inferCourseFromTitle[\s\S]*Calc 2[\s\S]*courseAutoSelected[\s\S]*Auto-selected/,
+  },
+  {
+    name: "calendar-ai-awareness-copy-is-visible",
+    source: calendarSource,
+    pattern: /Niki uses upcoming events quietly to help you study when it matters/,
   },
   {
     name: "calendar-stores-events-in-supabase-table",

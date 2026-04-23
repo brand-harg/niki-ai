@@ -23,8 +23,30 @@ const COURSE_OPTIONS = [
   "Statistics",
 ];
 
+const EXAMPLE_EVENTS = [
+  { title: "Calc 2 Test", detail: "Wed 1:00 PM" },
+  { title: "Statistics Quiz", detail: "Friday 10:00 AM" },
+];
+
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function inferCourseFromTitle(value: string) {
+  if (/\b(elem(?:entary)?\s*alg(?:ebra)?|elementary algebra|algebra)\b/i.test(value)) {
+    return "Elementary Algebra";
+  }
+  if (/\b(pre\s*calc\s*1|precalc\s*1|precalculus\s*1|pre\s*calc|precalc)\b/i.test(value)) {
+    return "PreCalc 1";
+  }
+  if (/\b(calc\s*1|calculus\s*1|calculus\s*i)\b/i.test(value)) return "Calc 1";
+  if (/\b(calc\s*2|calculus\s*2|calculus\s*ii)\b/i.test(value)) return "Calc 2";
+  if (/\b(calc\s*3|calculus\s*3|calculus\s*iii)\b/i.test(value)) return "Calc 3";
+  if (/\b(diff\s*eq|differential equations?|ode)\b/i.test(value)) {
+    return "Differential Equations";
+  }
+  if (/\b(stats?|statistics)\b/i.test(value)) return "Statistics";
+  return "";
 }
 
 function formatEventDate(value: string) {
@@ -54,6 +76,7 @@ export default function CalendarPage() {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [course, setCourse] = useState("");
+  const [courseAutoSelected, setCourseAutoSelected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +136,20 @@ export default function CalendarPage() {
     };
   }, [date]);
 
+  useEffect(() => {
+    const inferredCourse = inferCourseFromTitle(title);
+    if (inferredCourse && (!course || courseAutoSelected)) {
+      setCourse(inferredCourse);
+      setCourseAutoSelected(true);
+      return;
+    }
+
+    if (!inferredCourse && courseAutoSelected) {
+      setCourse("");
+      setCourseAutoSelected(false);
+    }
+  }, [course, courseAutoSelected, title]);
+
   const handleCreateEvent = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -151,6 +188,7 @@ export default function CalendarPage() {
       setDate(todayIsoDate());
       setTime("");
       setCourse("");
+      setCourseAutoSelected(false);
       await loadEvents(userId);
     } finally {
       setSaving(false);
@@ -174,6 +212,45 @@ export default function CalendarPage() {
     setEvents((prev) => prev.filter((event) => event.id !== id));
   };
 
+  const EmptyExamples = ({ locked = false }: { locked?: boolean }) => (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-black text-white">No upcoming events yet</h3>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+            Add a test, quiz, deadline, or study block and Niki will use it when it matters.
+          </p>
+        </div>
+        <span className="hidden rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-cyan-300 sm:inline-flex">
+          Examples
+        </span>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {EXAMPLE_EVENTS.map((event) => (
+          <div
+            key={event.title}
+            className="flex items-center justify-between gap-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.025] px-4 py-3 opacity-70"
+          >
+            <div>
+              <p className="text-sm font-extrabold text-slate-300">{event.title}</p>
+              <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                Example event
+              </p>
+            </div>
+            <p className="shrink-0 text-xs font-bold text-slate-500">{event.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      {locked && (
+        <p className="mt-5 text-xs leading-5 text-slate-500">
+          Log in to replace these examples with your saved calendar.
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <main className="min-h-screen bg-black text-white selection:bg-cyan-500/30">
       <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-6 sm:px-8">
@@ -196,13 +273,13 @@ export default function CalendarPage() {
           >
             <h1 className="text-xl font-black uppercase tracking-tight">Calendar</h1>
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              Add tests, quizzes, deadlines, or study blocks. Niki uses upcoming events quietly when they matter.
+              Niki uses upcoming events quietly to help you study when it matters.
             </p>
 
             {!canEdit && (
-              <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+              <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                 <p className="text-xs font-bold leading-5 text-cyan-100">
-                  You can view this calendar page while logged out. Log in to see your saved events or add a new one.
+                  Calendar editing is locked while logged out. You can still preview how it works.
                 </p>
                 <Link
                   href="/login"
@@ -214,45 +291,76 @@ export default function CalendarPage() {
             )}
 
             <div className="mt-6 space-y-4">
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Event title"
-                className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500/50"
-                disabled={!canEdit}
-                required
-              />
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Event
+                </span>
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="Test, quiz, deadline, or study block"
+                  className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!canEdit}
+                  required
+                />
+                <span className="mt-2 block text-xs leading-5 text-slate-500">
+                  Try: Calc 2 test Wednesday 1pm
+                </span>
+              </label>
               <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50"
-                  disabled={!canEdit}
-                  required
-                />
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(event) => setTime(event.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50"
-                  disabled={!canEdit}
-                  required
-                />
+                <label className="block">
+                  <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Date
+                  </span>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(event) => setDate(event.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canEdit}
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Time
+                  </span>
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={(event) => setTime(event.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canEdit}
+                    required
+                  />
+                </label>
               </div>
-              <select
-                value={course}
-                onChange={(event) => setCourse(event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50"
-                disabled={!canEdit}
-              >
-                <option value="">Optional course</option>
-                {COURSE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
+              <label className="block">
+                <span className="mb-2 flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Course
+                  {courseAutoSelected && course && (
+                    <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[9px] text-cyan-300">
+                      Auto-selected
+                    </span>
+                  )}
+                </span>
+                <select
+                  value={course}
+                  onChange={(event) => {
+                    setCourse(event.target.value);
+                    setCourseAutoSelected(false);
+                  }}
+                  className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!canEdit}
+                >
+                  <option value="">Optional course</option>
+                  {COURSE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             {error && (
@@ -285,13 +393,9 @@ export default function CalendarPage() {
                 Loading calendar...
               </div>
             ) : !canEdit ? (
-              <div className="mt-8 rounded-2xl border border-white/10 bg-black/30 p-6 text-sm leading-6 text-slate-500">
-                Log in to view your saved upcoming events. Guests can open the calendar page, but saved events and editing stay tied to your account.
-              </div>
+              <EmptyExamples locked />
             ) : events.length === 0 ? (
-              <div className="mt-8 rounded-2xl border border-white/10 bg-black/30 p-6 text-sm text-slate-500">
-                No upcoming events yet.
-              </div>
+              <EmptyExamples />
             ) : (
               <div className="mt-6 space-y-3">
                 {events.map((event) => (
