@@ -63,6 +63,67 @@ const scenarios = [
     expect: [/What do you want me to do with ln5x/i, /differentiate it, integrate it/i],
     reject: [/Derivative of/i, /Integral of/i, /Qwen/i],
   },
+  {
+    id: "math-correction-switches-operation-cleanly",
+    body: {
+      message: "I meant integration",
+      history: [
+        { role: "user", content: "derivative x^2" },
+        {
+          role: "assistant",
+          content: "**Derivative**\n\n## Final Answer\n$$\n2x\n$$",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/switching to integral/i, /Integral of x\^2/i, /x\^\{3\}.*\+ C/i],
+    reject: [/\*\*Derivative\*\*/i, /## Final Answer[\s\S]{0,50}2x/i, /Qwen/i],
+  },
+  {
+    id: "course-correction-switches-study-context-cleanly",
+    body: {
+      message: "no do calc 2",
+      history: [
+        { role: "user", content: "help me study for calc 1" },
+        {
+          role: "assistant",
+          content:
+            "What is your Calculus 1 study block on? Send the chapter, section, or topic and I will turn it into a focused study plan.",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/switching to Calculus 2/i, /What is your Calculus 2 study block on/i],
+    reject: [/Calculus 1 study block/i, /partial fraction decomposition/i, /Qwen/i],
+  },
+  {
+    id: "focus-mode-guides-vague-study-followup",
+    body: {
+      message: "quiz tomorrow",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+      focusCourseContext: "Calculus 2",
+      focusTopicContext: "integration by parts",
+    },
+    expect: [/current focus on integration by parts/i, /Calculus 2/i],
+    reject: [/What course or topic is it on/i, /Qwen/i],
+  },
+  {
+    id: "explicit-course-section-overrides-focus-mode",
+    body: {
+      message: "calc 1 2.2",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+      focusCourseContext: "Calculus 2",
+      focusTopicContext: "integration by parts",
+    },
+    expect: [/Calculus 1 section 2\.2/i],
+    reject: [/Calculus 2/i, /integration by parts/i, /Qwen/i],
+  },
 ];
 
 async function postText(body) {

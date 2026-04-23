@@ -478,22 +478,44 @@ function buildUserMessageContent({
   message,
   textFileContent,
   textFileName,
+  pinnedSyllabusContent,
+  pinnedSyllabusName,
+  knowledgeCourseContext,
   latestAssistantMessage,
   practiceMode,
 }: {
   message: string;
   textFileContent?: string;
   textFileName?: string;
+  pinnedSyllabusContent?: string;
+  pinnedSyllabusName?: string;
+  knowledgeCourseContext?: string;
   latestAssistantMessage?: string;
   practiceMode: boolean;
 }): string {
   let userMessageContent = message;
+
+  if (knowledgeCourseContext) {
+    userMessageContent = userMessageContent
+      ? `${userMessageContent}\n\nKnowledge Base focus: ${knowledgeCourseContext}. Use this as the active lecture set when the user has not already pinned the course more specifically.`
+      : `Knowledge Base focus: ${knowledgeCourseContext}.`;
+  }
 
   if (textFileContent) {
     const fileContext = buildAttachedFileContext({ textFileContent, textFileName });
     userMessageContent = userMessageContent
       ? `${userMessageContent}\n\nAttached file context:\n${fileContext}`
       : fileContext;
+  }
+
+  if (pinnedSyllabusContent) {
+    const pinnedContext = buildAttachedFileContext({
+      textFileContent: pinnedSyllabusContent,
+      textFileName: pinnedSyllabusName ?? "Pinned syllabus",
+    });
+    userMessageContent = userMessageContent
+      ? `${userMessageContent}\n\nPinned syllabus context:\n${pinnedContext}`
+      : pinnedContext;
   }
 
   if (practiceMode && !isPracticeRequest(userMessageContent)) {

@@ -128,30 +128,30 @@ export default function FileUploadButton({
                 </div>
               </button>
 
-              {/* Lecture mode */}
-              <button
-                onClick={handleLectureToggle}
-                disabled={!onToggleLectureMode}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
-                  lectureMode ? `${a.bg}` : "hover:bg-white/[0.055]"
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0 transition-all ${
-                  lectureMode ? `${a.border} ${a.bg}` : "bg-white/[0.045] border-white/10 group-hover:border-white/20"
-                }`}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={lectureMode ? a.text : "text-slate-400"}>
-                    <path d="M2.25 2.5h3.5A1.25 1.25 0 017 3.75v7.75a1.25 1.25 0 00-1.25-1.25h-3.5V2.5zM11.75 2.5h-3.5A1.25 1.25 0 007 3.75v7.75a1.25 1.25 0 011.25-1.25h3.5V2.5z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <div className="text-left">
-                  <div className={`text-[13px] font-bold transition-colors ${lectureMode ? a.text : "text-slate-300 group-hover:text-white"}`}>
-                    {lectureMode ? "Lecture Mode On" : "Lecture Mode Off"}
+              {onToggleLectureMode && (
+                <button
+                  onClick={handleLectureToggle}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group outline-none ${
+                    lectureMode ? `${a.bg}` : "hover:bg-white/[0.055]"
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0 transition-all ${
+                    lectureMode ? `${a.border} ${a.bg}` : "bg-white/[0.045] border-white/10 group-hover:border-white/20"
+                  }`}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={lectureMode ? a.text : "text-slate-400"}>
+                      <path d="M2.25 2.5h3.5A1.25 1.25 0 017 3.75v7.75a1.25 1.25 0 00-1.25-1.25h-3.5V2.5zM11.75 2.5h-3.5A1.25 1.25 0 007 3.75v7.75a1.25 1.25 0 011.25-1.25h3.5V2.5z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
+                    </svg>
                   </div>
-                  <div className="text-[10px] text-slate-500">
-                    Toggle retrieval context
+                  <div className="text-left">
+                    <div className={`text-[13px] font-bold transition-colors ${lectureMode ? a.text : "text-slate-300 group-hover:text-white"}`}>
+                      {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      Toggle retrieval context
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              )}
             </div>
 
             {/* File size note */}

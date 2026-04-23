@@ -264,6 +264,54 @@ const scenarios = [
     reject: [/^1\.\s+Nemanja[\s\S]{0,1000}^6\.\s+Nemanja/im],
   },
   {
+    id: "course-topic-search-calc2-ibp",
+    description: "Shorthand command/search should return the best Calculus 2 integration by parts match first.",
+    body: {
+      message: "Calc 2 IBP",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Best match for Calculus 2 integration by parts/i, /8\.2 Integration by Parts/i, /Watch:/i],
+    reject: [/Board Setup/i, /Step-by-Step Solution/i],
+  },
+  {
+    id: "course-topic-search-diffeq-separable",
+    description: "Differential equations shorthand should produce a targeted best match or narrowed set, not a generic lesson.",
+    body: {
+      message: "Diff Eq separable",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Best match for Differential Equations separable equations|I found a few likely Differential Equations matches for separable equations/i, /Watch:/i],
+    reject: [/Board Setup/i, /Step-by-Step Solution/i],
+  },
+  {
+    id: "course-topic-search-precalc-functions",
+    description: "PreCalc shorthand should return the strongest function lecture match directly.",
+    body: {
+      message: "PreCalc functions",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Best match for PreCalc1 functions/i, /Functions and Graphs/i, /Watch:/i],
+    reject: [/Board Setup/i, /Step-by-Step Solution/i],
+  },
+  {
+    id: "course-topic-search-elementary-linear-equations",
+    description: "Elementary Algebra shorthand should narrow to a small targeted result set.",
+    body: {
+      message: "Elem Alg linear equations",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Best match for Elementary Algebra linear equations|I found a few likely Elementary Algebra matches for linear equations/i, /Watch:/i],
+    reject: [/Board Setup/i, /Step-by-Step Solution/i],
+  },
+  {
     id: "wrong-exact-lecture-safe",
     description: "A made-up exact lecture number/title should not be presented as a real lecture.",
     body: {

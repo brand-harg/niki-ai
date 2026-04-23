@@ -48,7 +48,7 @@ function hasProseInsideDisplayMath(text) {
   });
 }
 
-function assertClean(name, input, { ensureFinal = true } = {}) {
+function assertClean(name, input, { ensureFinal = true, contains = [], rejects = [] } = {}) {
   const output = ensureFinal ? normalizeModelMathOutput(input) : sanitizeMathContent(input);
   const outsideMath = stripDisplayMath(output);
   const failures = [];
@@ -60,6 +60,12 @@ function assertClean(name, input, { ensureFinal = true } = {}) {
   if (hasProseInsideDisplayMath(output)) failures.push("prose inside display math");
   if (ensureFinal && !/## Final Answer|FINAL ANSWER/i.test(output)) failures.push("missing final answer");
   if ((output.match(/\$\$/g) ?? []).length % 2 !== 0) failures.push("unbalanced display math fences");
+  for (const pattern of contains) {
+    if (!pattern.test(output)) failures.push(`missing expected pattern ${pattern}`);
+  }
+  for (const pattern of rejects) {
+    if (pattern.test(output)) failures.push(`unexpected pattern present ${pattern}`);
+  }
 
   if (failures.length) {
     console.error(`❌ ${name}`);
@@ -107,6 +113,14 @@ Step 1: Choose u and dv.
 Step 1: The derivative is $ f'(x)=5 $.
 ## Final Answer
 $ f'(x)=5 $`,
+    contains: [/\$f\(x\)=5x\$/, /\$f'\(x\)=5\$/],
+  },
+  {
+    name: "bare-inline-math-in-prose",
+    input: `The derivative of x^2 is 2x.
+The function is f(x)=5x.`,
+    ensureFinal: false,
+    contains: [/\$x\^2\$/, /\$2x\$/, /\$f\(x\)=5x\$/],
   },
   {
     name: "raw-text-command-outside-display",

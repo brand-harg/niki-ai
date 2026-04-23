@@ -105,6 +105,26 @@ const fixtures = [
     pattern: /router\.push\(["']\/calendar["']\)[\s\S]*Calendar/,
   },
   {
+    name: "knowledge-base-sidebar-supports-all-core-courses",
+    source: pageSource,
+    pattern: /const KNOWLEDGE_BASE_COURSES[\s\S]*Elementary Algebra[\s\S]*PreCalc 1[\s\S]*Calc 1[\s\S]*Calc 2[\s\S]*Calc 3[\s\S]*Differential Equations[\s\S]*Statistics[\s\S]*Knowledge Base/,
+  },
+  {
+    name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
+    source: pageSource,
+    pattern: /Source Health[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,
+  },
+  {
+    name: "chat-focus-mode-supports-all-core-courses-and-persists",
+    source: pageSource,
+    pattern: /CHAT_FOCUS_STORAGE_KEY[\s\S]*window\.localStorage\.setItem\(CHAT_FOCUS_STORAGE_KEY[\s\S]*Focus Mode[\s\S]*Current topic or section/,
+  },
+  {
+    name: "chat-focus-mode-shows-topic-suggestions",
+    source: pageSource,
+    pattern: /const FOCUS_TOPIC_SUGGESTIONS[\s\S]*getFocusSuggestion[\s\S]*Suggested:[\s\S]*focusSuggestion/,
+  },
+  {
     name: "calendar-route-allows-guests-but-locks-editing",
     source: calendarSource,
     pattern: /supabase\.auth\.getSession\(\)[\s\S]*setUserId\(null\)[\s\S]*Calendar editing is locked while logged out[\s\S]*disabled=\{!canEdit\}/,
@@ -118,6 +138,11 @@ const fixtures = [
     name: "calendar-title-guides-natural-input",
     source: calendarSource,
     pattern: /Event title[\s\S]*Try: Calc 2 test Wednesday 1pm/,
+  },
+  {
+    name: "calendar-date-time-inputs-share-dark-group-styling",
+    source: calendarSource,
+    pattern: /dateTimeFieldClassName[\s\S]*\[color-scheme:dark\][\s\S]*focus-within:border-cyan-500\/40[\s\S]*Select time/,
   },
   {
     name: "calendar-auto-suggests-course-from-title",
@@ -148,6 +173,21 @@ const fixtures = [
     name: "home-injects-calendar-context-into-chat-request",
     source: pageSource,
     pattern: /fetchUpcomingCalendarContext[\s\S]*from\(["']calendar_events["']\)[\s\S]*calendarContext: calendarContext \|\| undefined/,
+  },
+  {
+    name: "chat-request-includes-knowledge-base-context",
+    source: pageSource,
+    pattern: /knowledgeCourseContext: activeKnowledgeCourse \|\| undefined[\s\S]*pinnedSyllabusContent: pinnedSyllabus\?\.content[\s\S]*pinnedSyllabusName: pinnedSyllabus\?\.name/,
+  },
+  {
+    name: "chat-request-includes-focus-mode-context",
+    source: pageSource,
+    pattern: /focusCourseContext: chatFocus\.course \|\| undefined[\s\S]*focusTopicContext: chatFocus\.topic\.trim\(\) \|\| undefined/,
+  },
+  {
+    name: "chat-prompt-accepts-pinned-syllabus-context",
+    source: chatRouteSource,
+    pattern: /pinnedSyllabusContent\?: string[\s\S]*knowledgeCourseContext\?: string[\s\S]*buildUserMessageContent\([\s\S]*pinnedSyllabusContent[\s\S]*knowledgeCourseContext/,
   },
   {
     name: "chat-route-uses-calendar-context-non-intrusively",
@@ -200,9 +240,19 @@ const fixtures = [
     pattern: /data-chat-capture/,
   },
   {
-    name: "tools-menu-contains-lecture-toggle",
+    name: "tools-menu-contains-teaching-toggle",
     source: fileUploadSource,
-    pattern: /Lecture Mode On[\s\S]*Lecture Mode Off/,
+    pattern: /Teaching: ON[\s\S]*Teaching: OFF/,
+  },
+  {
+    name: "nemanja-mode-shows-teaching-toggle-only",
+    source: pageSource,
+    pattern: /isNikiMode && \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF[\s\S]*isNikiMode && \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
+  },
+  {
+    name: "pure-logic-responses-offer-explain-bridge",
+    source: pageSource,
+    pattern: /handleExplainThis[\s\S]*handleResponseFollowup[\s\S]*Do another[\s\S]*Explain step-by-step[\s\S]*Harder problem/,
   },
   {
     name: "tools-menu-contains-screenshot-action",
@@ -253,6 +303,16 @@ const fixtures = [
     name: "source-cards-show-open-clip-affordance",
     source: pageSource,
     pattern: /Open clip/,
+  },
+  {
+    name: "source-inspector-opens-from-source-cards",
+    source: pageSource,
+    pattern: /Peek evidence[\s\S]*aria-label="Source inspector"[\s\S]*Source Inspector/,
+  },
+  {
+    name: "source-inspector-honestly-labels-evidence",
+    source: pageSource,
+    pattern: /function\s+getCitationEvidenceMeta[\s\S]*Exact[\s\S]*Related[\s\S]*Foundational[\s\S]*No direct transcript snippet was available/,
   },
   {
     name: "math-callouts-detect-efficiency-tips",

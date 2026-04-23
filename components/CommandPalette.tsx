@@ -196,16 +196,19 @@ export default function CommandPalette({
         description: "Wipe the current session messages",
         action: () => onClearChat?.(),
       },
-      {
+    ];
+
+    if (isNikiMode && onToggleLectureMode) {
+      actions.push({
         id: "toggle-lecture-mode",
         icon: lectureMode ? "📚" : "🧠",
-        label: lectureMode ? "Disable Lecture Mode" : "Enable Lecture Mode",
+        label: lectureMode ? "Teaching: OFF" : "Teaching: ON",
         description: lectureMode
           ? "Return to normal chat behavior"
           : "Use retrieval context and source citations",
-        action: () => onToggleLectureMode?.(),
-      },
-    ];
+        action: () => onToggleLectureMode(),
+      });
+    }
 
     const contextual: Command[] = hasActiveChat
       ? [

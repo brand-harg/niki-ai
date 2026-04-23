@@ -45,6 +45,11 @@ type ChatRequest = {
   imageMediaType?: string;
   textFileContent?: string;
   textFileName?: string;
+  pinnedSyllabusContent?: string;
+  pinnedSyllabusName?: string;
+  knowledgeCourseContext?: string;
+  focusCourseContext?: string;
+  focusTopicContext?: string;
   lectureMode?: boolean;
   difficulty?: Difficulty;
   practiceMode?: boolean;
@@ -59,6 +64,8 @@ type ChatRequest = {
     timestampStartSeconds?: number;
     timestampUrl?: string | null;
     similarity?: number;
+    excerpt?: string;
+    sectionHint?: string;
   }[];
 };
 
@@ -72,6 +79,8 @@ type InternalRagResponse = {
     timestampStartSeconds?: number;
     timestampUrl?: string | null;
     similarity?: number;
+    excerpt?: string;
+    sectionHint?: string;
   }[];
 };
 
@@ -226,6 +235,11 @@ function detectRecentCourseFromHistory(history: { role: string; content: string 
   return undefined;
 }
 
+function normalizeFocusTopic(value?: string): string | undefined {
+  const topic = value?.trim();
+  return topic ? topic : undefined;
+}
+
 function detectRecentMathIntentFromHistory(
   history: { role: string; content: string }[]
 ): ReturnType<typeof detectSimpleMathIntent> {
@@ -325,6 +339,116 @@ function normalizeCourseTopic(topic: string): string {
     .trim();
 }
 
+const SEARCH_TOPIC_STOPWORDS = new Set([
+  "lecture",
+  "lectures",
+  "class",
+  "course",
+  "section",
+  "chapter",
+  "intro",
+  "introduction",
+  "more",
+  "part",
+  "parts",
+  "calc",
+  "calculus",
+  "precalc",
+  "precalculus",
+  "diffeq",
+  "diff",
+  "equations",
+  "equation",
+  "elementary",
+  "algebra",
+  "statistics",
+  "stats",
+  "functions",
+]);
+
+function topicSearchTokens(value: string): string[] {
+  return Array.from(
+    new Set(
+      normalizeCourseTopic(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .filter((token) => token.length >= 3)
+        .filter((token) => !SEARCH_TOPIC_STOPWORDS.has(token))
+    )
+  );
+}
+
+function titleScoreForTopic(title: string | null | undefined, topic: string): number {
+  const normalizedTitle = normalizeCourseTopic(title ?? "").toLowerCase();
+  let score = textScoreForTopic(normalizedTitle, topic);
+  if (score > 0 && /\b\d+\.\d+\b/.test(normalizedTitle)) score += 6;
+  return score;
+}
+
+function textScoreForTopic(text: string | null | undefined, topic: string): number {
+  const normalizedTitle = normalizeCourseTopic(text ?? "").toLowerCase();
+  const normalizedTopic = normalizeCourseTopic(topic).toLowerCase();
+  const tokens = topicSearchTokens(topic);
+
+  let score = 0;
+  if (!normalizedTitle) return score;
+
+  if (normalizedTopic && normalizedTitle.includes(normalizedTopic)) score += 120;
+  if (normalizedTopic && normalizedTitle.replace(/\s+/g, "").includes(normalizedTopic.replace(/\s+/g, ""))) score += 30;
+
+  const tokenHits = tokens.filter((token) => new RegExp(String.raw`\b${token}\b`, "i").test(normalizedTitle));
+  score += tokenHits.length * 24;
+
+  if (tokens.length > 1 && tokenHits.length === tokens.length) score += 40;
+  return score;
+}
+
+function dedupeLectureSearchRows<T extends {
+  lectureTitle?: string;
+  course?: string;
+  professor?: string;
+  watchUrl?: string | null;
+  score: number;
+  topicEvidence: number;
+}>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+
+  for (const row of rows) {
+    const key = [
+      row.lectureTitle ?? "",
+      row.course ?? "",
+      row.professor ?? "",
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+
+  return deduped;
+}
+
+function buildCourseTopicClarification(lookup: CourseTopicShorthand): string | null {
+  const topic = lookup.topic.toLowerCase();
+  const options: Record<string, string[]> = {
+    functions: ["function notation", "graphs and transformations", "domain and range", "inverse functions"],
+    equations: ["linear equations", "systems of equations", "quadratic equations", "factoring methods"],
+    series: ["alternating series", "ratio test", "comparison tests", "power series"],
+  };
+
+  const matchedKey = Object.keys(options).find((key) => new RegExp(String.raw`\b${key}\b`, "i").test(topic));
+  if (!matchedKey) return null;
+
+  return [
+    `Which part of ${lookup.course} ${lookup.topic} do you want?`,
+    "",
+    ...options[matchedKey].map((option) => `- ${option}`),
+  ].join("\n");
+}
+
 function detectCourseTopicShorthand(message: string): CourseTopicShorthand | null {
   const compact = message.trim().replace(/[?.!,;:]+$/g, "");
   if (compact.length > 90 || /\b(?:what|which|list|show|all|how many)\b/i.test(compact)) {
@@ -338,6 +462,93 @@ function detectCourseTopicShorthand(message: string): CourseTopicShorthand | nul
   if (!course || !topic || topic.length < 2) return null;
 
   return { course, topic };
+}
+
+async function buildCourseTopicSearchReply(input: {
+  lookup: CourseTopicShorthand;
+  citations: {
+    lectureTitle?: string;
+    professor?: string;
+    course?: string;
+    timestampStartSeconds?: number;
+    timestampUrl?: string | null;
+    similarity?: number;
+    excerpt?: string;
+    sectionHint?: string;
+  }[];
+}): Promise<string | null> {
+  const lectures = await getLecturesByCourse(input.lookup.course);
+  const titleMatches = dedupeLectureSearchRows(
+    lectures
+      .map((lecture) => ({
+        lectureTitle: lecture.lecture_title ?? "Unknown lecture",
+        course: lecture.course ?? input.lookup.course,
+        professor: lecture.professor ?? "Unknown professor",
+        watchUrl: isUsableVideoUrl(lecture.video_url) ? lecture.video_url : null,
+        score: titleScoreForTopic(lecture.lecture_title, input.lookup.topic),
+        topicEvidence: titleScoreForTopic(lecture.lecture_title, input.lookup.topic),
+      }))
+      .filter((row) => row.score > 0)
+      .sort((a, b) => b.score - a.score)
+  );
+
+  const citationMatches = dedupeLectureSearchRows(
+    input.citations
+      .map((citation) => ({
+        lectureTitle: citation.lectureTitle ?? "Unknown lecture",
+        course: citation.course ?? input.lookup.course,
+        professor: citation.professor ?? "Unknown professor",
+        watchUrl: isUsableVideoUrl(citation.timestampUrl) ? citation.timestampUrl : null,
+        topicEvidence: textScoreForTopic(
+          [citation.lectureTitle ?? "", citation.excerpt ?? "", citation.sectionHint ?? ""].join(" "),
+          input.lookup.topic
+        ),
+        score:
+          Math.round((citation.similarity ?? 0) * 100) +
+          textScoreForTopic(
+            [citation.lectureTitle ?? "", citation.excerpt ?? "", citation.sectionHint ?? ""].join(" "),
+            input.lookup.topic
+          ),
+      }))
+      .filter((row) => row.score >= 70)
+      .sort((a, b) => b.score - a.score)
+  );
+
+  const candidates = dedupeLectureSearchRows([...titleMatches, ...citationMatches])
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+  if (candidates.length === 0) {
+    return buildCourseTopicClarification(input.lookup);
+  }
+
+  const [best, second] = candidates;
+  const confidentBest =
+    best.topicEvidence >= 80 &&
+    (
+      best.score >= 120 ||
+      (best.score >= 95 && (!second || best.score - second.score >= 18)) ||
+      (best.score >= 72 && (!second || best.score - second.score >= 24))
+    );
+
+  if (confidentBest) {
+    return [
+      `Best match for ${input.lookup.course} ${input.lookup.topic}:`,
+      "",
+      `1. ${best.lectureTitle}`,
+      `${best.course} · ${best.professor}`,
+      best.watchUrl ? `Watch: ${best.watchUrl}` : "Watch: link unavailable",
+    ].join("\n");
+  }
+
+  const narrowed = candidates.slice(0, 3);
+  return [
+    `I found a few likely ${input.lookup.course} matches for ${input.lookup.topic}. Which one do you want?`,
+    "",
+    ...narrowed.map((match, index) => {
+      const watch = match.watchUrl ? `\nWatch: ${match.watchUrl}` : "";
+      return `${index + 1}. ${match.lectureTitle}\n${match.course} · ${match.professor}${watch}`;
+    }),
+  ].join("\n\n");
 }
 
 function sectionTitleMatches(title: string | null | undefined, section: string): boolean {
@@ -406,7 +617,7 @@ function buildMathIntentClarification(message: string): string | null {
 }
 
 function isShortAcademicFollowup(message: string): boolean {
-  return /^(do another one|another one|explain that again|why\??|harder example|easier example|what about this one\??|same thing|one more|show another|try another)$/i.test(
+  return /^(do another one|another one|explain that again|why\??|harder example|easier example|what about this(?: one)?\??|same thing|one more|show another|try another|another example|again)$/i.test(
     message.trim()
   );
 }
@@ -420,10 +631,50 @@ function isStudyHelpIntent(message: string, calendarContext: string): boolean {
   );
 }
 
+function hasSpecificStudyTopic(message: string): boolean {
+  const compact = message.trim();
+  if (!compact) return false;
+  if (detectCourseSectionLookup(compact) || detectCourseTopicShorthand(compact)) return true;
+  if (isLikelyMathQuestion(compact)) return true;
+
+  return /\b(chain rule|u-substitution|integration by parts|ibp|power series|alternating series|ast|limits?|derivatives?|integrals?|matrices?|eigenvalues?|row reduction|cross product|gradient|probability|normal distribution|z[-\s]?test|linked list|mitosis|dna|cell cycle)\b/i.test(
+    compact
+  );
+}
+
+function buildStudyHelpClarification(input: {
+  message: string;
+  detectedCourse?: string;
+  studyIntent: boolean;
+  focusTopic?: string;
+}): string | null {
+  const { message, detectedCourse, studyIntent, focusTopic } = input;
+  if (!studyIntent || hasSpecificStudyTopic(message)) return null;
+
+  const mentionsAssessment = /\b(quiz|test|exam|midterm|final)\b/i.test(message);
+  if (detectedCourse) {
+    if (focusTopic) {
+      return `I can use your current focus on ${focusTopic} for ${detectedCourse}. If your quiz or test is on something else, tell me the exact chapter, section, or topic.`;
+    }
+    const assessment = mentionsAssessment ? "quiz or test" : "study block";
+    return `What is your ${detectedCourse} ${assessment} on? Send the chapter, section, or topic and I will turn it into a focused study plan.`;
+  }
+
+  if (mentionsAssessment || /\bstudy\b/i.test(message)) {
+    return "What course or topic is it on? Send the class, chapter, or concept and I will narrow the study help right away.";
+  }
+
+  return null;
+}
+
 function buildIntentResolutionSystemMessage(input: {
+  mathInput: boolean;
   studyIntent: boolean;
   shortFollowup: boolean;
+  courseSectionLookup: CourseSectionLookup | null;
   courseTopicShorthand: CourseTopicShorthand | null;
+  focusCourse?: string;
+  focusTopic?: string;
 }): string {
   const lines = [
     "Intent resolution rules:",
@@ -433,18 +684,235 @@ function buildIntentResolutionSystemMessage(input: {
     "- Do not dump broad lecture lists or ask vague clarification questions when a narrower route is available.",
   ];
 
+  if (input.mathInput) {
+    lines.push("- For math inputs, resolve clear requests like factor, derivative, integrate, simplify, expand, solve, or limit directly. If the operation is unclear, ask a specific math clarification with the likely operations.");
+  }
+
   if (input.shortFollowup) {
     lines.push("- This is a short follow-up. Use recent context and the previous math operation/topic when it is unambiguous.");
   }
 
+  if (input.focusCourse || input.focusTopic) {
+    lines.push("- Focus Mode is available as a fallback. Use it only when the user stays vague or is clearly continuing the current topic. Explicit user requests always override it.");
+  }
+
+  if (input.courseSectionLookup) {
+    lines.push(
+      `- The user likely means a ${input.courseSectionLookup.course} section lookup for ${input.courseSectionLookup.section}. Treat it as a course/section lookup first, not a broad lecture inventory.`
+    );
+  }
+
   if (input.studyIntent) {
-    lines.push("- This is likely study-help intent. Offer a concise plan, practice, or notes; if the exam/topic is missing, ask what it covers.");
+    lines.push("- This is likely study-help intent. Offer concise study help. If the course is known but the exact unit/topic is missing, ask one targeted question about what the quiz, test, or study block covers instead of giving a broad survey.");
   }
 
   if (input.courseTopicShorthand) {
     lines.push(
       `- The user likely means a ${input.courseTopicShorthand.course} topic lookup for "${input.courseTopicShorthand.topic}". Prefer the most relevant result or a small narrowed set.`
     );
+  }
+
+  return lines.join("\n");
+}
+
+function buildShortFollowupContextSystemMessage(input: {
+  history: { role: string; content: string }[];
+  recentMathIntent: ReturnType<typeof detectSimpleMathIntent>;
+  recentCourse?: string;
+  focusCourse?: string;
+  focusTopic?: string;
+}): string {
+  const recentEntries = [...input.history]
+    .reverse()
+    .filter((item) => {
+      const content = item.content?.trim() ?? "";
+      return !!content && !isUiGreeting(content) && !isInternalModeReminder(content);
+    })
+    .slice(0, 4)
+    .reverse();
+
+  const lastUser = [...recentEntries].reverse().find((item) => item.role === "user")?.content?.trim();
+  const lastAssistant = [...recentEntries]
+    .reverse()
+    .find((item) => item.role === "assistant" || item.role === "ai")
+    ?.content?.trim();
+
+  const lines = [
+    "Short follow-up context:",
+    "- Treat this as a continuation of the recent conversation.",
+    "- If the last topic is clear, stay on that topic and do not ask a vague clarification question.",
+    "- For requests like 'do another one', 'harder example', or 'explain that again', reuse the same operation or concept unless the history is too weak.",
+  ];
+
+  if (input.recentMathIntent) {
+    lines.push(`- Most recent math operation: ${input.recentMathIntent}.`);
+  }
+
+  if (input.recentCourse) {
+    lines.push(`- Most recent course context: ${input.recentCourse}.`);
+  }
+
+  if (input.focusCourse) {
+    lines.push(`- Focus Mode course fallback: ${input.focusCourse}.`);
+  }
+
+  if (input.focusTopic) {
+    lines.push(`- Focus Mode topic fallback: ${input.focusTopic}.`);
+  }
+
+  if (lastUser) {
+    lines.push(`- Previous user request: ${lastUser.slice(0, 220)}.`);
+  }
+
+  if (lastAssistant) {
+    lines.push(`- Previous assistant response: ${lastAssistant.slice(0, 220)}.`);
+  }
+
+  return lines.join("\n");
+}
+
+type CorrectionIntent = {
+  correctedCourse?: string;
+  correctedMathIntent?: ReturnType<typeof detectSimpleMathIntent>;
+  correctedTopic?: string;
+  acknowledgement: string;
+};
+
+function detectCorrectionIntent(message: string): CorrectionIntent | null {
+  const compact = message.trim().replace(/[?.!,;:]+$/g, "");
+  if (!compact) return null;
+
+  const prefixedCourseMatch = compact.match(
+    /^(?:that'?s|that is|it'?s|it is|no do|do|switch to|actually|this is)\s+(.+)$/i
+  );
+  const explicitNegationMatch = compact.match(/^(?:this is|it'?s|it is)\s+(.+?)\s+not\s+(.+)$/i);
+  const correctedCourse =
+    detectCourseFilter(explicitNegationMatch?.[1] ?? "") ??
+    detectCourseFilter(prefixedCourseMatch?.[1] ?? "");
+
+  if (correctedCourse && /\b(that'?s|that is|it'?s|it is|no do|switch to|actually|this is)\b/i.test(compact)) {
+    return {
+      correctedCourse,
+      acknowledgement: `Got it — switching to ${correctedCourse}.`,
+    };
+  }
+
+  const correctionMathMatch = compact.match(
+    /^(?:i meant|no do|actually do|do|make it|switch to)\s+(.+)$/i
+  );
+  const correctionMathSource = correctionMathMatch?.[1] ?? compact;
+  const correctedMathIntent =
+    detectSimpleMathIntent(correctionMathSource) ??
+    (/^\s*integration\b/i.test(correctionMathSource)
+      ? "integral"
+      : /^\s*differentiation\b/i.test(correctionMathSource)
+        ? "derivative"
+        : /^\s*factoring\b/i.test(correctionMathSource)
+          ? "factor"
+          : /^\s*simplification\b/i.test(correctionMathSource)
+            ? "simplify"
+            : /^\s*expansion\b/i.test(correctionMathSource)
+              ? "expand"
+              : /^\s*solving\b/i.test(correctionMathSource)
+                ? "solve"
+                : /^\s*limits?\b/i.test(correctionMathSource)
+                  ? "limit"
+                  : null);
+  if (
+    correctedMathIntent &&
+    /\b(i meant|no do|actually|switch to|wrong topic)\b/i.test(compact)
+  ) {
+    return {
+      correctedMathIntent,
+      correctedTopic: correctionMathMatch?.[1]?.trim(),
+      acknowledgement: `Got it — switching to ${correctedMathIntent}.`,
+    };
+  }
+
+  if (/^wrong topic$/i.test(compact)) {
+    return {
+      acknowledgement: "Got it — switching topics.",
+    };
+  }
+
+  return null;
+}
+
+function dropLatestAssistantMessage(history: { role: string; content: string }[]): { role: string; content: string }[] {
+  const copy = [...history];
+  for (let index = copy.length - 1; index >= 0; index -= 1) {
+    const role = copy[index]?.role;
+    if (role === "assistant" || role === "ai") {
+      copy.splice(index, 1);
+      break;
+    }
+  }
+  return copy;
+}
+
+function getRecentSubstantiveUserMessage(history: { role: string; content: string }[]): string | null {
+  for (const item of [...history].reverse()) {
+    if (item.role !== "user") continue;
+    const content = item.content?.trim() ?? "";
+    if (!content || isUiGreeting(content) || isInternalModeReminder(content)) continue;
+    return content;
+  }
+  return null;
+}
+
+function detectRecentStudyIntentFromHistory(history: { role: string; content: string }[]): boolean {
+  return [...history].reverse().some((item) => {
+    if (item.role !== "user") return false;
+    const content = item.content?.trim() ?? "";
+    return !!content && isStudyHelpIntent(content, "");
+  });
+}
+
+function extractRecentMathExpressionFromHistory(
+  history: { role: string; content: string }[]
+): string | null {
+  const recentUserMessage = getRecentSubstantiveUserMessage(history);
+  if (!recentUserMessage) return null;
+
+  const compact = recentUserMessage.replace(/[?.!,;:]+$/g, "").trim();
+  const directPatterns = [
+    /\b(?:derivative|differentiate|integral|integrate|antiderivative|factor(?:ize)?|expand|simplify|solve)\s+(?:of|for|on)?\s*(.+)$/i,
+    /\b(?:find|compute|calculate|show|do)\s+(?:the\s+)?(?:derivative|integral|antiderivative|factored form|expanded form)\s+(?:of|for|on)\s+(.+)$/i,
+    /\b(?:limit)\s+(?:of)?\s*(.+)$/i,
+  ];
+
+  for (const pattern of directPatterns) {
+    const match = compact.match(pattern);
+    const expression = match?.[1]?.trim();
+    if (expression) return expression;
+  }
+
+  return extractBareMathFollowupExpression(compact);
+}
+
+function buildCorrectionSystemMessage(input: {
+  correctionIntent: CorrectionIntent;
+  recentUserMessage: string | null;
+}): string {
+  const lines = [
+    "Correction handling rules:",
+    "- The latest user message is a correction to your previous assumption, not a brand-new topic.",
+    `- Briefly acknowledge the correction with exactly one short sentence: "${input.correctionIntent.acknowledgement}"`,
+    "- Discard the previous wrong setup completely.",
+    "- Answer fresh using the corrected course, topic, or operation.",
+    "- Do not over-apologize and do not repeat the mistaken setup.",
+  ];
+
+  if (input.correctionIntent.correctedCourse) {
+    lines.push(`- Corrected course: ${input.correctionIntent.correctedCourse}.`);
+  }
+
+  if (input.correctionIntent.correctedMathIntent) {
+    lines.push(`- Corrected math operation: ${input.correctionIntent.correctedMathIntent}.`);
+  }
+
+  if (input.recentUserMessage) {
+    lines.push(`- Most recent substantive user request before the correction: ${input.recentUserMessage.slice(0, 220)}.`);
   }
 
   return lines.join("\n");
@@ -598,6 +1066,11 @@ export async function POST(req: Request) {
     const imageMediaType = body.imageMediaType;
     const textFileContent = body.textFileContent;
     const textFileName = body.textFileName;
+    const pinnedSyllabusContent = body.pinnedSyllabusContent;
+    const pinnedSyllabusName = body.pinnedSyllabusName;
+    const knowledgeCourseContext = body.knowledgeCourseContext;
+    const focusCourseContext = body.focusCourseContext;
+    const focusTopicContext = normalizeFocusTopic(body.focusTopicContext);
     const lectureMode = body.lectureMode ?? false;
     const difficulty = body.difficulty ?? "exam";
     const practiceMode = body.practiceMode ?? false;
@@ -616,6 +1089,10 @@ export async function POST(req: Request) {
         history[history.length - 1]?.content?.trim() === message
         ? history.slice(0, -1)
         : history;
+    const correctionIntent = detectCorrectionIntent(message);
+    const effectiveHistory = correctionIntent
+      ? dropLatestAssistantMessage(historyWithoutCurrent)
+      : historyWithoutCurrent;
 
     if (!message && !hasImage && !hasTextFile) {
       return NextResponse.json(
@@ -660,8 +1137,11 @@ export async function POST(req: Request) {
     const courseSectionLookup = detectCourseSectionLookup(message);
     const courseTopicShorthand = detectCourseTopicShorthand(message);
     const bareCourseOnlyMessage = isBareCourseOnlyMessage(message, detectedCourse);
-    const recentCourseFromHistory = detectRecentCourseFromHistory(historyWithoutCurrent);
-    const courseForLectureList = detectedCourse ?? recentCourseFromHistory;
+    const recentCourseFromHistory = detectRecentCourseFromHistory(effectiveHistory);
+    const focusCourseFallback = !detectedCourse && !courseSectionLookup && !courseTopicShorthand
+      ? focusCourseContext
+      : undefined;
+    const courseForLectureList = detectedCourse ?? recentCourseFromHistory ?? focusCourseFallback;
     const latestAssistantForLectureTopic = [...history]
       .reverse()
       .find((msg) => msg.role === "ai" || msg.role === "assistant")?.content ?? "";
@@ -880,6 +1360,21 @@ export async function POST(req: Request) {
     }
 
     if (lectureMode) {
+      if (courseTopicShorthand && !wantsLectureRecovery) {
+        const courseTopicSearchReply = await buildCourseTopicSearchReply({
+          lookup: courseTopicShorthand,
+          citations: ragCitations,
+        });
+        if (courseTopicSearchReply) {
+          return new Response(courseTopicSearchReply, {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          });
+        }
+      }
+
       const lectureRecoveryReply = buildLectureRecoveryReply({
         message,
         ragContext,
@@ -927,6 +1422,13 @@ export async function POST(req: Request) {
 
     if (!hasImage && !hasTextFile) {
       const proceduralMathIntent = detectSimpleMathIntent(message);
+      const correctionMathIntent = correctionIntent?.correctedMathIntent ?? null;
+      const correctionMathExpression = correctionMathIntent
+        ? extractRecentMathExpressionFromHistory(effectiveHistory)
+        : null;
+      const recentStudyIntent = correctionIntent
+        ? detectRecentStudyIntentFromHistory(effectiveHistory)
+        : false;
       if (
         proceduralMathIntent &&
         incompleteProceduralMathRequest(message, proceduralMathIntent)
@@ -955,9 +1457,83 @@ export async function POST(req: Request) {
         });
       }
 
+      if (correctionIntent && !correctionIntent.correctedCourse && !correctionMathIntent) {
+        return new Response(`${correctionIntent.acknowledgement}\n\nWhat topic should I switch to?`, {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+
+      if (correctionIntent?.correctedCourse && recentStudyIntent) {
+        return new Response(
+          `${correctionIntent.acknowledgement}\n\nWhat is your ${correctionIntent.correctedCourse} study block on? Send the chapter, section, or topic and I will narrow it right away.`,
+          {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
+      }
+
+      if (correctionMathIntent) {
+        const correctionAcknowledgement = correctionIntent?.acknowledgement ?? "Got it.";
+        if (!correctionMathExpression) {
+          return new Response(
+            `${correctionAcknowledgement}\n\nSend the expression and I will do it with ${correctionMathIntent}.`,
+            {
+              headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-cache",
+              },
+            }
+          );
+        }
+
+        if (correctionMathIntent === "limit") {
+          return new Response(
+            `${correctionAcknowledgement}\n\n${contextualLimitFollowupReply(correctionMathExpression)}`,
+            {
+              headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-cache",
+              },
+            }
+          );
+        }
+
+        const correctedMathMessage = buildContextualMathMessage(
+          correctionMathIntent,
+          correctionMathExpression
+        );
+        if (correctedMathMessage) {
+          const correctedMathReply = buildDeterministicMathReply({
+            message: correctedMathMessage,
+            isProfessorMode: isNikiMode,
+            lectureMode,
+            hasLectureContext:
+              ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0,
+          });
+
+          if (correctedMathReply) {
+            return new Response(
+              `${correctionAcknowledgement}\n\n${normalizeModelMathOutput(correctedMathReply)}`,
+              {
+                headers: {
+                  "Content-Type": "text/plain; charset=utf-8",
+                  "Cache-Control": "no-cache",
+                },
+              }
+            );
+          }
+        }
+      }
+
       const bareMathFollowupExpression = extractBareMathFollowupExpression(message);
       if (!proceduralMathIntent && bareMathFollowupExpression) {
-        const recentMathIntent = detectRecentMathIntentFromHistory(historyWithoutCurrent);
+        const recentMathIntent = detectRecentMathIntentFromHistory(effectiveHistory);
         if (recentMathIntent === "limit") {
           return new Response(contextualLimitFollowupReply(bareMathFollowupExpression), {
             headers: {
@@ -1010,7 +1586,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const formattedHistory = historyWithoutCurrent
+    const formattedHistory = effectiveHistory
       .filter(
         (msg) =>
           msg.content?.trim() &&
@@ -1023,7 +1599,7 @@ export async function POST(req: Request) {
         content: sanitizeHistoryForModel(msg.content),
       }));
 
-    const latestAssistantMessage = [...historyWithoutCurrent]
+    const latestAssistantMessage = [...effectiveHistory]
       .reverse()
       .find(
         (msg) =>
@@ -1035,6 +1611,16 @@ export async function POST(req: Request) {
     const includeThoughtTrace = wantsThoughtTrace(message);
     const studyIntent = isStudyHelpIntent(message, calendarContext);
     const shortFollowup = isShortAcademicFollowup(message);
+    const mathInput = isLikelyMathQuestion(message);
+    const recentMathIntentForFollowup = shortFollowup
+      ? detectRecentMathIntentFromHistory(effectiveHistory)
+      : null;
+    const studyHelpClarification = buildStudyHelpClarification({
+      message,
+      detectedCourse: detectedCourse ?? recentCourseFromHistory ?? focusCourseFallback,
+      studyIntent,
+      focusTopic: !hasSpecificStudyTopic(message) ? focusTopicContext : undefined,
+    });
     const forceStructuredMath =
       isLikelyMathQuestion(message) ||
       wantsStepByStep(message) ||
@@ -1076,6 +1662,9 @@ export async function POST(req: Request) {
       message,
       textFileContent,
       textFileName,
+      pinnedSyllabusContent,
+      pinnedSyllabusName,
+      knowledgeCourseContext,
       latestAssistantMessage,
       practiceMode: practiceMode || isPracticeRequest(message) || isLectureSummaryRequest(message),
     });
@@ -1086,13 +1675,41 @@ export async function POST(req: Request) {
       longFormNonDeterministic,
     });
     const intentResolutionSystemContent =
-      studyIntent || shortFollowup || courseTopicShorthand
+      mathInput || studyIntent || shortFollowup || !!courseSectionLookup || !!courseTopicShorthand
         ? buildIntentResolutionSystemMessage({
+          mathInput,
           studyIntent,
           shortFollowup,
+          courseSectionLookup,
           courseTopicShorthand,
+          focusCourse: focusCourseFallback,
+          focusTopic: focusTopicContext,
         })
         : "";
+    const shortFollowupContextSystemContent = shortFollowup
+      ? buildShortFollowupContextSystemMessage({
+        history: effectiveHistory,
+        recentMathIntent: recentMathIntentForFollowup,
+        recentCourse: recentCourseFromHistory,
+        focusCourse: focusCourseFallback,
+        focusTopic: focusTopicContext,
+      })
+      : "";
+    const correctionSystemContent = correctionIntent
+      ? buildCorrectionSystemMessage({
+        correctionIntent,
+        recentUserMessage: getRecentSubstantiveUserMessage(effectiveHistory),
+      })
+      : "";
+
+    if (studyHelpClarification) {
+      return new Response(studyHelpClarification, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
 
     const userMessage: Record<string, unknown> = {
       role: "user",
@@ -1108,6 +1725,12 @@ export async function POST(req: Request) {
       { role: "system" as const, content: modeReminderSystemContent },
       ...(intentResolutionSystemContent
         ? [{ role: "system" as const, content: intentResolutionSystemContent }]
+        : []),
+      ...(correctionSystemContent
+        ? [{ role: "system" as const, content: correctionSystemContent }]
+        : []),
+      ...(shortFollowupContextSystemContent
+        ? [{ role: "system" as const, content: shortFollowupContextSystemContent }]
         : []),
       ...(calendarContext
         ? [{ role: "system" as const, content: buildCalendarContextSystemMessage(calendarContext) }]

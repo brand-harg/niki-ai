@@ -251,6 +251,9 @@ export default function CalendarPage() {
     </div>
   );
 
+  const dateTimeFieldClassName =
+    "w-full min-w-0 rounded-xl border border-transparent bg-black/10 px-4 py-3 text-sm text-white outline-none transition [color-scheme:dark] hover:bg-black/20 focus:bg-black/20 disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
     <main className="min-h-screen bg-black text-white selection:bg-cyan-500/30">
       <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-6 sm:px-8">
@@ -307,7 +310,8 @@ export default function CalendarPage() {
                   Try: Calc 2 test Wednesday 1pm
                 </span>
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-black/35 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition hover:border-white/15 focus-within:border-cyan-500/40 focus-within:shadow-[0_0_0_1px_rgba(34,211,238,0.18)]">
+                <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-600">
                     Date
@@ -316,8 +320,9 @@ export default function CalendarPage() {
                     type="date"
                     value={date}
                     onChange={(event) => setDate(event.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className={dateTimeFieldClassName}
                     disabled={!canEdit}
+                    aria-label="Event date"
                     required
                   />
                 </label>
@@ -325,15 +330,24 @@ export default function CalendarPage() {
                   <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-600">
                     Time
                   </span>
-                  <input
-                    type="time"
-                    value={time}
-                    onChange={(event) => setTime(event.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!canEdit}
-                    required
-                  />
+                  <div className="relative">
+                    {!time && (
+                      <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-sm text-slate-500">
+                        Select time
+                      </span>
+                    )}
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(event) => setTime(event.target.value)}
+                      className={`${dateTimeFieldClassName} relative z-[1] cursor-pointer ${time ? "" : "text-transparent"}`}
+                      disabled={!canEdit}
+                      aria-label="Event time"
+                      required
+                    />
+                  </div>
                 </label>
+                </div>
               </div>
               <label className="block">
                 <span className="mb-2 flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-slate-600">

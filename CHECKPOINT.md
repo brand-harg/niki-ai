@@ -1,10 +1,10 @@
 # NikiAI Overnight Checkpoint
 
-Updated: 2026-04-22T12:06:22.773Z
-Loop: 94
+Updated: 2026-04-23T00:06:14.365Z
+Loop: 234
 Status: running
 Phase: verification
-Command: `npm run lint`
+Command: `node scripts/check-live-math-output.mjs --repeat=7 --out=scripts/response_logs/live-clean-streak.json`
 Detail: none
 
 ## Resume Protocol

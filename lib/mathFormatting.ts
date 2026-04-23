@@ -107,18 +107,89 @@ function normalizeDollarFenceLines(content: string): string {
   return out.join("\n");
 }
 
-function removeSingleDollarDelimiters(content: string): string {
+function isLikelyInlineMathExpression(expression: string): boolean {
+  const trimmed = expression.trim().replace(/[.,;:!?]+$/g, "").trim();
+  if (!trimmed || trimmed.length > 64) return false;
+  if (/\n|@@CODE_BLOCK_|@@MATH_BLOCK_/.test(trimmed)) return false;
+
+  const wordCount = (trimmed.match(/[A-Za-z]{2,}/g) ?? []).length;
+  const hasMathShape =
+    /[=^_]|'/.test(trimmed) ||
+    /\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\(/i.test(trimmed) ||
+    /\b\d+[a-z](?:\^\{?-?\d+\}?|\^\d+)?\b/i.test(trimmed) ||
+    /\b[a-z](?:\^\{?-?\d+\}?|\^\d+)\b/i.test(trimmed) ||
+    /\b[a-z](?:'|\([^)\n]+\))\b/i.test(trimmed) ||
+    /\b\d+(?:\.\d+)?\/\d+(?:\.\d+)?\b/.test(trimmed);
+
+  if (!hasMathShape) return false;
+  if (/\\(?:frac|sqrt|int|sum|lim|begin|left|right|text|operatorname|matrix|cases)\b/.test(trimmed)) {
+    return false;
+  }
+
+  return wordCount <= 3;
+}
+
+function normalizeInlineDollarMath(content: string): string {
   const displayTokens: string[] = [];
-  return content
-    .replace(/\$\$/g, () => {
-      const token = `@@DISPLAY_DOLLAR_${displayTokens.length}@@`;
-      displayTokens.push("$$");
-      return token;
-    })
-    .replace(/\$/g, "")
+  const inlineTokens: string[] = [];
+
+  const protectedContent = content.replace(/\$\$/g, () => {
+    const token = `@@DISPLAY_DOLLAR_${displayTokens.length}@@`;
+    displayTokens.push("$$");
+    return token;
+  });
+
+  const normalizedInline = protectedContent.replace(/\$([^\n$]+?)\$/g, (match, expr: string) => {
+    if (!isLikelyInlineMathExpression(expr)) return expr.trim();
+    const token = `@@INLINE_MATH_${inlineTokens.length}@@`;
+    inlineTokens.push(`$${expr.trim()}$`);
+    return token;
+  });
+
+  return normalizedInline
+    .replace(/@@INLINE_MATH_(\d+)@@/g, (_match, index: string) => inlineTokens[Number(index)] ?? "")
     .replace(/@@DISPLAY_DOLLAR_(\d+)@@/g, (_match, index: string) => {
       return displayTokens[Number(index)] ?? "$$";
     });
+}
+
+function wrapBareInlineMath(text: string): string {
+  const lines = text.split("\n");
+
+  const wrapIfInline = (expr: string) => {
+    if (!isLikelyInlineMathExpression(expr)) return expr;
+    const trimmed = expr.trim();
+    if (/^\$.*\$$/.test(trimmed)) return trimmed;
+    return `$${trimmed}$`;
+  };
+
+  const wrapLine = (line: string) => {
+    if (
+      !line.trim() ||
+      line.includes("$$") ||
+      containsRawLatexCommand(line) ||
+      line.includes("@@CODE_BLOCK_") ||
+      line.includes("@@MATH_BLOCK_") ||
+      /^#{1,6}\s/.test(line.trim()) ||
+      /^\s*[-*]\s/.test(line)
+    ) {
+      return line;
+    }
+
+    let wrapped = line.replace(
+      /(^|[\s(])((?:[A-Za-z](?:'|\([^)\n]+\))?|[0-9]+(?:\.[0-9]+)?|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?)(?:\s*[=+\-*/^]\s*(?:[A-Za-z](?:'|\([^)\n]+\))?|[0-9]+(?:\.[0-9]+)?|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?))+)(?=[\s).,;:!?]|$)/g,
+      (_match, lead: string, expr: string) => `${lead}${wrapIfInline(expr)}`
+    );
+
+    wrapped = wrapped.replace(
+      /\b(of|is|are|equals|becomes|gives|yields)\s+([A-Za-z](?:\([^)\n]+\))?|[A-Za-z]'\([^)\n]+\)|\d+[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?|[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)|\d+\/\d+)\b/g,
+      (_match, lead: string, expr: string) => `${lead} ${wrapIfInline(expr)}`
+    );
+
+    return wrapped.replace(/[ \t]{2,}/g, " ");
+  };
+
+  return lines.map(wrapLine).join("\n");
 }
 
 function repairLooseMathLines(content: string): string {
@@ -455,7 +526,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
     .replace(/\*\*\s*Rule\s+used\s*:\s*\*\*/gi, "**Rule used:**");
 
   cleaned = normalizeDollarFenceLines(cleaned);
-  cleaned = removeSingleDollarDelimiters(cleaned);
+  cleaned = normalizeInlineDollarMath(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = repairSeriesTestProse(cleaned);
   cleaned = normalizeBrokenMarkdown(cleaned);
@@ -483,6 +554,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   });
 
   cleaned = repairRawLatexOutsideDisplay(cleaned);
+  cleaned = wrapBareInlineMath(cleaned);
 
   cleaned = cleaned.replace(/^([^\n]*\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)[^\n]*)$/gm, (line) => {
     const trimmed = line.trim();
@@ -530,7 +602,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = repairRawLatexOutsideDisplay(cleaned);
   cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
-  cleaned = removeSingleDollarDelimiters(cleaned);
+  cleaned = normalizeInlineDollarMath(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
 

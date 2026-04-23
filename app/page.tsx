@@ -42,6 +42,8 @@ type Message = {
   content: string;
   citations?: RagCitation[];
   retrievalConfidence?: RagResponse["retrievalConfidence"];
+  mode?: "pure" | "nemanja";
+  teachingEnabled?: boolean;
 };
 
 type AppSession = { user: { id: string } } | null;
@@ -58,6 +60,137 @@ type AppProfile = {
 };
 
 const AUTH_TIMEOUT_MS = 6000;
+const KNOWLEDGE_BASE_STORAGE_KEY = "niki_knowledge_base_course";
+const PINNED_SYLLABUS_STORAGE_KEY = "niki_pinned_syllabus";
+const CHAT_FOCUS_STORAGE_KEY = "niki_chat_focus";
+
+type KnowledgeBaseCourse = {
+  label: string;
+  courseContext: string;
+  shortLabel: string;
+};
+
+type PinnedSyllabus = {
+  name: string;
+  content: string;
+  pinnedAt: string;
+};
+
+type ChatFocusState = {
+  course: string;
+  topic: string;
+};
+
+type FocusTopicSuggestion = {
+  topic: string;
+  keywords: string[];
+};
+
+const KNOWLEDGE_BASE_COURSES: KnowledgeBaseCourse[] = [
+  { label: "Elementary Algebra", courseContext: "Elementary Algebra", shortLabel: "Elem Alg" },
+  { label: "PreCalc 1", courseContext: "PreCalc1", shortLabel: "PreCalc 1" },
+  { label: "Calc 1", courseContext: "Calculus 1", shortLabel: "Calc 1" },
+  { label: "Calc 2", courseContext: "Calculus 2", shortLabel: "Calc 2" },
+  { label: "Calc 3", courseContext: "Calculus 3", shortLabel: "Calc 3" },
+  { label: "Differential Equations", courseContext: "Differential Equations", shortLabel: "Diff Eq" },
+  { label: "Statistics", courseContext: "Statistics", shortLabel: "Statistics" },
+];
+
+const FOCUS_TOPIC_SUGGESTIONS: Record<string, FocusTopicSuggestion[]> = {
+  "Elementary Algebra": [
+    { topic: "1.2 Linear Equations", keywords: ["linear equation", "solve", "isolate", "equation"] },
+    { topic: "2.1 Factoring Basics", keywords: ["factor", "factoring", "trinomial"] },
+    { topic: "3.1 Systems of Equations", keywords: ["system", "elimination", "substitution"] },
+    { topic: "4.1 Radicals and Exponents", keywords: ["radical", "sqrt", "exponent"] },
+  ],
+  PreCalc1: [
+    { topic: "1.3 More on Functions and Graphs", keywords: ["function", "graph", "domain", "range"] },
+    { topic: "2.2 Polynomial and Rational Functions", keywords: ["polynomial", "rational", "asymptote"] },
+    { topic: "3.1 Exponential Functions", keywords: ["exponential", "growth", "decay"] },
+    { topic: "3.2 Logarithmic Functions", keywords: ["log", "ln", "logarithm"] },
+  ],
+  "Calculus 1": [
+    { topic: "2.2 Derivative Rules", keywords: ["derivative", "differentiate", "power rule", "product rule", "quotient rule"] },
+    { topic: "1.3 Limits and Continuity", keywords: ["limit", "continuity", "approaches"] },
+    { topic: "3.1 Applications of Derivatives", keywords: ["optimization", "related rates", "critical point"] },
+    { topic: "3.2 Derivative as a Function", keywords: ["slope", "tangent", "derivative as a function"] },
+  ],
+  "Calculus 2": [
+    { topic: "6.1 Basic Integration", keywords: ["integral", "integrate", "antiderivative"] },
+    { topic: "7.1 U-Substitution", keywords: ["u substitution", "u-sub", "substitution"] },
+    { topic: "7.3 Integration by Parts", keywords: ["integration by parts", "ibp"] },
+    { topic: "9.1 Sequences and Series", keywords: ["sequence", "series", "summation"] },
+  ],
+  "Calculus 3": [
+    { topic: "10.2 Vectors and Geometry", keywords: ["vector", "dot product", "cross product"] },
+    { topic: "11.1 Partial Derivatives", keywords: ["partial derivative", "gradient", "multivariable"] },
+    { topic: "12.1 Double Integrals", keywords: ["double integral", "iterated integral"] },
+    { topic: "12.3 Polar and Parametric Surfaces", keywords: ["polar", "parametric", "surface"] },
+  ],
+  "Differential Equations": [
+    { topic: "1.1 Separable Equations", keywords: ["separable", "differential equation"] },
+    { topic: "1.5 Linear First-Order Equations", keywords: ["linear first-order", "integrating factor"] },
+    { topic: "2.1 Second-Order Equations", keywords: ["second order", "characteristic equation"] },
+    { topic: "3.1 Laplace Transforms", keywords: ["laplace", "transform"] },
+  ],
+  Statistics: [
+    { topic: "1.1 Statistics Basics", keywords: ["mean", "median", "mode", "standard deviation"] },
+    { topic: "2.1 Probability Foundations", keywords: ["probability", "conditional probability"] },
+    { topic: "3.1 Normal Distributions and Z-Scores", keywords: ["normal distribution", "z-score"] },
+    { topic: "4.1 Confidence Intervals and Tests", keywords: ["confidence interval", "hypothesis", "p-value", "z-test"] },
+  ],
+};
+
+function normalizeSuggestionText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function getFocusSuggestion(course: string, draft: string): string | null {
+  const normalizedDraft = normalizeSuggestionText(draft);
+  if (!normalizedDraft || normalizedDraft.length < 3) return null;
+
+  const suggestions = FOCUS_TOPIC_SUGGESTIONS[course] ?? [];
+  let bestTopic: string | null = null;
+  let bestScore = 0;
+
+  for (const suggestion of suggestions) {
+    let score = 0;
+    for (const keyword of suggestion.keywords) {
+      const normalizedKeyword = normalizeSuggestionText(keyword);
+      if (!normalizedKeyword) continue;
+      if (normalizedDraft.includes(normalizedKeyword)) {
+        score += normalizedKeyword.includes(" ") ? 3 : 2;
+      } else {
+        const parts = normalizedKeyword.split(" ").filter(Boolean);
+        const partHits = parts.filter((part) => normalizedDraft.includes(part)).length;
+        if (partHits >= Math.max(1, parts.length - 1)) score += partHits;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestTopic = suggestion.topic;
+    }
+  }
+
+  return bestScore >= 2 ? bestTopic : null;
+}
+
+function isLikelyKnowledgeFileName(name = ""): boolean {
+  return /(syllabus|schedule|calendar|canvas|assignment|module|quiz|exam|test|deadline|ics|csv)/i.test(
+    name
+  );
+}
+
+function formatPinnedTimestamp(value?: string): string {
+  if (!value) return "Just pinned";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Just pinned";
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
 
 function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -90,6 +223,8 @@ type RagCitation = {
   timestampUrl?: string | null;
   course?: string;
   similarity?: number;
+  excerpt?: string;
+  sectionHint?: string;
 };
 type RagResponse = {
   context?: string[];
@@ -152,6 +287,15 @@ function isGreetingOnly(messages: Message[]) {
       messages[0]?.role === "ai" &&
       ALL_GREETING_TEXTS.has(messages[0]?.content ?? ""))
   );
+}
+
+function createHistoryMessage(message: Message): Message {
+  return {
+    role: message.role,
+    content: message.content,
+    citations: message.citations,
+    retrievalConfidence: message.retrievalConfidence,
+  };
 }
 
 function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
@@ -237,6 +381,45 @@ function confidenceFromCitations(
   return "low";
 }
 
+function cleanEvidenceText(value?: string) {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function getCitationEvidenceMeta(citation: RagCitation) {
+  const excerpt = cleanEvidenceText(citation.excerpt);
+  const sectionHint = cleanEvidenceText(citation.sectionHint);
+
+  if (excerpt && typeof citation.similarity === "number" && citation.similarity >= 0.82) {
+    return {
+      label: "Exact",
+      detail: "Direct transcript match from lecture",
+      body: excerpt,
+    };
+  }
+
+  if (excerpt) {
+    return {
+      label: "Related",
+      detail: "Relevant excerpt from this lecture",
+      body: excerpt,
+    };
+  }
+
+  if (sectionHint) {
+    return {
+      label: "Foundational",
+      detail: "No direct transcript — based on lecture topic",
+      body: sectionHint,
+    };
+  }
+
+  return {
+    label: "Foundational",
+    detail: "No direct transcript — based on lecture topic",
+    body: "",
+  };
+}
+
 function isLectureInventoryRequest(message: string) {
   return (
     /\b(?:what|which|list|show|all)\b[\s\S]{0,50}\blectures?\b/i.test(message) ||
@@ -288,6 +471,7 @@ const CitationCard = ({
   const accentBg = isGreen ? "bg-green-500/5" : isAmber ? "bg-amber-500/5" : "bg-cyan-500/5";
   const unique = useMemo(() => dedupeCitations(citations).slice(0, 4), [citations]);
   const [activeClip, setActiveClip] = useState<RagCitation | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const shownConfidence = confidence ?? confidenceFromCitations(unique);
   const confidenceLabel =
     shownConfidence === "high"
@@ -309,16 +493,26 @@ const CitationCard = ({
         <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
           Sources
         </p>
-        {shownConfidence && shownConfidence !== "none" && (
-          <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
-            {confidenceLabel}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setInspectorOpen(true)}
+            className={`rounded-md border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest transition ${accentBorder} bg-black/25 ${accentText} hover:bg-white/[0.05]`}
+          >
+            Peek evidence
+          </button>
+          {shownConfidence && shownConfidence !== "none" && (
+            <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+              {confidenceLabel}
+            </span>
+          )}
+        </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {unique.map((c, i) => {
           const videoId = getYouTubeVideoId(c.timestampUrl);
           const timestampLabel = formatTimestamp(c.timestampStartSeconds);
+          const evidenceMeta = getCitationEvidenceMeta(c);
           const cardContent = (
             <>
               {videoId && (
@@ -351,6 +545,11 @@ const CitationCard = ({
                     </span>
                   )}
                 </p>
+                <div className="mt-2">
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    {evidenceMeta.label}
+                  </span>
+                </div>
               </div>
             </>
           );
@@ -385,6 +584,95 @@ const CitationCard = ({
         })}
       </div>
     </div>
+      {inspectorOpen && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Source inspector"
+          onClick={() => setInspectorOpen(false)}
+        >
+          <div
+            className="w-full max-w-4xl overflow-hidden rounded-2xl border border-white/12 bg-[#101010] shadow-[0_30px_120px_rgba(0,0,0,0.65)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-black text-slate-100">
+                  Source Inspector
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Inspect the evidence behind this answer. Exact transcript evidence is shown when available; foundational matches are labeled plainly.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectorOpen(false)}
+                className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[75vh] overflow-y-auto px-4 py-4">
+              <div className="space-y-3">
+                {unique.map((citation, index) => {
+                  const timestampLabel = formatTimestamp(citation.timestampStartSeconds);
+                  const evidenceMeta = getCitationEvidenceMeta(citation);
+                  return (
+                    <div
+                      key={`${citation.lectureTitle ?? "source"}-${citation.timestampStartSeconds ?? index}-${index}`}
+                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-100">
+                            {citation.lectureTitle ?? "Unknown lecture"}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {citation.course ?? "Unknown course"}
+                            {timestampLabel ? ` · ${timestampLabel}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex max-w-[11rem] flex-col items-end gap-1">
+                          <span className={`rounded-full border ${accentBorder} bg-white/[0.04] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${accentText}`}>
+                            {evidenceMeta.label}
+                          </span>
+                          <p className="text-right text-[10px] leading-4 text-slate-500">
+                            {evidenceMeta.detail}
+                          </p>
+                        </div>
+                      </div>
+
+                      {evidenceMeta.body ? (
+                        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-[13px] leading-6 text-slate-200">
+                          {evidenceMeta.body}
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-3 text-[12px] leading-5 text-slate-500">
+                          No direct transcript snippet was available for this source.
+                        </div>
+                      )}
+
+                      {citation.timestampUrl && (
+                        <div className="mt-3">
+                          <a
+                            href={citation.timestampUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`text-[11px] font-black uppercase tracking-widest ${accentText} hover:text-white`}
+                          >
+                            Open source clip →
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {activeClip && activeEmbedUrl && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm"
@@ -665,6 +953,12 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [activeKnowledgeCourse, setActiveKnowledgeCourse] = useState<string>("Calculus 1");
+  const [pinnedSyllabus, setPinnedSyllabus] = useState<PinnedSyllabus | null>(null);
+  const [chatFocus, setChatFocus] = useState<ChatFocusState>({
+    course: "Calculus 1",
+    topic: "",
+  });
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
@@ -703,6 +997,46 @@ export default function Home() {
     setMessages(createGreeting(mode));
   };
 
+  const knowledgeBaseCourse = useMemo(
+    () =>
+      KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === activeKnowledgeCourse) ??
+      KNOWLEDGE_BASE_COURSES[2],
+    [activeKnowledgeCourse]
+  );
+
+  const sourceHealth = useMemo(() => {
+    if (pinnedSyllabus) {
+      return {
+        label: "READY",
+        detail: "Lecture retrieval and pinned syllabus context are both available.",
+      };
+    }
+
+    return {
+      label: "INDEXED",
+      detail: "Lecture retrieval is available across every supported course.",
+    };
+  }, [pinnedSyllabus]);
+
+  const attachedKnowledgeButtonLabel = useMemo(() => {
+    if (attachedFile?.type !== "text") return null;
+    return isLikelyKnowledgeFileName(attachedFile.file.name)
+      ? "Pin attached syllabus"
+      : "Pin attached study file";
+  }, [attachedFile]);
+
+  const focusCourseLabel = useMemo(() => {
+    return (
+      KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === chatFocus.course)?.label ??
+      "Calc 1"
+    );
+  }, [chatFocus.course]);
+
+  const focusSuggestion = useMemo(() => {
+    if (chatFocus.topic.trim()) return null;
+    return getFocusSuggestion(chatFocus.course, inputValue);
+  }, [chatFocus.course, chatFocus.topic, inputValue]);
+
   useEffect(() => {
     const query = window.matchMedia("(min-width: 768px)");
     const syncSidebarToViewport = () => setIsSidebarOpen(query.matches);
@@ -714,11 +1048,73 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    try {
+      const storedCourse = window.localStorage.getItem(KNOWLEDGE_BASE_STORAGE_KEY);
+      if (storedCourse && KNOWLEDGE_BASE_COURSES.some((course) => course.courseContext === storedCourse)) {
+        setActiveKnowledgeCourse(storedCourse);
+      }
+
+      const storedPinnedSyllabus = window.localStorage.getItem(PINNED_SYLLABUS_STORAGE_KEY);
+      if (storedPinnedSyllabus) {
+        const parsed = JSON.parse(storedPinnedSyllabus) as PinnedSyllabus;
+        if (parsed?.name && parsed?.content) {
+          setPinnedSyllabus(parsed);
+        }
+      }
+
+      const storedFocus = window.localStorage.getItem(CHAT_FOCUS_STORAGE_KEY);
+      if (storedFocus) {
+        const parsed = JSON.parse(storedFocus) as ChatFocusState;
+        if (
+          parsed?.course &&
+          KNOWLEDGE_BASE_COURSES.some((course) => course.courseContext === parsed.course)
+        ) {
+          setChatFocus({
+            course: parsed.course,
+            topic: parsed.topic ?? "",
+          });
+        }
+      }
+    } catch {
+      // Ignore local storage boot failures and keep defaults.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(KNOWLEDGE_BASE_STORAGE_KEY, activeKnowledgeCourse);
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [activeKnowledgeCourse]);
+
+  useEffect(() => {
+    try {
+      if (pinnedSyllabus) {
+        window.localStorage.setItem(PINNED_SYLLABUS_STORAGE_KEY, JSON.stringify(pinnedSyllabus));
+      } else {
+        window.localStorage.removeItem(PINNED_SYLLABUS_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [pinnedSyllabus]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CHAT_FOCUS_STORAGE_KEY, JSON.stringify(chatFocus));
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [chatFocus]);
+
+  useEffect(() => {
     profileLoadedRef.current = profileLoaded;
   }, [profileLoaded]);
 
   const switchNikiMode = (mode: boolean) => {
     setIsNikiMode(mode);
+    if (!mode) setLectureMode(false);
     setMessages((prev) =>
       isGreetingOnly(prev) && !currentChatIdRef.current ? createGreeting(mode) : prev
     );
@@ -1169,6 +1565,23 @@ export default function Home() {
     setAttachedFile(null);
   };
 
+  const handlePinAttachedSyllabus = async () => {
+    if (attachedFile?.type !== "text") return;
+
+    try {
+      const content = (await attachedFile.file.text()).trim();
+      if (!content) return;
+
+      setPinnedSyllabus({
+        name: attachedFile.file.name,
+        content: content.slice(0, 20000),
+        pinnedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.warn("Could not pin attached syllabus:", error);
+    }
+  };
+
   const handleScreenshot = async () => {
     const target =
       chatViewportRef.current ??
@@ -1377,12 +1790,18 @@ export default function Home() {
     recognition.start();
   };
 
-  const fetchRag = async (question: string): Promise<RagResponse | null> => {
-    if (!lectureMode || !question.trim()) return null;
+  const fetchRag = async (
+    question: string,
+    options?: { teachingMode?: boolean; nikiMode?: boolean }
+  ): Promise<RagResponse | null> => {
+    const teachingMode = options?.teachingMode ?? lectureMode;
+    const nikiMode = options?.nikiMode ?? isNikiMode;
+    if (!teachingMode || !question.trim()) return null;
     if (isLectureInventoryRequest(question)) return null;
 
     try {
-      const inferredCourse = inferCourseFromMathTopic(question, profile?.current_unit);
+      const knowledgeFallback = activeKnowledgeCourse || profile?.current_unit;
+      const inferredCourse = inferCourseFromMathTopic(question, knowledgeFallback);
       const res = await fetch("/api/rag/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1392,7 +1811,7 @@ export default function Home() {
           courseFilter: inferredCourse,
           minSimilarity: 0.2,
           maxChunks: 8,
-          maxStyleSnippets: isNikiMode ? 6 : 3,
+          maxStyleSnippets: nikiMode ? 6 : 3,
         }),
       });
 
@@ -1443,31 +1862,48 @@ export default function Home() {
     }
   };
 
-  // --- CORE SEND ENGINE ---
-  const handleSend = async () => {
-    if (!inputValue.trim() && !attachedFile) return;
+  type SendChatOptions = {
+    userText: string;
+    requestHistoryBase?: Message[];
+    nikiMode?: boolean;
+    teachingMode?: boolean;
+    attached?: AttachedFile | null;
+    clearComposer?: boolean;
+    consumeAttachedFile?: boolean;
+  };
+
+  const sendChatMessage = async ({
+    userText,
+    requestHistoryBase,
+    nikiMode = isNikiMode,
+    teachingMode = lectureMode,
+    attached = null,
+    clearComposer = false,
+    consumeAttachedFile = false,
+  }: SendChatOptions) => {
+    const trimmedUserText = userText.trim();
+    if (!trimmedUserText && !attached) return;
     if (isLoading) return;
 
-    const userText = inputValue.trim();
     const currentName = profile?.first_name || profile?.username || "User";
     let chatId = currentChatIdRef.current;
-
     const displayContent =
-      userText || (attachedFile ? `[${attachedFile.file.name}]` : "");
-
-    const updatedHistory: Message[] = [
-      ...messages,
+      trimmedUserText || (attached ? `[${attached.file.name}]` : "");
+    const requestHistory: Message[] = [
+      ...(requestHistoryBase ?? messages).map(createHistoryMessage),
       { role: "user", content: displayContent },
     ];
 
-    setMessages(updatedHistory);
-    setInputValue("");
+    setMessages((prev) => [...prev, { role: "user", content: displayContent }]);
+    if (clearComposer) setInputValue("");
     setIsLoading(true);
     isStreamingRef.current = true;
 
-    const currentAttached = attachedFile;
-    setAttachedFile(null);
-    if (currentAttached?.preview) URL.revokeObjectURL(currentAttached.preview);
+    const currentAttached = attached;
+    if (consumeAttachedFile) {
+      setAttachedFile(null);
+      if (currentAttached?.preview) URL.revokeObjectURL(currentAttached.preview);
+    }
 
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -1481,7 +1917,7 @@ export default function Home() {
     try {
       if (!chatId && session) {
         const title =
-          userText.substring(0, 50) ||
+          trimmedUserText.substring(0, 50) ||
           currentAttached?.file.name ||
           "File upload";
 
@@ -1524,7 +1960,7 @@ export default function Home() {
 
       let base64Image: string | null = null;
       let textFileContent: string | null = null;
-      const rag = await fetchRag(userText);
+      const rag = await fetchRag(trimmedUserText, { teachingMode, nikiMode });
       const calendarContext = session?.user?.id
         ? await fetchUpcomingCalendarContext(session.user.id)
         : "";
@@ -1543,17 +1979,22 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userText,
-          history: updatedHistory,
-          isNikiMode,
+          message: trimmedUserText,
+          history: requestHistory,
+          isNikiMode: nikiMode,
           userName: currentName,
           userId: session?.user?.id,
           chatId,
           trainConsent: profile?.train_on_data,
-          lectureMode,
+          lectureMode: teachingMode,
           ragContext: rag?.context ?? [],
           ragStyleSnippets: rag?.styleSnippets ?? [],
           ragCitations: rag?.citations ?? [],
+          knowledgeCourseContext: activeKnowledgeCourse || undefined,
+          pinnedSyllabusContent: pinnedSyllabus?.content,
+          pinnedSyllabusName: pinnedSyllabus?.name,
+          focusCourseContext: chatFocus.course || undefined,
+          focusTopicContext: chatFocus.topic.trim() || undefined,
           calendarContext: calendarContext || undefined,
           base64Image: base64Image ?? undefined,
           imageMediaType:
@@ -1581,7 +2022,15 @@ export default function Home() {
         }
 
         console.warn("API status:", response.status, apiMessage);
-        setMessages((prev) => [...prev, { role: "ai", content: apiMessage }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            content: apiMessage,
+            mode: nikiMode ? "nemanja" : "pure",
+            teachingEnabled: teachingMode,
+          },
+        ]);
         return;
       }
 
@@ -1592,6 +2041,8 @@ export default function Home() {
           content: "",
           citations: dedupeCitations(rag?.citations ?? []),
           retrievalConfidence: rag?.retrievalConfidence,
+          mode: nikiMode ? "nemanja" : "pure",
+          teachingEnabled: teachingMode,
         },
       ]);
 
@@ -1616,6 +2067,8 @@ export default function Home() {
                 citations: existing?.citations ?? dedupeCitations(rag?.citations ?? []),
                 retrievalConfidence:
                   existing?.retrievalConfidence ?? rag?.retrievalConfidence,
+                mode: existing?.mode ?? (nikiMode ? "nemanja" : "pure"),
+                teachingEnabled: existing?.teachingEnabled ?? teachingMode,
               };
               return updated;
             });
@@ -1639,6 +2092,8 @@ export default function Home() {
               content: finalReply,
               citations: lectureCitations,
               retrievalConfidence: rag?.retrievalConfidence,
+              mode: nikiMode ? "nemanja" : "pure",
+              teachingEnabled: teachingMode,
             };
           }
           return updated;
@@ -1666,6 +2121,8 @@ export default function Home() {
           {
             role: "ai",
             content: `System Error: ${getErrorMessage(error)}`,
+            mode: nikiMode ? "nemanja" : "pure",
+            teachingEnabled: teachingMode,
           },
         ]);
       }
@@ -1676,6 +2133,84 @@ export default function Home() {
       if (!isUnmountingRef.current) setIsLoading(false);
       if (session?.user?.id) fetchHistory(session.user.id);
     }
+  };
+
+  const handleSend = async () => {
+    await sendChatMessage({
+      userText: inputValue,
+      attached: attachedFile,
+      clearComposer: true,
+      consumeAttachedFile: true,
+    });
+  };
+
+  const getMessageFollowupContext = (messageIndex: number) => {
+    const sourceMessage = messages[messageIndex];
+    const sourceUserMessage = messageIndex > 0 ? messages[messageIndex - 1] : null;
+    const sourceMode =
+      sourceMessage?.mode === "nemanja"
+        ? true
+        : sourceMessage?.mode === "pure"
+          ? false
+          : isNikiMode;
+    const sourceTeaching = sourceMessage?.teachingEnabled ?? lectureMode;
+
+    return {
+      sourceMessage,
+      sourceUserMessage,
+      sourceMode,
+      sourceTeaching,
+    };
+  };
+
+  const handleExplainThis = async (messageIndex: number) => {
+    const { sourceMessage, sourceUserMessage } = getMessageFollowupContext(messageIndex);
+
+    if (
+      sourceMessage?.role !== "ai" ||
+      sourceUserMessage?.role !== "user" ||
+      !sourceUserMessage.content.trim()
+    ) {
+      return;
+    }
+
+    setIsNikiMode(true);
+    setLectureMode(true);
+
+    await sendChatMessage({
+      userText: sourceUserMessage.content,
+      requestHistoryBase: messages.slice(0, Math.max(0, messageIndex - 1)),
+      nikiMode: true,
+      teachingMode: true,
+    });
+  };
+
+  const handleResponseFollowup = async (
+    messageIndex: number,
+    action: "another" | "explain" | "harder"
+  ) => {
+    const { sourceMessage, sourceUserMessage, sourceMode, sourceTeaching } =
+      getMessageFollowupContext(messageIndex);
+
+    if (
+      sourceMessage?.role !== "ai" ||
+      sourceUserMessage?.role !== "user" ||
+      !sourceUserMessage.content.trim()
+    ) {
+      return;
+    }
+
+    if (action === "explain") {
+      await handleExplainThis(messageIndex);
+      return;
+    }
+
+    await sendChatMessage({
+      userText: action === "another" ? "Do another one" : "Harder example",
+      requestHistoryBase: messages.slice(0, messageIndex + 1),
+      nikiMode: sourceMode,
+      teachingMode: sourceTeaching,
+    });
   };
 
   // --- SIDEBAR CHAT ROW ---
@@ -1802,7 +2337,7 @@ export default function Home() {
               : "text-slate-500 border-transparent hover:text-slate-300"
               }`}
           >
-            Projects
+            Knowledge Base
           </button>
         </div>
 
@@ -1852,11 +2387,121 @@ export default function Home() {
           ) : (
             <div className="space-y-4">
               <div className={`p-4 rounded-2xl bg-white/[0.02] border ${accentBorder}`}>
-                <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
-                  Active Space
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+                      Active Lecture Set
+                    </p>
+                    <p className="text-sm text-slate-100 font-bold">
+                      {knowledgeBaseCourse.label}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      Retrieval falls back to this course when the chat prompt does not lock one in by itself.
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    {knowledgeBaseCourse.shortLabel}
+                  </div>
+                </div>
+              </div>
+
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+                      Source Health
+                    </p>
+                    <p className="text-sm font-bold text-slate-100">
+                      {sourceHealth.label}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      {sourceHealth.detail}
+                    </p>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-300">
+                      Healthy
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+                      Pinned Syllabus
+                    </p>
+                    {pinnedSyllabus ? (
+                      <>
+                        <p className="text-sm font-bold text-slate-100">
+                          {pinnedSyllabus.name}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                          Pinned {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)}. Niki can quietly consider this schedule context while answering.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] leading-5 text-slate-500">
+                        Attach a syllabus, schedule, or calendar file in chat, then pin it here so study help can follow your real course timeline.
+                      </p>
+                    )}
+                  </div>
+                  {pinnedSyllabus && (
+                    <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                      Active
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {attachedKnowledgeButtonLabel && (
+                    <button
+                      type="button"
+                      onClick={() => void handlePinAttachedSyllabus()}
+                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
+                    >
+                      {attachedKnowledgeButtonLabel}
+                    </button>
+                  )}
+                  {pinnedSyllabus && (
+                    <button
+                      type="button"
+                      onClick={() => setPinnedSyllabus(null)}
+                      className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all hover:border-white/20 hover:text-white"
+                    >
+                      Unpin
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+                <p className={`text-[10px] font-black ${accentColor} uppercase mb-3`}>
+                  Courses
                 </p>
-                <p className="text-xs text-slate-400 font-bold">
-                  {profile?.current_unit ? `Section ${profile.current_unit}` : "Calculus 1"}
+                <div className="flex flex-wrap gap-2">
+                  {KNOWLEDGE_BASE_COURSES.map((course) => {
+                    const isActiveCourse = course.courseContext === activeKnowledgeCourse;
+                    return (
+                      <button
+                        key={course.courseContext}
+                        type="button"
+                        onClick={() => setActiveKnowledgeCourse(course.courseContext)}
+                        className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${
+                          isActiveCourse
+                            ? `${accentBorder} bg-white/[0.06] ${accentColor}`
+                            : "border-white/10 bg-white/[0.02] text-slate-500 hover:border-white/20 hover:text-slate-300"
+                        }`}
+                      >
+                        {course.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-[11px] leading-5 text-slate-500">
+                  Organized course focus keeps retrieval tidy without turning the sidebar into a raw file pile.
                 </p>
               </div>
             </div>
@@ -1886,9 +2531,11 @@ export default function Home() {
                 <div className={`w-1.5 h-1.5 rounded-full ${accentBg} animate-pulse`} />
                 <span>RTX 5070 Ti Active</span>
               </div>
-              <div className={`flex items-center gap-2 rounded border px-3 py-1 ${lectureMode ? `${accentBorder} bg-white/[0.045] ${accentColor}` : "border-white/5 bg-white/[0.025] text-slate-600"}`}>
-                <span>{lectureMode ? "Lecture On" : "Lecture Off"}</span>
-              </div>
+              {isNikiMode && (
+                <div className={`flex items-center gap-2 rounded border px-3 py-1 ${lectureMode ? `${accentBorder} bg-white/[0.045] ${accentColor}` : "border-white/5 bg-white/[0.025] text-slate-600"}`}>
+                  <span>{lectureMode ? "Teaching: ON" : "Teaching: OFF"}</span>
+                </div>
+              )}
             </div>
 
             <button
@@ -2019,12 +2666,45 @@ export default function Home() {
                           )}
 
                           {msg.citations && msg.citations.length > 0 && (
-            <CitationCard
+                            <CitationCard
                               citations={msg.citations}
                               confidence={msg.retrievalConfidence}
                               accentColor={profile?.theme_accent ?? "cyan"}
                             />
                           )}
+
+                          {!isStreamingMessage &&
+                            i > 0 &&
+                            messages[i - 1]?.role === "user" &&
+                            messages[i - 1]?.content.trim() &&
+                            !msg.content.startsWith("System Error:") && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleResponseFollowup(i, "another")}
+                                  disabled={isLoading}
+                                  className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all outline-none hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  Do another
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleResponseFollowup(i, "explain")}
+                                  disabled={isLoading}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40`}
+                                >
+                                  Explain step-by-step
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleResponseFollowup(i, "harder")}
+                                  disabled={isLoading}
+                                  className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all outline-none hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  Harder problem
+                                </button>
+                              </div>
+                            )}
                         </>
                       );
                     })()
@@ -2079,13 +2759,95 @@ export default function Home() {
                 Nemanja Mode
               </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setLectureMode((prev) => !prev)}
-                className={`rounded-xl border px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all outline-none ${lectureMode ? `${accentBorder} bg-white/[0.06] ${accentColor}` : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"}`}
-              >
-                {lectureMode ? "Lecture On" : "Lecture Off"}
-              </button>
+              {isNikiMode && (
+                <button
+                  type="button"
+                  onClick={() => setLectureMode((prev) => !prev)}
+                  className={`rounded-xl border px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all outline-none ${lectureMode ? `${accentBorder} bg-white/[0.06] ${accentColor}` : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"}`}
+                >
+                  {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                </button>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-[#0b0b0b]/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="sm:min-w-[8rem]">
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                    Focus Mode
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Short follow-ups can inherit this topic when the prompt stays vague.
+                  </p>
+                </div>
+                <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
+                  <label className="sr-only" htmlFor="chat-focus-course">
+                    Current focus course
+                  </label>
+                  <select
+                    id="chat-focus-course"
+                    value={chatFocus.course}
+                    onChange={(e) =>
+                      setChatFocus((prev) => ({ ...prev, course: e.target.value }))
+                    }
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
+                  >
+                    {KNOWLEDGE_BASE_COURSES.map((course) => (
+                      <option key={course.courseContext} value={course.courseContext} className="bg-[#0d0d0d] text-slate-200">
+                        {course.label}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="sr-only" htmlFor="chat-focus-topic">
+                    Current topic or section
+                  </label>
+                  <input
+                    id="chat-focus-topic"
+                    type="text"
+                    value={chatFocus.topic}
+                    onChange={(e) =>
+                      setChatFocus((prev) => ({ ...prev, topic: e.target.value }))
+                    }
+                    placeholder="Current topic or section, like 7.3 or integration by parts"
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
+                    className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Current focus: <span className="font-bold text-slate-300">{focusCourseLabel}</span>
+                {chatFocus.topic.trim() ? (
+                  <>
+                    {" "}
+                    · <span className="font-bold text-slate-300">{chatFocus.topic.trim()}</span>
+                  </>
+                ) : (
+                  " · No specific topic set"
+                )}
+              </p>
+              {focusSuggestion && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <span>Suggested:</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setChatFocus((prev) => ({
+                        ...prev,
+                        topic: focusSuggestion,
+                      }))
+                    }
+                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
+                  >
+                    {focusCourseLabel} — {focusSuggestion}
+                  </button>
+                </div>
+              )}
             </div>
 
             <FilePreview
@@ -2099,8 +2861,10 @@ export default function Home() {
                 <FileUploadButton
                   onFileSelect={handleFileSelect}
                   onScreenshot={handleScreenshot}
-                  lectureMode={lectureMode}
-                  onToggleLectureMode={() => setLectureMode((prev) => !prev)}
+                  lectureMode={isNikiMode && lectureMode}
+                  onToggleLectureMode={
+                    isNikiMode ? () => setLectureMode((prev) => !prev) : undefined
+                  }
                   accentColor={profile?.theme_accent ?? "cyan"}
                   disabled={isLoading}
                 />
@@ -2113,8 +2877,8 @@ export default function Home() {
                   placeholder={
                     attachedFile
                       ? `Ask about ${attachedFile.file.name}…`
-                      : lectureMode
-                        ? "Lecture Mode: ask with retrieval context..."
+                      : isNikiMode && lectureMode
+                        ? "Teaching: ask with retrieval context..."
                         : isNikiMode
                           ? "Ask in Nemanja Mode..."
                           : "Ask a math, code, or technical question..."
@@ -2165,8 +2929,10 @@ export default function Home() {
         onClose={() => setIsPaletteOpen(false)}
         isNikiMode={isNikiMode}
         onToggleNikiMode={() => switchNikiMode(!isNikiMode)}
-        lectureMode={lectureMode}
-        onToggleLectureMode={() => setLectureMode((prev) => !prev)}
+        lectureMode={isNikiMode && lectureMode}
+        onToggleLectureMode={
+          isNikiMode ? () => setLectureMode((prev) => !prev) : undefined
+        }
         accentColor={profile?.theme_accent ?? "cyan"}
         hasActiveChat={!!currentChatId}
         currentChatTitle={chatHistory.find((c) => c.id === currentChatId)?.title ?? ""}
