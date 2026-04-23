@@ -125,6 +125,11 @@ const fixtures = [
     pattern: /const FOCUS_TOPIC_SUGGESTIONS[\s\S]*getFocusSuggestion[\s\S]*Suggested:[\s\S]*focusSuggestion/,
   },
   {
+    name: "chat-focus-mode-is-collapsible-and-mobile-friendly",
+    source: pageSource,
+    pattern: /focusModeExpanded[\s\S]*toggleFocusMode[\s\S]*Focus Mode[\s\S]*focusSummary[\s\S]*sm:rotate-180[\s\S]*hidden sm:block/,
+  },
+  {
     name: "calendar-route-allows-guests-but-locks-editing",
     source: calendarSource,
     pattern: /supabase\.auth\.getSession\(\)[\s\S]*setUserId\(null\)[\s\S]*Calendar editing is locked while logged out[\s\S]*disabled=\{!canEdit\}/,

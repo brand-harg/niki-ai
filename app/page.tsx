@@ -959,6 +959,7 @@ export default function Home() {
     course: "Calculus 1",
     topic: "",
   });
+  const [focusModeExpanded, setFocusModeExpanded] = useState<boolean | null>(null);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
@@ -1036,6 +1037,10 @@ export default function Home() {
     if (chatFocus.topic.trim()) return null;
     return getFocusSuggestion(chatFocus.course, inputValue);
   }, [chatFocus.course, chatFocus.topic, inputValue]);
+
+  const focusSummary = useMemo(() => {
+    return `${focusCourseLabel} · ${chatFocus.topic.trim() || "No topic set"}`;
+  }, [chatFocus.topic, focusCourseLabel]);
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 768px)");
@@ -2144,6 +2149,18 @@ export default function Home() {
     });
   };
 
+  const toggleFocusMode = () => {
+    if (focusModeExpanded === null) {
+      const isMobileViewport =
+        typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 639px)").matches;
+      setFocusModeExpanded(isMobileViewport);
+      return;
+    }
+
+    setFocusModeExpanded((prev) => !prev);
+  };
+
   const getMessageFollowupContext = (messageIndex: number) => {
     const sourceMessage = messages[messageIndex];
     const sourceUserMessage = messageIndex > 0 ? messages[messageIndex - 1] : null;
@@ -2771,83 +2788,102 @@ export default function Home() {
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-[#0b0b0b]/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="sm:min-w-[8rem]">
+              <button
+                type="button"
+                onClick={toggleFocusMode}
+                className="flex w-full items-center justify-between gap-3 text-left outline-none"
+                aria-expanded={focusModeExpanded === null ? undefined : focusModeExpanded}
+              >
+                <div className="min-w-0">
                   <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
                     Focus Mode
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Short follow-ups can inherit this topic when the prompt stays vague.
+                  <p className="mt-1 truncate text-[11px] text-slate-500">
+                    {focusSummary}
                   </p>
                 </div>
-                <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
-                  <label className="sr-only" htmlFor="chat-focus-course">
-                    Current focus course
-                  </label>
-                  <select
-                    id="chat-focus-course"
-                    value={chatFocus.course}
-                    onChange={(e) =>
-                      setChatFocus((prev) => ({ ...prev, course: e.target.value }))
-                    }
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
-                  >
-                    {KNOWLEDGE_BASE_COURSES.map((course) => (
-                      <option key={course.courseContext} value={course.courseContext} className="bg-[#0d0d0d] text-slate-200">
-                        {course.label}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="sr-only" htmlFor="chat-focus-topic">
-                    Current topic or section
-                  </label>
-                  <input
-                    id="chat-focus-topic"
-                    type="text"
-                    value={chatFocus.topic}
-                    onChange={(e) =>
-                      setChatFocus((prev) => ({ ...prev, topic: e.target.value }))
-                    }
-                    placeholder="Current topic or section, like 7.3 or integration by parts"
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
-                    className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
-                  >
-                    Clear
-                  </button>
+                <svg
+                  className={`h-4 w-4 flex-shrink-0 text-slate-500 transition-transform ${
+                    focusModeExpanded === true
+                      ? "rotate-180"
+                      : focusModeExpanded === null
+                        ? "sm:rotate-180"
+                        : ""
+                  }`}
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m5 7 5 5 5-5" />
+                </svg>
+              </button>
+
+              <div className={`${focusModeExpanded === true ? "mt-3 block" : focusModeExpanded === false ? "hidden" : "mt-3 hidden sm:block"}`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="sm:min-w-[8rem]">
+                    <p className="text-[11px] text-slate-500">
+                      Short follow-ups can inherit this topic when the prompt stays vague.
+                    </p>
+                  </div>
+                  <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
+                    <label className="sr-only" htmlFor="chat-focus-course">
+                      Current focus course
+                    </label>
+                    <select
+                      id="chat-focus-course"
+                      value={chatFocus.course}
+                      onChange={(e) =>
+                        setChatFocus((prev) => ({ ...prev, course: e.target.value }))
+                      }
+                      className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
+                    >
+                      {KNOWLEDGE_BASE_COURSES.map((course) => (
+                        <option key={course.courseContext} value={course.courseContext} className="bg-[#0d0d0d] text-slate-200">
+                          {course.label}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="sr-only" htmlFor="chat-focus-topic">
+                      Current topic or section
+                    </label>
+                    <input
+                      id="chat-focus-topic"
+                      type="text"
+                      value={chatFocus.topic}
+                      onChange={(e) =>
+                        setChatFocus((prev) => ({ ...prev, topic: e.target.value }))
+                      }
+                      placeholder="Current topic or section, like 7.3 or integration by parts"
+                      className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
+                      className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <p className="mt-2 text-[11px] text-slate-500">
-                Current focus: <span className="font-bold text-slate-300">{focusCourseLabel}</span>
-                {chatFocus.topic.trim() ? (
-                  <>
-                    {" "}
-                    · <span className="font-bold text-slate-300">{chatFocus.topic.trim()}</span>
-                  </>
-                ) : (
-                  " · No specific topic set"
+                {focusSuggestion && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span>Suggested:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setChatFocus((prev) => ({
+                          ...prev,
+                          topic: focusSuggestion,
+                        }))
+                      }
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
+                    >
+                      {focusCourseLabel} — {focusSuggestion}
+                    </button>
+                  </div>
                 )}
-              </p>
-              {focusSuggestion && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                  <span>Suggested:</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setChatFocus((prev) => ({
-                        ...prev,
-                        topic: focusSuggestion,
-                      }))
-                    }
-                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
-                  >
-                    {focusCourseLabel} — {focusSuggestion}
-                  </button>
-                </div>
-              )}
+              </div>
             </div>
 
             <FilePreview
