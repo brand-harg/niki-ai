@@ -7,6 +7,7 @@ const authCallbackSource = readFileSync("app/auth/callback/page.tsx", "utf8");
 const calendarSource = readFileSync("app/calendar/page.tsx", "utf8");
 const chatRouteSource = readFileSync("app/api/chat/route.ts", "utf8");
 const authProfileSource = readFileSync("lib/authProfile.ts", "utf8");
+const authRecoverySource = readFileSync("lib/authRecovery.ts", "utf8");
 const calendarSqlSource = readFileSync("scripts/sql/calendar-events.sql", "utf8");
 const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
@@ -66,7 +67,17 @@ const fixtures = [
   {
     name: "auth-callback-exchanges-code-and-bootstraps-profile",
     source: authCallbackSource,
-    pattern: /exchangeCodeForSession\(code\)[\s\S]*ensureProfileForSession[\s\S]*router\.replace\(next\)/,
+    pattern: /recoverSessionFromUrl\(\)[\s\S]*ensureProfileForSession[\s\S]*router\.replace\(next\)/,
+  },
+  {
+    name: "auth-recovery-supports-pkce-and-hash-callbacks",
+    source: authRecoverySource,
+    pattern: /exchangeCodeForSession\(code\)[\s\S]*setSession\([\s\S]*access_token[\s\S]*refresh_token/,
+  },
+  {
+    name: "home-recovers-oauth-callback-before-session-check",
+    source: pageSource,
+    pattern: /hasAuthCallbackParams\(\)[\s\S]*recoverSessionFromUrl\(\)[\s\S]*clearAuthCallbackUrl\(["']\/["']\)/,
   },
   {
     name: "home-preserves-session-on-auth-init-failure",

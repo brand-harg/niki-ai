@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { authCallbackNextPath, clearAuthCallbackUrl, recoverSessionFromUrl } from "@/lib/authRecovery";
 import { ensureProfileForSession } from "@/lib/authProfile";
-import { supabase } from "@/lib/supabaseClient";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -13,26 +13,16 @@ export default function AuthCallbackPage() {
     let mounted = true;
 
     const finishAuth = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get("code");
-      const next = params.get("next") || "/";
+      const next = authCallbackNextPath("/");
 
       try {
-        if (code) {
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-          await ensureProfileForSession(data.session);
-        } else {
-          const {
-            data: { session },
-            error,
-          } = await supabase.auth.getSession();
-          if (error) throw error;
-          await ensureProfileForSession(session);
-        }
+        const session = await recoverSessionFromUrl();
+        if (!session?.user?.id) throw new Error("No session was stored after OAuth callback.");
+        await ensureProfileForSession(session);
 
         if (mounted) {
           setStatus("Signed in. Redirecting...");
+          clearAuthCallbackUrl("/auth/callback");
           router.replace(next);
           router.refresh();
         }

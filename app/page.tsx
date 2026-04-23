@@ -14,6 +14,7 @@ import FileUploadButton from "@/components/FileUploadButton";
 import FilePreview, { type AttachedFile } from "@/components/FilePreview";
 import html2canvas from "html2canvas";
 import { inferCourseFromMathTopic } from "@/lib/courseFilters";
+import { clearAuthCallbackUrl, hasAuthCallbackParams, recoverSessionFromUrl } from "@/lib/authRecovery";
 import { ensureProfileForSession, profileFallbackFromSession } from "@/lib/authProfile";
 import { sanitizeMathContent } from "@/lib/mathFormatting";
 
@@ -850,6 +851,19 @@ export default function Home() {
 
     const initialize = async () => {
       try {
+        if (hasAuthCallbackParams()) {
+          const recoveredSession = await withTimeout(recoverSessionFromUrl(), "recoverSessionFromUrl");
+          if (recoveredSession?.user?.id) {
+            clearAuthCallbackUrl("/");
+            setSession(recoveredSession);
+            setAuthChecked(true);
+            lastSessionIdRef.current = recoveredSession.user.id;
+            await ensureProfileForSession(recoveredSession);
+            await loadUserData(recoveredSession.user.id, recoveredSession);
+            return;
+          }
+        }
+
         const {
           data: { session },
         } = await withTimeout(supabase.auth.getSession(), "getSession");
