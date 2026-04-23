@@ -96,12 +96,12 @@ const fixtures = [
   {
     name: "calendar-empty-state-has-demo-events",
     source: calendarSource,
-    pattern: /EXAMPLE_EVENTS[\s\S]*Calc 2 Test[\s\S]*Statistics Quiz[\s\S]*Example event/,
+    pattern: /EXAMPLE_EVENTS[\s\S]*Calc 2 Test[\s\S]*Statistics Quiz[\s\S]*Add a test, quiz, or deadline and Niki will help you stay on track[\s\S]*Example event/,
   },
   {
     name: "calendar-title-guides-natural-input",
     source: calendarSource,
-    pattern: /Try: Calc 2 test Wednesday 1pm/,
+    pattern: /Event title[\s\S]*Try: Calc 2 test Wednesday 1pm/,
   },
   {
     name: "calendar-auto-suggests-course-from-title",

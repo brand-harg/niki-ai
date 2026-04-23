@@ -218,7 +218,7 @@ export default function CalendarPage() {
         <div>
           <h3 className="text-base font-black text-white">No upcoming events yet</h3>
           <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
-            Add a test, quiz, deadline, or study block and Niki will use it when it matters.
+            Add a test, quiz, or deadline and Niki will help you stay on track.
           </p>
         </div>
         <span className="hidden rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-cyan-300 sm:inline-flex">
@@ -293,7 +293,7 @@ export default function CalendarPage() {
             <div className="mt-6 space-y-4">
               <label className="block">
                 <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Event
+                  Event title
                 </span>
                 <input
                   value={title}
@@ -374,7 +374,7 @@ export default function CalendarPage() {
               disabled={saving || !canEdit}
               className="mt-5 w-full rounded-2xl bg-cyan-600 py-4 text-xs font-black uppercase tracking-widest text-white transition hover:bg-cyan-500 disabled:bg-zinc-800"
             >
-              {!canEdit ? "Login Required" : saving ? "Saving..." : "Add Event"}
+              {!canEdit ? "Locked Until Login" : saving ? "Saving..." : "Add Event"}
             </button>
           </form>
 
