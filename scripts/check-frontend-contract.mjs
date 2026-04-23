@@ -35,9 +35,9 @@ const fixtures = [
     pattern: /flowType:\s*["']pkce["']/,
   },
   {
-    name: "home-loads-session-before-user-refresh",
+    name: "home-gets-session-before-user-data-load",
     source: pageSource,
-    pattern: /supabase\.auth\.getSession\(\)[\s\S]*supabase\.auth\.getUser\(\)/,
+    pattern: /supabase\.auth\.getSession\(\)[\s\S]*setSession\(session\)[\s\S]*void loadUserData\(session\.user\.id, session\)/,
   },
   {
     name: "login-links-to-dedicated-signup",
@@ -85,14 +85,19 @@ const fixtures = [
     pattern: /Auth initialization failed; preserving stored session for next retry/,
   },
   {
-    name: "home-times-out-get-user-and-keeps-session-fallback",
+    name: "home-applies-session-fallback-before-background-profile-load",
     source: pageSource,
-    pattern: /withTimeout\(supabase\.auth\.getUser\(\), "getUser"\)[\s\S]*keeping session fallback/,
+    pattern: /applySessionFallbackProfile\(session\)[\s\S]*void loadUserData\(session\.user\.id, session\)/,
   },
   {
     name: "auth-profile-creates-google-metadata-fallback",
     source: authProfileSource,
     pattern: /profileFallbackFromSession[\s\S]*user_metadata[\s\S]*avatar_url[\s\S]*ensureProfileForSession/,
+  },
+  {
+    name: "auth-profile-does-not-let-placeholders-override-google-fallback",
+    source: authProfileSource,
+    pattern: /isPlaceholderName[\s\S]*isPlaceholderUsername[\s\S]*mergeProfileWithFallback/,
   },
   {
     name: "home-has-front-page-calendar-access",
@@ -152,7 +157,7 @@ const fixtures = [
   {
     name: "home-keeps-session-fallback-on-user-refresh-failure",
     source: pageSource,
-    pattern: /keeping session fallback/,
+    pattern: /applySessionFallbackProfile\(session\)[\s\S]*void loadUserData/,
   },
   {
     name: "mobile-chat-shell-uses-dynamic-viewport",

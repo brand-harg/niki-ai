@@ -15,7 +15,7 @@ import FilePreview, { type AttachedFile } from "@/components/FilePreview";
 import html2canvas from "html2canvas";
 import { inferCourseFromMathTopic } from "@/lib/courseFilters";
 import { clearAuthCallbackUrl, hasAuthCallbackParams, recoverSessionFromUrl } from "@/lib/authRecovery";
-import { ensureProfileForSession, profileFallbackFromSession } from "@/lib/authProfile";
+import { ensureProfileForSession, mergeProfileWithFallback, profileFallbackFromSession } from "@/lib/authProfile";
 import { sanitizeMathContent } from "@/lib/mathFormatting";
 
 // --- ICONS ---
@@ -57,7 +57,7 @@ type AppProfile = {
   compact_mode?: boolean;
 };
 
-const AUTH_TIMEOUT_MS = 15000;
+const AUTH_TIMEOUT_MS = 6000;
 
 function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -833,8 +833,15 @@ export default function Home() {
     let mounted = true;
     isUnmountingRef.current = false;
 
+    const applySessionFallbackProfile = (activeSession: AppSession) => {
+      const fallbackProfile = profileFallbackFromSession(activeSession);
+      if (!fallbackProfile) return;
+      setProfile((prev) => mergeProfileWithFallback(prev, fallbackProfile) as AppProfile);
+      setProfileLoaded(true);
+    };
+
     const loadUserData = async (userId: string, activeSession?: AppSession) => {
-      setProfileLoaded(false);
+      if (!profileLoadedRef.current) setProfileLoaded(false);
       const results = await Promise.allSettled([
         withTimeout(fetchHistory(userId), "fetchHistory"),
         withTimeout(fetchProfile(userId, activeSession), "fetchProfile"),
@@ -858,8 +865,13 @@ export default function Home() {
             setSession(recoveredSession);
             setAuthChecked(true);
             lastSessionIdRef.current = recoveredSession.user.id;
-            await ensureProfileForSession(recoveredSession);
-            await loadUserData(recoveredSession.user.id, recoveredSession);
+            applySessionFallbackProfile(recoveredSession);
+            ensureProfileForSession(recoveredSession).then((bootstrappedProfile) => {
+              if (mounted && bootstrappedProfile) {
+                setProfile((prev) => mergeProfileWithFallback(prev, bootstrappedProfile) as AppProfile);
+              }
+            });
+            void loadUserData(recoveredSession.user.id, recoveredSession);
             return;
           }
         }
@@ -886,24 +898,8 @@ export default function Home() {
         setSession(session);
         setAuthChecked(true);
         lastSessionIdRef.current = session.user.id;
-
-        const {
-          data: { user },
-          error,
-        } = await withTimeout(supabase.auth.getUser(), "getUser").catch((authError) => ({
-          data: { user: null },
-          error: authError,
-        }));
-
-        if (!mounted) return;
-
-        const userId = user?.id ?? session.user.id;
-
-        if (error || !user) {
-          console.warn("Auth user refresh failed; keeping session fallback:", error);
-        }
-
-        await loadUserData(userId, session);
+        applySessionFallbackProfile(session);
+        void loadUserData(session.user.id, session);
       } catch (error) {
         if (mounted) {
           console.warn("Auth initialization failed; preserving stored session for next retry:", error);
@@ -932,32 +928,18 @@ export default function Home() {
 
       if (newUserId && newUserId === lastSessionIdRef.current) {
         setSession(session);
+        applySessionFallbackProfile(session);
         if (!profileLoadedRef.current) {
-          await loadUserData(newUserId);
+          void loadUserData(newUserId, session);
         }
         return;
       }
 
       if (newUserId) {
-        const {
-          data: { user },
-          error,
-        } = await withTimeout(supabase.auth.getUser(), "getUser").catch((authError) => ({
-          data: { user: null },
-          error: authError,
-        }));
-
-        if (error || !user) {
-          console.warn("Auth user refresh failed; keeping session fallback:", error);
-          lastSessionIdRef.current = newUserId;
-          setSession(session);
-          await loadUserData(newUserId, session);
-          return;
-        }
-
         lastSessionIdRef.current = newUserId;
         setSession(session);
-        await loadUserData(newUserId, session);
+        applySessionFallbackProfile(session);
+        void loadUserData(newUserId, session);
       } else {
         lastSessionIdRef.current = null;
         setSession(null);
@@ -1035,12 +1017,12 @@ export default function Home() {
 
     if (error) console.log("Home profile fetch error:", error);
     if (data) {
-      setProfile(fallbackProfile ? { ...fallbackProfile, ...data } : data);
+      setProfile(mergeProfileWithFallback(data, fallbackProfile) as AppProfile);
     } else if (fallbackProfile) {
       setProfile(fallbackProfile);
       ensureProfileForSession(activeSession ?? null).then((bootstrappedProfile) => {
         if (bootstrappedProfile) {
-          setProfile((prev) => ({ ...prev, ...bootstrappedProfile }));
+          setProfile((prev) => mergeProfileWithFallback(prev, bootstrappedProfile) as AppProfile);
         }
       });
     }

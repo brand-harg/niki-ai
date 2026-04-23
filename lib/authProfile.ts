@@ -17,6 +17,10 @@ type ProfileFallback = {
   avatar_url: string;
 };
 
+type PartialProfile = Partial<ProfileFallback> & {
+  [key: string]: unknown;
+};
+
 function metadataString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -28,6 +32,16 @@ function usernameFromValue(value: string) {
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 28);
+}
+
+function isPlaceholderName(value: unknown) {
+  if (typeof value !== "string") return true;
+  return !value.trim() || /^(user|new user|vault)$/i.test(value.trim());
+}
+
+function isPlaceholderUsername(value: unknown) {
+  if (typeof value !== "string") return true;
+  return !value.trim() || /^(user|vault|new_user)$/i.test(value.trim());
 }
 
 export function profileFallbackFromSession(session: AuthSessionLike): ProfileFallback | null {
@@ -57,6 +71,22 @@ export function profileFallbackFromSession(session: AuthSessionLike): ProfileFal
   };
 }
 
+export function mergeProfileWithFallback<T extends PartialProfile>(
+  profile: T | null | undefined,
+  fallback: ProfileFallback | null
+): T | ProfileFallback | null {
+  if (!profile) return fallback;
+  if (!fallback) return profile;
+
+  return {
+    ...fallback,
+    ...profile,
+    first_name: isPlaceholderName(profile.first_name) ? fallback.first_name : profile.first_name,
+    username: isPlaceholderUsername(profile.username) ? fallback.username : profile.username,
+    avatar_url: profile.avatar_url || fallback.avatar_url,
+  };
+}
+
 export async function ensureProfileForSession(session: AuthSessionLike) {
   const fallback = profileFallbackFromSession(session);
   if (!fallback) return null;
@@ -79,8 +109,8 @@ export async function ensureProfileForSession(session: AuthSessionLike) {
   }
 
   const patch: Partial<ProfileFallback> = {};
-  if (!data.first_name && fallback.first_name) patch.first_name = fallback.first_name;
-  if (!data.username && fallback.username) patch.username = fallback.username;
+  if (isPlaceholderName(data.first_name) && fallback.first_name) patch.first_name = fallback.first_name;
+  if (isPlaceholderUsername(data.username) && fallback.username) patch.username = fallback.username;
   if (!data.avatar_url && fallback.avatar_url) patch.avatar_url = fallback.avatar_url;
 
   if (Object.keys(patch).length > 0) {
@@ -91,9 +121,5 @@ export async function ensureProfileForSession(session: AuthSessionLike) {
     if (updateError) console.warn("Profile bootstrap update failed:", updateError);
   }
 
-  return {
-    ...fallback,
-    ...data,
-    ...patch,
-  };
+  return mergeProfileWithFallback({ ...data, ...patch }, fallback);
 }
