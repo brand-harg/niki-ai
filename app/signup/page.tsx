@@ -83,7 +83,7 @@ export default function SignupPage() {
         email: trimmedEmail,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/`,
         },
       });
 

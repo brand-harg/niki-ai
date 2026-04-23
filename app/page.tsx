@@ -14,6 +14,7 @@ import FileUploadButton from "@/components/FileUploadButton";
 import FilePreview, { type AttachedFile } from "@/components/FilePreview";
 import html2canvas from "html2canvas";
 import { inferCourseFromMathTopic } from "@/lib/courseFilters";
+import { ensureProfileForSession, profileFallbackFromSession } from "@/lib/authProfile";
 import { sanitizeMathContent } from "@/lib/mathFormatting";
 
 // --- ICONS ---
@@ -55,7 +56,7 @@ type AppProfile = {
   compact_mode?: boolean;
 };
 
-const AUTH_TIMEOUT_MS = 8000;
+const AUTH_TIMEOUT_MS = 15000;
 
 function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -831,11 +832,11 @@ export default function Home() {
     let mounted = true;
     isUnmountingRef.current = false;
 
-    const loadUserData = async (userId: string) => {
+    const loadUserData = async (userId: string, activeSession?: AppSession) => {
       setProfileLoaded(false);
       const results = await Promise.allSettled([
         withTimeout(fetchHistory(userId), "fetchHistory"),
-        withTimeout(fetchProfile(userId), "fetchProfile"),
+        withTimeout(fetchProfile(userId, activeSession), "fetchProfile"),
       ]);
 
       for (const result of results) {
@@ -875,33 +876,23 @@ export default function Home() {
         const {
           data: { user },
           error,
-        } = await supabase.auth.getUser();
+        } = await withTimeout(supabase.auth.getUser(), "getUser").catch((authError) => ({
+          data: { user: null },
+          error: authError,
+        }));
 
         if (!mounted) return;
 
         const userId = user?.id ?? session.user.id;
 
-        if (error && !session.user.id) {
-          setSession(null);
-          setProfile(null);
-          setProfileLoaded(true);
-          setChatHistory([]);
-          setCurrentChatId(null);
-          currentChatIdRef.current = null;
-          setMessages(createGreeting(false));
-          lastSessionIdRef.current = null;
-          return;
+        if (error || !user) {
+          console.warn("Auth user refresh failed; keeping session fallback:", error);
         }
 
-        await loadUserData(userId);
+        await loadUserData(userId, session);
       } catch (error) {
         if (mounted) {
-          console.warn("Auth initialization failed:", error);
-          try {
-            await supabase.auth.signOut({ scope: "local" });
-          } catch (signOutError) {
-            console.warn("Local auth cleanup failed:", signOutError);
-          }
+          console.warn("Auth initialization failed; preserving stored session for next retry:", error);
           setSession(null);
           setProfile(null);
           setProfileLoaded(true);
@@ -946,13 +937,13 @@ export default function Home() {
           console.warn("Auth user refresh failed; keeping session fallback:", error);
           lastSessionIdRef.current = newUserId;
           setSession(session);
-          await loadUserData(newUserId);
+          await loadUserData(newUserId, session);
           return;
         }
 
         lastSessionIdRef.current = newUserId;
         setSession(session);
-        await loadUserData(newUserId);
+        await loadUserData(newUserId, session);
       } else {
         lastSessionIdRef.current = null;
         setSession(null);
@@ -1020,7 +1011,8 @@ export default function Home() {
     };
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, activeSession?: AppSession) => {
+    const fallbackProfile = profileFallbackFromSession(activeSession ?? null);
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
@@ -1028,7 +1020,16 @@ export default function Home() {
       .maybeSingle();
 
     if (error) console.log("Home profile fetch error:", error);
-    if (data) setProfile(data);
+    if (data) {
+      setProfile(fallbackProfile ? { ...fallbackProfile, ...data } : data);
+    } else if (fallbackProfile) {
+      setProfile(fallbackProfile);
+      ensureProfileForSession(activeSession ?? null).then((bootstrappedProfile) => {
+        if (bootstrappedProfile) {
+          setProfile((prev) => ({ ...prev, ...bootstrappedProfile }));
+        }
+      });
+    }
     setProfileLoaded(true);
   };
 

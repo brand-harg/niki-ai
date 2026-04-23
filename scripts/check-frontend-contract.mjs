@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 const pageSource = readFileSync("app/page.tsx", "utf8");
 const loginSource = readFileSync("app/login/page.tsx", "utf8");
 const signupSource = readFileSync("app/signup/page.tsx", "utf8");
+const authCallbackSource = readFileSync("app/auth/callback/page.tsx", "utf8");
 const calendarSource = readFileSync("app/calendar/page.tsx", "utf8");
 const chatRouteSource = readFileSync("app/api/chat/route.ts", "utf8");
+const authProfileSource = readFileSync("lib/authProfile.ts", "utf8");
 const calendarSqlSource = readFileSync("scripts/sql/calendar-events.sql", "utf8");
 const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
@@ -44,7 +46,7 @@ const fixtures = [
   {
     name: "signup-uses-existing-supabase-auth",
     source: signupSource,
-    pattern: /supabase\.auth\.signUp\([\s\S]*emailRedirectTo/,
+    pattern: /supabase\.auth\.signUp\([\s\S]*emailRedirectTo[\s\S]*\/auth\/callback\?next=\//,
   },
   {
     name: "signup-validates-confirm-password",
@@ -55,6 +57,31 @@ const fixtures = [
     name: "signup-redirects-after-success",
     source: signupSource,
     pattern: /router\.replace\(["']\/["']\)[\s\S]*router\.replace\(["']\/login["']\)/,
+  },
+  {
+    name: "google-login-uses-explicit-auth-callback",
+    source: loginSource,
+    pattern: /signInWithOAuth\([\s\S]*provider:\s*['"]google['"][\s\S]*\/auth\/callback\?next=\//,
+  },
+  {
+    name: "auth-callback-exchanges-code-and-bootstraps-profile",
+    source: authCallbackSource,
+    pattern: /exchangeCodeForSession\(code\)[\s\S]*ensureProfileForSession[\s\S]*router\.replace\(next\)/,
+  },
+  {
+    name: "home-preserves-session-on-auth-init-failure",
+    source: pageSource,
+    pattern: /Auth initialization failed; preserving stored session for next retry/,
+  },
+  {
+    name: "home-times-out-get-user-and-keeps-session-fallback",
+    source: pageSource,
+    pattern: /withTimeout\(supabase\.auth\.getUser\(\), "getUser"\)[\s\S]*keeping session fallback/,
+  },
+  {
+    name: "auth-profile-creates-google-metadata-fallback",
+    source: authProfileSource,
+    pattern: /profileFallbackFromSession[\s\S]*user_metadata[\s\S]*avatar_url[\s\S]*ensureProfileForSession/,
   },
   {
     name: "home-has-front-page-calendar-access",
