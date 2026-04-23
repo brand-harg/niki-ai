@@ -1894,6 +1894,14 @@ export default function Home() {
               </div>
             </div>
 
+            <button
+              type="button"
+              onClick={() => router.push("/calendar")}
+              className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
+            >
+              Calendar
+            </button>
+
             <div className="sm:border-l border-white/10 sm:pl-6 flex items-center gap-3 sm:gap-5">
               {!authChecked ? (
                 <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />

@@ -51,12 +51,13 @@ export default function CalendarPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [title, setTitle] = useState("");
-  const [date, setDate] = useState(todayIsoDate());
+  const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [course, setCourse] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canEdit = !!userId;
 
   const testEventCount = useMemo(
     () => events.filter((event) => /\b(test|exam|quiz|midterm|final)\b/i.test(event.title)).length,
@@ -85,6 +86,8 @@ export default function CalendarPage() {
     let mounted = true;
 
     const initialize = async () => {
+      if (!date) setDate(todayIsoDate());
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -92,7 +95,9 @@ export default function CalendarPage() {
       if (!mounted) return;
 
       if (!session?.user?.id) {
-        router.replace("/login");
+        setUserId(null);
+        setEvents([]);
+        setLoading(false);
         return;
       }
 
@@ -106,7 +111,7 @@ export default function CalendarPage() {
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [date]);
 
   const handleCreateEvent = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -187,12 +192,26 @@ export default function CalendarPage() {
         <section className="grid flex-1 gap-6 py-8 lg:grid-cols-[360px_1fr]">
           <form
             onSubmit={handleCreateEvent}
-            className="h-fit rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl"
+            className={`h-fit rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl ${!canEdit ? "opacity-90" : ""}`}
           >
             <h1 className="text-xl font-black uppercase tracking-tight">Calendar</h1>
             <p className="mt-2 text-sm leading-6 text-slate-400">
               Add tests, quizzes, deadlines, or study blocks. Niki uses upcoming events quietly when they matter.
             </p>
+
+            {!canEdit && (
+              <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                <p className="text-xs font-bold leading-5 text-cyan-100">
+                  You can view this calendar page while logged out. Log in to see your saved events or add a new one.
+                </p>
+                <Link
+                  href="/login"
+                  className="mt-3 inline-flex rounded-full bg-cyan-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-cyan-500"
+                >
+                  Log In to Add Events
+                </Link>
+              </div>
+            )}
 
             <div className="mt-6 space-y-4">
               <input
@@ -200,6 +219,7 @@ export default function CalendarPage() {
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Event title"
                 className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500/50"
+                disabled={!canEdit}
                 required
               />
               <div className="grid grid-cols-2 gap-3">
@@ -208,6 +228,7 @@ export default function CalendarPage() {
                   value={date}
                   onChange={(event) => setDate(event.target.value)}
                   className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50"
+                  disabled={!canEdit}
                   required
                 />
                 <input
@@ -215,6 +236,7 @@ export default function CalendarPage() {
                   value={time}
                   onChange={(event) => setTime(event.target.value)}
                   className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50"
+                  disabled={!canEdit}
                   required
                 />
               </div>
@@ -222,6 +244,7 @@ export default function CalendarPage() {
                 value={course}
                 onChange={(event) => setCourse(event.target.value)}
                 className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/50"
+                disabled={!canEdit}
               >
                 <option value="">Optional course</option>
                 {COURSE_OPTIONS.map((option) => (
@@ -240,10 +263,10 @@ export default function CalendarPage() {
 
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !canEdit}
               className="mt-5 w-full rounded-2xl bg-cyan-600 py-4 text-xs font-black uppercase tracking-widest text-white transition hover:bg-cyan-500 disabled:bg-zinc-800"
             >
-              {saving ? "Saving..." : "Add Event"}
+              {!canEdit ? "Login Required" : saving ? "Saving..." : "Add Event"}
             </button>
           </form>
 
@@ -260,6 +283,10 @@ export default function CalendarPage() {
             {loading ? (
               <div className="mt-8 rounded-2xl border border-white/10 bg-black/30 p-6 text-sm text-slate-500">
                 Loading calendar...
+              </div>
+            ) : !canEdit ? (
+              <div className="mt-8 rounded-2xl border border-white/10 bg-black/30 p-6 text-sm leading-6 text-slate-500">
+                Log in to view your saved upcoming events. Guests can open the calendar page, but saved events and editing stay tied to your account.
               </div>
             ) : events.length === 0 ? (
               <div className="mt-8 rounded-2xl border border-white/10 bg-black/30 p-6 text-sm text-slate-500">
@@ -293,13 +320,15 @@ export default function CalendarPage() {
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => deleteEvent(event.id)}
-                      className="shrink-0 rounded-full border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-red-500/40 hover:text-red-300"
-                    >
-                      Delete
-                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => deleteEvent(event.id)}
+                        className="shrink-0 rounded-full border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-red-500/40 hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>

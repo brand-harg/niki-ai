@@ -57,9 +57,14 @@ const fixtures = [
     pattern: /router\.replace\(["']\/["']\)[\s\S]*router\.replace\(["']\/login["']\)/,
   },
   {
-    name: "calendar-route-requires-auth-session",
+    name: "home-has-front-page-calendar-access",
+    source: pageSource,
+    pattern: /router\.push\(["']\/calendar["']\)[\s\S]*Calendar/,
+  },
+  {
+    name: "calendar-route-allows-guests-but-locks-editing",
     source: calendarSource,
-    pattern: /supabase\.auth\.getSession\(\)[\s\S]*router\.replace\(["']\/login["']\)/,
+    pattern: /supabase\.auth\.getSession\(\)[\s\S]*setUserId\(null\)[\s\S]*Log In to Add Events[\s\S]*disabled=\{!canEdit\}/,
   },
   {
     name: "calendar-stores-events-in-supabase-table",
