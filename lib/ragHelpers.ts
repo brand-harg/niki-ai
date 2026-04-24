@@ -283,10 +283,21 @@ function fallbackCourseCounts(): Array<{ course: string; count: number }> {
     { course: "Calculus 2", count: 1 },
     { course: "Calculus 3", count: 1 },
     { course: "PreCalc1", count: 1 },
-    { course: "Intro To Statistics", count: 1 },
+    { course: "Statistics", count: 1 },
     { course: "Differential Equations", count: 1 },
     { course: "Elementary Algebra", count: 1 },
   ];
+}
+
+function normalizeLectureCourseForCounts(course?: string | null): string {
+  const normalized = course?.trim();
+  if (!normalized) return "Unknown course";
+
+  if (/^intro\s+to\s+statistics$/i.test(normalized)) return "Statistics";
+  if (/^stats?$/i.test(normalized)) return "Statistics";
+  if (/^pre\s*calc(?:ulus)?\s*1$/i.test(normalized)) return "PreCalc1";
+
+  return normalized;
 }
 
 function knownVideoLookupReply(message: string): string | null {
@@ -489,7 +500,7 @@ async function getLectureCourseCounts(): Promise<Array<{ course: string; count: 
   const counts = new Map<string, number>();
 
   for (const row of (data ?? []) as LectureSourceRow[]) {
-    const course = row.course?.trim() || "Unknown course";
+    const course = normalizeLectureCourseForCounts(row.course);
     const key = [
       row.lecture_title ?? "",
       course,

@@ -2,13 +2,27 @@ import { readFileSync } from "node:fs";
 
 const pageSource = readFileSync("app/page.tsx", "utf8");
 const loginSource = readFileSync("app/login/page.tsx", "utf8");
+const updatePasswordSource = readFileSync("app/update-password/page.tsx", "utf8");
 const signupSource = readFileSync("app/signup/page.tsx", "utf8");
 const authCallbackSource = readFileSync("app/auth/callback/page.tsx", "utf8");
+const authConfirmedSource = readFileSync("app/auth/confirmed/page.tsx", "utf8");
 const calendarSource = readFileSync("app/calendar/page.tsx", "utf8");
+const personalizationSource = readFileSync("app/personalization/page.tsx", "utf8");
+const profileSource = readFileSync("app/profile/page.tsx", "utf8");
+const settingsSource = readFileSync("app/settings/page.tsx", "utf8");
+const generalPageSource = readFileSync("app/settings/general/page.tsx", "utf8");
 const chatRouteSource = readFileSync("app/api/chat/route.ts", "utf8");
+const publicArtifactsRouteSource = readFileSync("app/api/artifacts/public/route.ts", "utf8");
+const knowledgeBaseStatusRouteSource = readFileSync("app/api/knowledge-base/status/route.ts", "utf8");
+const avatarUrlSource = readFileSync("lib/avatarUrl.ts", "utf8");
 const authProfileSource = readFileSync("lib/authProfile.ts", "utf8");
 const authRecoverySource = readFileSync("lib/authRecovery.ts", "utf8");
 const calendarSqlSource = readFileSync("scripts/sql/calendar-events.sql", "utf8");
+const studyArtifactsSqlSource = readFileSync("scripts/sql/study-artifacts.sql", "utf8");
+const trainingSqlSource = readFileSync("scripts/sql/training-interactions.sql", "utf8");
+const usageSqlSource = readFileSync("scripts/sql/usage-interactions.sql", "utf8");
+const personalizationLibSource = readFileSync("lib/personalization.ts", "utf8");
+const generalSettingsLibSource = readFileSync("lib/generalSettings.ts", "utf8");
 const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
 const nextConfigSource = readFileSync("next.config.ts", "utf8");
@@ -45,9 +59,14 @@ const fixtures = [
     pattern: /href=["']\/signup["'][\s\S]*Create Account/,
   },
   {
+    name: "forgot-password-redirects-to-update-password",
+    source: loginSource,
+    pattern: /resetPasswordForEmail\([\s\S]*redirectTo:\s*`\$\{window\.location\.origin\}\/update-password`/,
+  },
+  {
     name: "signup-uses-existing-supabase-auth",
     source: signupSource,
-    pattern: /supabase\.auth\.signUp\([\s\S]*emailRedirectTo[\s\S]*\/auth\/callback\?next=\//,
+    pattern: /supabase\.auth\.signUp\([\s\S]*emailRedirectTo[\s\S]*\/auth\/callback\?next=\/auth\/confirmed[\s\S]*Check your email to confirm your account\./,
   },
   {
     name: "signup-validates-confirm-password",
@@ -57,7 +76,7 @@ const fixtures = [
   {
     name: "signup-redirects-after-success",
     source: signupSource,
-    pattern: /router\.replace\(["']\/["']\)[\s\S]*router\.replace\(["']\/login["']\)/,
+    pattern: /data\.session\?\.user\?\.id[\s\S]*router\.replace\(["']\/["']\)[\s\S]*setNotice\(["']Check your email to confirm your account\./,
   },
   {
     name: "google-login-uses-explicit-auth-callback",
@@ -70,9 +89,19 @@ const fixtures = [
     pattern: /recoverSessionFromUrl\(\)[\s\S]*ensureProfileForSession[\s\S]*router\.replace\(next\)/,
   },
   {
+    name: "auth-confirmed-page-shows-success-and-login-path",
+    source: `${authConfirmedSource}\n${loginSource}`,
+    pattern: /Email confirmed successfully\.[\s\S]*You can now log in\.[\s\S]*\/login\?confirmed=success[\s\S]*Email confirmed successfully\. You can now log in\./,
+  },
+  {
     name: "auth-recovery-supports-pkce-and-hash-callbacks",
     source: authRecoverySource,
     pattern: /exchangeCodeForSession\(code\)[\s\S]*setSession\([\s\S]*access_token[\s\S]*refresh_token/,
+  },
+  {
+    name: "update-password-page-recovers-session-and-updates-password",
+    source: updatePasswordSource,
+    pattern: /hasAuthCallbackParams\(\)[\s\S]*recoverSessionFromUrl\(\)[\s\S]*updateUser\(\{\s*password\s*\}\)[\s\S]*expired or invalid/i,
   },
   {
     name: "home-recovers-oauth-callback-before-session-check",
@@ -100,9 +129,54 @@ const fixtures = [
     pattern: /isPlaceholderName[\s\S]*isPlaceholderUsername[\s\S]*mergeProfileWithFallback/,
   },
   {
+    name: "personalization-supports-local-storage-fallback",
+    source: `${personalizationLibSource}\n${personalizationSource}`,
+    pattern: /PERSONALIZATION_STORAGE_KEY[\s\S]*readLocalPersonalizationSettings[\s\S]*writeLocalPersonalizationSettings[\s\S]*Saved On This Device/,
+  },
+  {
+    name: "personalization-shows-inline-sync-feedback",
+    source: personalizationSource,
+    pattern: /syncBadgeText[\s\S]*Unsynced changes[\s\S]*Saved on device[\s\S]*Cloud synced/,
+  },
+  {
+    name: "chat-request-includes-personalization-context",
+    source: `${pageSource}\n${chatRouteSource}`,
+    pattern: /aboutUserContext:\s*effectivePersonalization\.about_user[\s\S]*responseStyleContext:\s*effectivePersonalization\.response_style[\s\S]*User context:[\s\S]*Response style:/,
+  },
+  {
+    name: "new-chats-respect-default-nemanja-mode",
+    source: pageSource,
+    pattern: /const preferredMode = effectivePersonalization\.default_niki_mode[\s\S]*setMessages\(createGreeting\(preferredMode\)\)[\s\S]*setIsNikiMode\(preferredMode\)/,
+  },
+  {
+    name: "general-settings-autosave-with-local-fallback",
+    source: `${generalPageSource}\n${generalSettingsLibSource}`,
+    pattern: /readLocalGeneralSettings[\s\S]*writeLocalGeneralSettings[\s\S]*writeLocalPersonalizationSettings[\s\S]*Saved On This Device[\s\S]*Saved/,
+  },
+  {
+    name: "general-settings-show-inline-sync-badges",
+    source: generalPageSource,
+    pattern: /syncBadgeText[\s\S]*Saved locally[\s\S]*Cloud synced[\s\S]*Auto-save active/,
+  },
+  {
+    name: "general-settings-default-chat-mode-is-real",
+    source: `${generalPageSource}\n${pageSource}`,
+    pattern: /Default Chat Mode[\s\S]*Pure Logic[\s\S]*Nemanja Mode[\s\S]*default_niki_mode[\s\S]*effectivePersonalization\.default_niki_mode/,
+  },
+  {
+    name: "chat-input-respects-ctrl-cmd-enter-setting",
+    source: `${generalPageSource}\n${pageSource}`,
+    pattern: /Ctrl \/ Cmd \+ Enter to Send[\s\S]*effectiveCmdEnterToSend[\s\S]*e\.metaKey \|\| e\.ctrlKey/,
+  },
+  {
     name: "home-has-front-page-calendar-access",
     source: pageSource,
     pattern: /router\.push\(["']\/calendar["']\)[\s\S]*Calendar/,
+  },
+  {
+    name: "home-shows-first-time-onboarding-prompts",
+    source: pageSource,
+    pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Quick Start)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*handleOnboardingPrompt)/,
   },
   {
     name: "knowledge-base-sidebar-supports-all-core-courses",
@@ -113,6 +187,31 @@ const fixtures = [
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
     source: pageSource,
     pattern: /Source Health[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,
+  },
+  {
+    name: "knowledge-base-panel-is-an-interactive-control-surface",
+    source: pageSource,
+    pattern: /Start New Session[\s\S]*Active Lecture Set[\s\S]*Set Active[\s\S]*Clear[\s\S]*Upload \/ Attach File[\s\S]*Recent Context/,
+  },
+  {
+    name: "knowledge-base-course-chips-drive-focus-mode",
+    source: pageSource,
+    pattern: /handleSelectKnowledgeCourse[\s\S]*chatFocus\.course === courseContext \? "" : courseContext[\s\S]*topic:\s*""[\s\S]*course\.courseContext === activeKnowledgeCourse \|\|[\s\S]*course\.courseContext === chatFocus\.course/,
+  },
+  {
+    name: "knowledge-base-auth-gates-syllabus-and-library-actions",
+    source: pageSource,
+    pattern: /knowledgeBaseNotice[\s\S]*showLoginGatePrompt[\s\S]*Log in to save your study progress\.[\s\S]*router\.push\(["']\/login["']\)[\s\S]*Save later when you log in/,
+  },
+  {
+    name: "knowledge-base-panel-loads-real-health-metrics",
+    source: `${pageSource}\n${knowledgeBaseStatusRouteSource}`,
+    pattern: /fetchKnowledgeBaseStatus[\s\S]*indexedLectureCount[\s\S]*courseCounts[\s\S]*status/,
+  },
+  {
+    name: "knowledge-base-source-health-expands-with-course-breakdown",
+    source: pageSource,
+    pattern: /sourceHealthExpanded[\s\S]*Using lecture data for responses[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
   },
   {
     name: "chat-focus-mode-supports-all-core-courses-and-persists",
@@ -128,6 +227,31 @@ const fixtures = [
     name: "chat-focus-mode-is-collapsible-and-mobile-friendly",
     source: pageSource,
     pattern: /focusModeExpanded[\s\S]*toggleFocusMode[\s\S]*Focus Mode[\s\S]*focusSummary[\s\S]*sm:rotate-180[\s\S]*hidden sm:block/,
+  },
+  {
+    name: "chat-focus-mode-syncs-with-knowledge-base-and-allows-no-subject",
+    source: pageSource,
+    pattern: /(?=[\s\S]*No subject selected)(?=[\s\S]*setActiveKnowledgeCourse\(normalizedFocusCourse\))(?=[\s\S]*setRecentKnowledgeContexts\(\[nextContext\]\))(?=[\s\S]*setRecentKnowledgeContexts\(\[\]\))/,
+  },
+  {
+    name: "chat-ui-shows-live-focus-context-label",
+    source: pageSource,
+    pattern: /(?=[\s\S]*data-chat-capture)(?=[\s\S]*focusStatusLabel)(?=[\s\S]*No course selected)(?=[\s\S]*aria-live=["']polite["'])(?=[\s\S]*messages\.map\()/,
+  },
+  {
+    name: "chat-ui-shows-study-session-identity",
+    source: pageSource,
+    pattern: /sessionStudyLabel[\s\S]*Studying:\s*\$\{focusCourseLabel\}[\s\S]*Studying:\s*\$\{focusCourseLabel\} • \$\{trimmedTopic\}/,
+  },
+  {
+    name: "chat-shows-lightweight-study-progress-feedback",
+    source: pageSource,
+    pattern: /studyProgressNotice[\s\S]*You're working through \${focusCourseLabel} topics\.[\s\S]*You're building reusable study material\./,
+  },
+  {
+    name: "chat-supports-lightweight-practice-mode-label-and-followups",
+    source: pageSource,
+    pattern: /(?=[\s\S]*isPracticeRequestText)(?=[\s\S]*practiceModeActive)(?=[\s\S]*Practice Mode)(?=[\s\S]*Check my answers)(?=[\s\S]*Give me more problems)/,
   },
   {
     name: "calendar-route-allows-guests-but-locks-editing",
@@ -175,6 +299,16 @@ const fixtures = [
     pattern: /create table if not exists public\.calendar_events[\s\S]*enable row level security[\s\S]*auth\.uid\(\) = user_id/,
   },
   {
+    name: "training-log-schema-is-separate-and-consent-gated",
+    source: trainingSqlSource,
+    pattern: /create table if not exists public\.training_interactions[\s\S]*prompt text[\s\S]*response text[\s\S]*user_prompt text not null[\s\S]*assistant_response text not null[\s\S]*Separate consent-gated quality\/training log[\s\S]*enable row level security/,
+  },
+  {
+    name: "usage-log-schema-is-separate-and-metadata-only",
+    source: usageSqlSource,
+    pattern: /create table if not exists public\.usage_interactions[\s\S]*mode text not null[\s\S]*teaching_mode boolean not null[\s\S]*course text[\s\S]*requested_course text[\s\S]*active_course text[\s\S]*focus_course text[\s\S]*focus_topic text[\s\S]*Separate metadata-only usage log[\s\S]*enable row level security/,
+  },
+  {
     name: "home-injects-calendar-context-into-chat-request",
     source: pageSource,
     pattern: /fetchUpcomingCalendarContext[\s\S]*from\(["']calendar_events["']\)[\s\S]*calendarContext: calendarContext \|\| undefined/,
@@ -200,6 +334,31 @@ const fixtures = [
     pattern: /calendarContext\?: string[\s\S]*buildCalendarContextSystemMessage[\s\S]*Use this only when it is relevant[\s\S]*test, exam, quiz, midterm, or final/,
   },
   {
+    name: "chat-route-only-inserts-training-log-when-consented",
+    source: chatRouteSource,
+    pattern: /const trainConsent = body\.trainConsent === true;[\s\S]*sanitizeTrainingLogText[\s\S]*if \(!trainConsent\) return;[\s\S]*from\("training_interactions"\)\.insert[\s\S]*prompt:\s*sanitizedPrompt[\s\S]*response:\s*sanitizedResponse/,
+  },
+  {
+    name: "chat-request-includes-usage-log-consent",
+    source: pageSource,
+    pattern: /usageLogsConsent: profile\?\.share_usage_data/,
+  },
+  {
+    name: "chat-route-derives-effective-usage-log-consent",
+    source: chatRouteSource,
+    pattern: /const usageLogsConsent = body\.usageLogsConsent[\s\S]*const effectiveUsageLogsConsent =[\s\S]*usageLogsConsent === true[\s\S]*profile\?\.share_usage_data === true/,
+  },
+  {
+    name: "chat-route-only-inserts-usage-log-metadata",
+    source: chatRouteSource,
+    pattern: /const maybeLogUsageInteraction = async \(\) => \{[\s\S]*if \(!effectiveUsageLogsConsent\) return;[\s\S]*from\("usage_interactions"\)\.insert[\s\S]*mode:[\s\S]*teaching_mode:[\s\S]*requested_course:[\s\S]*active_course:[\s\S]*focus_course:[\s\S]*focus_topic:[\s\S]*course:/,
+  },
+  {
+    name: "home-shows-soft-training-opt-in-with-snooze",
+    source: pageSource,
+    pattern: /TRAINING_PROMPT_SNOOZE_KEY[\s\S]*update\(\{\s*train_on_data:\s*true\s*\}\)[\s\S]*Help improve NikiAI for everyone\?[\s\S]*Allow anonymized math interactions to improve future responses\.[\s\S]*Turn On[\s\S]*Not now/,
+  },
+  {
     name: "home-keeps-session-fallback-on-user-refresh-failure",
     source: pageSource,
     pattern: /applySessionFallbackProfile\(session\)[\s\S]*void loadUserData/,
@@ -212,7 +371,7 @@ const fixtures = [
   {
     name: "mobile-composer-does-not-overlay-chat",
     source: pageSource,
-    pattern: /<footer className="shrink-0[\s\S]*safe-area-inset-bottom/,
+    pattern: /<footer className="(?:sticky bottom-0 z-20 )?shrink-0[\s\S]*safe-area-inset-bottom|<footer className="sticky bottom-0 z-20[\s\S]*safe-area-inset-bottom/,
   },
   {
     name: "chat-scroll-region-has-min-height-boundary",
@@ -252,12 +411,92 @@ const fixtures = [
   {
     name: "nemanja-mode-shows-teaching-toggle-only",
     source: pageSource,
-    pattern: /isNikiMode && \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF[\s\S]*isNikiMode && \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
+    pattern: /Pure Logic[\s\S]*Nemanja Mode[\s\S]*isNikiMode \? \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF[\s\S]*opacity-0/,
   },
   {
     name: "pure-logic-responses-offer-explain-bridge",
     source: pageSource,
     pattern: /handleExplainThis[\s\S]*handleResponseFollowup[\s\S]*Do another[\s\S]*Explain step-by-step[\s\S]*Harder problem/,
+  },
+  {
+    name: "artifact-panel-opens-with-live-preview-and-export",
+    source: pageSource,
+    pattern: /handleOpenArtifact[\s\S]*OPEN ARTIFACT[\s\S]*📘 Study Artifact[\s\S]*Structured notes generated from your request[\s\S]*Export PDF[\s\S]*data-artifact-export/,
+  },
+  {
+    name: "artifact-pdf-export-downloads-without-popup-window",
+    source: pageSource,
+    pattern: /buildSinglePagePdfFromJpeg[\s\S]*URL\.createObjectURL[\s\S]*link\.download[\s\S]*link\.click\(\)[\s\S]*\.pdf/,
+  },
+  {
+    name: "artifact-creation-shows-workspace-feedback",
+    source: pageSource,
+    pattern: /artifactCreationNotice[\s\S]*Study artifact created[\s\S]*setArtifactPanel\(artifactCreationNotice\)[\s\S]*Open workspace/,
+  },
+  {
+    name: "chat-offers-to-continue-last-study-artifact",
+    source: pageSource,
+    pattern: /(?=[\s\S]*recentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)/,
+  },
+  {
+    name: "artifact-panel-supports-saveable-study-library",
+    source: pageSource,
+    pattern: /handleOpenSavedArtifact[\s\S]*handleSaveArtifact[\s\S]*Log in to save your study progress\.[\s\S]*study_artifacts[\s\S]*Save to Study Library/,
+  },
+  {
+    name: "logged-out-restricted-actions-show-soft-login-prompt",
+    source: pageSource,
+    pattern: /type LoginGatePrompt[\s\S]*showLoginGatePrompt[\s\S]*Log in to save your study progress[\s\S]*Keep your progress[\s\S]*Not now[\s\S]*router\.push\(["']\/login["']\)/,
+  },
+  {
+    name: "artifact-panel-behaves-like-a-study-workspace",
+    source: pageSource,
+    pattern: /(?=[\s\S]*artifactKindLabel)(?=[\s\S]*No lecture source attached)(?=[\s\S]*Unsaved changes)(?=[\s\S]*Save Changes)(?=[\s\S]*Recent Artifacts)(?=[\s\S]*(Make Private|Make Public))/,
+  },
+  {
+    name: "artifact-panel-protects-unsaved-work",
+    source: pageSource,
+    pattern: /serializeArtifactWorkspace[\s\S]*artifactBaselineSnapshot[\s\S]*You have unsaved changes[\s\S]*beforeunload[\s\S]*closeArtifactWorkspace/,
+  },
+  {
+    name: "study-artifacts-schema-supports-public-visibility",
+    source: studyArtifactsSqlSource,
+    pattern: /is_public boolean[\s\S]*alter table public\.study_artifacts[\s\S]*alter column is_public set default false[\s\S]*study artifacts select public rows[\s\S]*is_public = true/,
+  },
+  {
+    name: "public-artifacts-route-only-returns-public-rows",
+    source: publicArtifactsRouteSource,
+    pattern: /from\("study_artifacts"\)[\s\S]*select\("id, title, content, source_prompt, kind, course_tag, topic_tag, is_public, created_at, updated_at"\)[\s\S]*eq\("is_public", true\)/,
+  },
+  {
+    name: "artifact-library-badges-reflect-public-and-private-state",
+    source: pageSource,
+    pattern: /🌐 Public[\s\S]*🔒 Private[\s\S]*Only artifacts explicitly marked public are discoverable here\./,
+  },
+  {
+    name: "profile-page-shows-real-sync-feedback",
+    source: profileSource,
+    pattern: /syncState[\s\S]*persistedProfile[\s\S]*Unsynced changes[\s\S]*Cloud synced[\s\S]*Changes are waiting for sync/,
+  },
+  {
+    name: "settings-menu-shows-live-status-and-session-snapshot",
+    source: settingsSource,
+    pattern: /sessionSummary[\s\S]*No active topic[\s\S]*Mode[\s\S]*Personalization[\s\S]*Training[\s\S]*Sync[\s\S]*Current Session/,
+  },
+  {
+    name: "settings-menu-has-inline-toggles-and-quick-actions",
+    source: settingsSource,
+    pattern: /Quick Toggles[\s\S]*Default Mode[\s\S]*Improve Model[\s\S]*Quick Actions[\s\S]*New Chat[\s\S]*Open Artifact Panel[\s\S]*Reset Settings/,
+  },
+  {
+    name: "settings-menu-shows-inline-save-feedback",
+    source: settingsSource,
+    pattern: /syncState[\s\S]*syncBadgeText[\s\S]*syncBadgeClass[\s\S]*Saved locally|syncState[\s\S]*syncBadgeText[\s\S]*syncBadgeClass[\s\S]*Cloud synced/,
+  },
+  {
+    name: "home-syncs-menu-session-snapshot-and-pending-actions",
+    source: pageSource,
+    pattern: /CURRENT_CHAT_MODE_STORAGE_KEY[\s\S]*CURRENT_SESSION_SNAPSHOT_STORAGE_KEY[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY[\s\S]*PENDING_HOME_ACTION_STORAGE_KEY[\s\S]*setMessages\(createGreeting\(isNikiMode\)\)[\s\S]*setArtifactPanel\(storedArtifact\)/,
   },
   {
     name: "tools-menu-contains-screenshot-action",
@@ -310,6 +549,11 @@ const fixtures = [
     pattern: /Open clip/,
   },
   {
+    name: "source-cards-show-knowledge-base-transparency",
+    source: pageSource,
+    pattern: /Active lecture set:[\s\S]*Current question looks like[\s\S]*Low relevance/,
+  },
+  {
     name: "source-inspector-opens-from-source-cards",
     source: pageSource,
     pattern: /Peek evidence[\s\S]*aria-label="Source inspector"[\s\S]*Source Inspector/,
@@ -343,6 +587,21 @@ const fixtures = [
     name: "next-allows-youtube-thumbnail-hosts",
     source: nextConfigSource,
     pattern: /hostname:\s*["']img\.youtube\.com["'][\s\S]*hostname:\s*["']i\.ytimg\.com["']/,
+  },
+  {
+    name: "avatars-normalize-storage-paths-and-empty-values",
+    source: avatarUrlSource,
+    pattern: /function\s+extractAvatarPath[\s\S]*if\s*\(!value\)\s*return null;[\s\S]*getPublicUrl/,
+  },
+  {
+    name: "avatar-images-bypass-optimizer-at-render-points",
+    source: `${pageSource}\n${profileSource}\n${settingsSource}`,
+    pattern: /resolveAvatarUrl[\s\S]*unoptimized[\s\S]*resolveAvatarUrl[\s\S]*unoptimized[\s\S]*resolveAvatarUrl[\s\S]*unoptimized/,
+  },
+  {
+    name: "next-allows-supabase-and-google-avatar-hosts",
+    source: nextConfigSource,
+    pattern: /storage\/v1\/object\/public\/Avatars\/\*\*[\s\S]*storage\/v1\/object\/sign\/Avatars\/\*\*[\s\S]*hostname:\s*["']lh3\.googleusercontent\.com["']/,
   },
 ];
 

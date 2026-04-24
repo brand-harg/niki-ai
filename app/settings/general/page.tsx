@@ -2,27 +2,58 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import {
+  DEFAULT_GENERAL_SETTINGS,
+  readLocalGeneralSettings,
+  writeLocalGeneralSettings,
+  type GeneralSettings,
+} from '@/lib/generalSettings';
+import {
+  readLocalPersonalizationSettings,
+  writeLocalPersonalizationSettings,
+} from '@/lib/personalization';
+
+type PersistedSettings = GeneralSettings & {
+  performance_mode: boolean;
+  default_niki_mode: boolean;
+};
 
 export default function GeneralSettingsPage() {
   const router = useRouter();
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasSession, setHasSession] = useState(false);
+  const [syncState, setSyncState] = useState<"saved" | "saving" | "local">("saved");
 
-  const [settings, setSettings] = useState({
-    theme_accent: 'cyan',
-    compact_mode: false,
-    cmd_enter_to_send: false,
-    performance_mode: true
+  const [settings, setSettings] = useState<PersistedSettings>({
+    ...DEFAULT_GENERAL_SETTINGS,
+    performance_mode: true,
+    default_niki_mode: false,
   });
 
   useEffect(() => {
     const fetchSettings = async () => {
+      const localGeneralSettings = readLocalGeneralSettings();
+      const localPersonalization = readLocalPersonalizationSettings();
+      setSettings((prev) => ({
+        ...prev,
+        ...localGeneralSettings,
+        default_niki_mode: localPersonalization.default_niki_mode,
+      }));
+
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return router.push('/login');
+      if (!session) {
+        setHasSession(false);
+        setSyncState("local");
+        setLoading(false);
+        return;
+      }
+
+      setHasSession(true);
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('theme_accent, compact_mode, cmd_enter_to_send, performance_mode')
+        .select('theme_accent, compact_mode, cmd_enter_to_send, performance_mode, default_niki_mode')
         .eq('id', session.user.id)
         .maybeSingle();
 
@@ -31,9 +62,19 @@ export default function GeneralSettingsPage() {
       }
 
       if (data) {
-        setSettings(data);
+        setSettings({
+          theme_accent:
+            data.theme_accent === 'green' || data.theme_accent === 'amber'
+              ? data.theme_accent
+              : 'cyan',
+          compact_mode: data.compact_mode ?? false,
+          cmd_enter_to_send: data.cmd_enter_to_send ?? false,
+          performance_mode: data.performance_mode ?? true,
+          default_niki_mode: data.default_niki_mode ?? false,
+        });
       }
 
+      setSyncState("saved");
       setLoading(false);
     };
 
@@ -45,21 +86,60 @@ export default function GeneralSettingsPage() {
     setTimeout(() => setStatus(null), 3000);
   };
 
-  const handleApply = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return showStatus("Auth Session Lost");
+  const persistSettings = async (
+    patch: Partial<PersistedSettings>,
+    successMessage = hasSession ? "Saved" : "Saved On This Device"
+  ) => {
+    const nextSettings = { ...settings, ...patch };
+    setSettings(nextSettings);
+    writeLocalGeneralSettings({
+      theme_accent: nextSettings.theme_accent,
+      compact_mode: nextSettings.compact_mode,
+      cmd_enter_to_send: nextSettings.cmd_enter_to_send,
+    });
+    writeLocalPersonalizationSettings({
+      ...readLocalPersonalizationSettings(),
+      default_niki_mode: nextSettings.default_niki_mode,
+    });
 
-    const { error } = await supabase
-      .from('profiles')
-      .update(settings)
-      .eq('id', session.user.id);
+    if (!hasSession) {
+      setSyncState("local");
+      showStatus(successMessage);
+      return;
+    }
 
-    if (error) {
-      console.error("Supabase Error:", error);
-      showStatus(`Sync Failed: ${error.message}`);
-    } else {
-      localStorage.setItem('theme_accent', settings.theme_accent);
-      showStatus("System Optimized");
+    setSyncState("saving");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setHasSession(false);
+        setSyncState("local");
+        showStatus("Saved On This Device");
+        return;
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          theme_accent: nextSettings.theme_accent,
+          compact_mode: nextSettings.compact_mode,
+          cmd_enter_to_send: nextSettings.cmd_enter_to_send,
+          performance_mode: nextSettings.performance_mode,
+          default_niki_mode: nextSettings.default_niki_mode,
+        })
+        .eq('id', session.user.id);
+
+      if (error) {
+        console.error("Supabase Error:", error);
+        setSyncState("local");
+        showStatus(`Sync Failed: ${error.message}`);
+        return;
+      }
+
+      setSyncState("saved");
+      showStatus(successMessage);
+    } finally {
+      // syncState carries the visible save status.
     }
   };
 
@@ -78,12 +158,6 @@ export default function GeneralSettingsPage() {
       ? 'bg-amber-500'
       : 'bg-cyan-500';
 
-  const accentHoverBg = isGreen
-    ? 'hover:bg-green-400'
-    : isAmber
-      ? 'hover:bg-amber-400'
-      : 'hover:bg-cyan-400';
-
   const selectionClass = isGreen
     ? 'selection:bg-green-500/30'
     : isAmber
@@ -101,6 +175,18 @@ export default function GeneralSettingsPage() {
     : isAmber
       ? 'shadow-[0_0_10px_rgba(245,158,11,0.3)]'
       : 'shadow-[0_0_10px_rgba(34,211,238,0.3)]';
+  const syncBadgeText =
+    syncState === "saving"
+      ? "Saving..."
+      : syncState === "local"
+        ? "Saved locally"
+        : "Cloud synced";
+  const syncBadgeClass =
+    syncState === "saving"
+      ? `${accentBg} text-black`
+      : syncState === "local"
+        ? "border border-amber-500/20 bg-amber-500/10 text-amber-300"
+        : "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
 
   if (loading) {
     return (
@@ -126,6 +212,17 @@ export default function GeneralSettingsPage() {
           <p className="text-slate-600 text-[10px] font-mono uppercase tracking-[0.2em] mt-2">
             Optimize the Command Center
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${syncBadgeClass}`}>
+              {syncBadgeText}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
+              {hasSession ? "Cloud" : "Local"}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
+              Auto-save active
+            </span>
+          </div>
         </header>
 
         <div className="bg-[#080808] border border-white/5 rounded-[3rem] p-10 space-y-12 shadow-2xl">
@@ -145,7 +242,9 @@ export default function GeneralSettingsPage() {
                   {['cyan', 'green', 'amber'].map((color) => (
                     <button
                       key={color}
-                      onClick={() => setSettings({ ...settings, theme_accent: color })}
+                      onClick={() =>
+                        void persistSettings({ theme_accent: color as PersistedSettings["theme_accent"] }, "Accent updated")
+                      }
                       className={`w-5 h-5 rounded-full border-2 transition-all ${
                         settings.theme_accent === color
                           ? 'border-white scale-110'
@@ -165,7 +264,12 @@ export default function GeneralSettingsPage() {
               <div className="flex items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl">
                 <span className="text-xs font-bold text-slate-200">Compact View</span>
                 <button
-                  onClick={() => setSettings({ ...settings, compact_mode: !settings.compact_mode })}
+                  onClick={() =>
+                    void persistSettings(
+                      { compact_mode: !settings.compact_mode },
+                      settings.compact_mode ? "Compact view off" : "Compact view on"
+                    )
+                  }
                   className={`w-12 h-6 rounded-full relative transition-all ${
                     settings.compact_mode ? `${accentBg} ${shadowClass}` : 'bg-zinc-800'
                   }`}
@@ -184,11 +288,48 @@ export default function GeneralSettingsPage() {
             </h3>
             <div className="flex items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl">
               <div>
-                <span className="text-xs font-bold text-slate-200">Cmd + Enter to Send</span>
-                <p className="text-[8px] text-slate-600 uppercase mt-1">Recommended for code blocks</p>
+                <span className="text-xs font-bold text-slate-200">Default Chat Mode</span>
+                <p className="text-[8px] text-slate-600 uppercase mt-1">
+                  Applies only when a fresh chat starts
+                </p>
+              </div>
+              <div className="flex items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur">
+                <button
+                  type="button"
+                  onClick={() =>
+                    void persistSettings({ default_niki_mode: false }, "Mode updated")
+                  }
+                  className={`rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all ${
+                    !settings.default_niki_mode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                  }`}
+                >
+                  Pure Logic
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void persistSettings({ default_niki_mode: true }, "Mode updated")
+                  }
+                  className={`rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all ${
+                    settings.default_niki_mode ? `${accentText} bg-white/[0.06]` : "text-slate-600 hover:text-white"
+                  }`}
+                >
+                  Nemanja Mode
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl">
+              <div>
+                <span className="text-xs font-bold text-slate-200">Ctrl / Cmd + Enter to Send</span>
+                <p className="text-[8px] text-slate-600 uppercase mt-1">Enter stays harmless until you mean it</p>
               </div>
               <button
-                onClick={() => setSettings({ ...settings, cmd_enter_to_send: !settings.cmd_enter_to_send })}
+                onClick={() =>
+                  void persistSettings(
+                    { cmd_enter_to_send: !settings.cmd_enter_to_send },
+                    settings.cmd_enter_to_send ? "Send shortcut off" : "Send shortcut on"
+                  )
+                }
                 className={`w-12 h-6 rounded-full relative transition-all ${
                   settings.cmd_enter_to_send ? accentBg : 'bg-zinc-800'
                 }`}
@@ -223,12 +364,9 @@ export default function GeneralSettingsPage() {
             >
               Back
             </button>
-            <button
-              onClick={handleApply}
-              className={`flex-[2] bg-white ${accentHoverBg} text-black py-4 rounded-2xl font-black uppercase text-[9px] tracking-widest transition-all shadow-xl`}
-            >
-              Apply Settings
-            </button>
+            <div className={`flex-[2] rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-4 text-right text-[9px] font-black uppercase tracking-widest ${accentText}`}>
+              Auto-Save Active
+            </div>
           </div>
         </div>
       </div>

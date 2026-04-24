@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { detectCourseFilter, inferCourseFromMathTopic } from "@/lib/courseFilters";
 import { normalizeModelMathOutput, sanitizeMathContent } from "@/lib/mathFormatting";
 import {
@@ -40,6 +41,9 @@ type ChatRequest = {
   userId?: string;
   chatId?: string;
   trainConsent?: boolean;
+  usageLogsConsent?: boolean;
+  aboutUserContext?: string;
+  responseStyleContext?: string;
   history?: { role: string; content: string }[];
   base64Image?: string;
   imageMediaType?: string;
@@ -139,6 +143,35 @@ function wantsDeeperExplanation(message: string): boolean {
   );
 }
 
+function isTeachFirstMathRequest(
+  message: string,
+  intent: ReturnType<typeof detectSimpleMathIntent>
+): boolean {
+  if (!intent) return false;
+  return /\b(teach|explain|walk me through|help me understand)\b/i.test(message);
+}
+
+function buildTeachFirstMathSystemMessage(intent: NonNullable<ReturnType<typeof detectSimpleMathIntent>>): string {
+  const methodLabel =
+    intent === "derivative"
+      ? "derivative method"
+      : intent === "integral"
+        ? "integration method"
+        : intent === "limit"
+          ? "limit method"
+          : intent === "solve"
+            ? "solving method"
+            : `${intent} method`;
+
+  return [
+    "Teach-first math request:",
+    `- The user asked to learn the ${methodLabel}, not just to submit a single expression.`,
+    "- Do not ask for a custom input first.",
+    "- First explain the concept, show the core formula or rule, and give one clean worked example.",
+    "- Only after the explanation, invite the user to send their own problem if they want one solved next.",
+  ].join("\n");
+}
+
 function wantsThoughtTrace(message: string): boolean {
   return /(thought trace|reasoning trace|show reasoning|show thought process)/i.test(message);
 }
@@ -146,6 +179,21 @@ function wantsThoughtTrace(message: string): boolean {
 function isLectureSummaryRequest(message: string): boolean {
   return /(summarize the lecture|teach me the lecture|lecture me on|do a lecture on|lecture on|give me a lecture on|can we do a lecture|i missed the lecture|wasn'?t in class|what did the lecture cover|explain the lecture|don'?t understand|can't figure out|cannot figure out|help me understand)/i.test(
     message
+  );
+}
+
+function isExplicitKnowledgeBaseRequest(message: string): boolean {
+  return (
+    /\b(source|sources|citation|citations|cite|cited|evidence|transcript|clip|clips|timestamp|timestamps|video|videos|watch|grounded|grounding|lecture connection)\b/i.test(
+      message
+    ) ||
+    /where did (?:that|this) come from/i.test(message) ||
+    /show (?:me )?(?:the )?(?:source|sources|citations|evidence)/i.test(message) ||
+    /peek evidence/i.test(message) ||
+    isLectureSummaryRequest(message) ||
+    isLectureListIntent(message) ||
+    isLectureCountIntent(message) ||
+    isVideoLookupIntent(message)
   );
 }
 
@@ -224,6 +272,16 @@ function sanitizeHistoryForModel(content: string): string {
     .replace(/\${3,}/g, "$$$$")
     .replace(/^\s*\$\$\s*$/gm, "")
     .replace(/\n{3,}/g, "\n\n");
+}
+
+function buildMemoryBoundarySystemMessage(): string {
+  return [
+    "MEMORY BOUNDARY:",
+    "- Conversation history is working memory only.",
+    "- Use it to resolve intent, follow-ups, corrections, and current topic.",
+    "- Do not cite, quote, summarize, or treat prior chat turns as external evidence unless the user explicitly asks to revisit earlier work.",
+    "- Never present chat history as a lecture source, citation, or grounded fact.",
+  ].join("\n");
 }
 
 function detectRecentCourseFromHistory(history: { role: string; content: string }[]): string | undefined {
@@ -771,6 +829,63 @@ function buildShortFollowupContextSystemMessage(input: {
   return lines.join("\n");
 }
 
+function buildFocusModeSystemMessage(input: {
+  focusCourse?: string;
+  focusTopic?: string;
+}): string {
+  const focusParts = [input.focusCourse, input.focusTopic].filter(Boolean);
+  if (!focusParts.length) return "";
+
+  const summary = focusParts.join(" - ");
+  const lines = [
+    "Focus Mode guidance:",
+    `- The current focus is ${summary}.`,
+    "- Treat this as the active study lane for examples, explanations, and follow-up framing when it fits the user's request.",
+    "- If the user stays broad or vague, scope the response toward this focus instead of drifting into a different topic.",
+    "- If the user asks for something outside this focus, do not refuse or block the answer. Answer briefly and then gently steer back to the active focus or invite them to switch focus.",
+    "- When the user's request is on a different topic, explicitly name both the requested topic and the current focus so the steering is visible.",
+    "- For off-focus teaching requests, keep the off-focus answer short and then reconnect to the active focus.",
+    "- Keep the steering short and natural, not repetitive or defensive.",
+  ];
+
+  return lines.join("\n");
+}
+
+function detectFocusMismatch(message: string, focusTopic?: string): { requestedTopic: string; focusTopic: string } | null {
+  const normalizedMessage = message.toLowerCase();
+  const currentFocus = focusTopic?.trim() ?? "";
+  if (!currentFocus) return null;
+  const normalizedFocus = currentFocus.toLowerCase();
+
+  const topicSignals = [
+    { label: "derivatives", pattern: /\b(derivative|derivatives|differentiate|product rule|chain rule|quotient rule|power rule|implicit differentiation)\b/i },
+    { label: "integrals", pattern: /\b(integral|integrals|integrate|antiderivative|u-sub|substitution|integration by parts|partial fractions)\b/i },
+    { label: "limits", pattern: /\b(limit|limits|lim)\b/i },
+    { label: "series", pattern: /\b(series|sequence|sequences|ratio test|alternating series|power series|taylor)\b/i },
+    { label: "matrices", pattern: /\b(matrix|matrices|determinant|eigenvalue|row reduction)\b/i },
+    { label: "statistics", pattern: /\b(statistics|stats|probability|z-score|distribution|mean|variance)\b/i },
+  ];
+
+  const requested = topicSignals.find((topic) => topic.pattern.test(normalizedMessage));
+  if (!requested) return null;
+  if (normalizedFocus.includes(requested.label) || requested.label.includes(normalizedFocus)) return null;
+
+  return { requestedTopic: requested.label, focusTopic: currentFocus };
+}
+
+function buildFocusMismatchSystemMessage(input: { requestedTopic: string; focusTopic: string }): string {
+  return [
+    "Focus Mode mismatch:",
+    `- The user is asking about ${input.requestedTopic}, but the active focus is ${input.focusTopic}.`,
+    "- Do not refuse the answer.",
+    "- In the first one or two sentences, explicitly mention both the requested topic and the active focus.",
+    `- Give a short helpful answer to ${input.requestedTopic}, then reconnect the user to ${input.focusTopic} or invite them to switch focus.`,
+    `- Use direct wording such as: "I can help with ${input.requestedTopic}, and your current focus is ${input.focusTopic}."`,
+    "- Make the redirect explicit and visible before the ending, not just as a final throwaway sentence.",
+    "- Keep the off-focus answer brief so the active focus still shapes the response.",
+  ].join("\n");
+}
+
 type CorrectionIntent = {
   correctedCourse?: string;
   correctedMathIntent?: ReturnType<typeof detectSimpleMathIntent>;
@@ -1053,6 +1168,118 @@ function buildCalendarContextSystemMessage(calendarContext: string): string {
   ].join("\n");
 }
 
+function normalizeCourseKey(value?: string): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function buildKnowledgeBaseTransparencySystemMessage(input: {
+  activeCourse?: string;
+  requestedCourse?: string;
+  mismatch: boolean;
+  hasSources: boolean;
+}): string {
+  if (!input.activeCourse) return "";
+
+  const lines = [
+    "Knowledge Base transparency:",
+    `- Active lecture set: ${input.activeCourse}.`,
+  ];
+
+  if (input.mismatch && input.requestedCourse) {
+    lines.push(
+      `- The current question appears to be about ${input.requestedCourse}, which does not match the active lecture set.`,
+      "- Say that mismatch plainly in the answer.",
+      `- Use direct wording such as: "Active lecture set: ${input.activeCourse}. This question looks like ${input.requestedCourse}, so the current lecture sources are low relevance unless the lecture set is switched."`,
+      "- If any lecture sources are attached, frame them as low relevance rather than direct support for the question."
+    );
+  } else if (input.hasSources) {
+    lines.push(
+      "- If the retrieved lecture sources are weak, say they are low relevance instead of overstating the match."
+    );
+  } else {
+    lines.push(
+      "- If no grounded lecture source matches the question from the active lecture set, say that plainly and continue with a self-contained answer."
+    );
+  }
+
+  lines.push(
+    "- Never fabricate relevance, direct transcript support, or course alignment."
+  );
+
+  return lines.join("\n");
+}
+
+function buildKnowledgeBaseReplyPrefix(input: {
+  activeCourse?: string;
+  requestedCourse?: string;
+  mismatch: boolean;
+  hasSources: boolean;
+}): string {
+  if (!input.activeCourse) return "";
+
+  if (input.mismatch && input.requestedCourse) {
+    return `Knowledge Base: Active lecture set is ${input.activeCourse}. This question looks like ${input.requestedCourse}, so any attached lecture sources from the current set are low relevance unless you switch the lecture set.`;
+  }
+
+  if (!input.hasSources) {
+    return `Knowledge Base: Active lecture set is ${input.activeCourse}. No grounded lecture source matched this question from the current set, so I will answer directly.`;
+  }
+
+  return `Knowledge Base: Active lecture set is ${input.activeCourse}.`;
+}
+
+function ensureLectureConnectionSection(input: {
+  content: string;
+  lectureMode: boolean;
+  hasSources: boolean;
+}): string {
+  if (!input.lectureMode) return input.content;
+
+  const trimmed = input.content.trim();
+  if (!trimmed) return trimmed;
+  const noSourceBlock = "**Lecture Connection**\nLecture Connection: No matching lecture source was found for this topic.";
+  const lectureConnectionPattern =
+    /(?:^|\n)(\*\*Lecture Connection\*\*|#{1,6}\s*Lecture Connection|Lecture Connection:)\s*[\s\S]*?(?=\n(?:\*\*[^*\n]+\*\*|#{1,6}\s+|## Final Answer\b)|$)/i;
+
+  if (!input.hasSources) {
+    if (lectureConnectionPattern.test(trimmed)) {
+      return trimmed.replace(lectureConnectionPattern, (_match, heading: string) => {
+        if (/lecture connection:/i.test(heading)) {
+          return `\nLecture Connection: No matching lecture source was found for this topic.`;
+        }
+        return `\n${noSourceBlock}`;
+      }).trim();
+    }
+
+    const finalAnswerMatch = trimmed.match(/\n## Final Answer\b/i);
+    if (!finalAnswerMatch || finalAnswerMatch.index === undefined) {
+      return `${trimmed}\n\n${noSourceBlock}`;
+    }
+
+    const beforeFinal = trimmed.slice(0, finalAnswerMatch.index).trimEnd();
+    const finalAnswerAndAfter = trimmed.slice(finalAnswerMatch.index).trimStart();
+    return `${beforeFinal}\n\n${noSourceBlock}\n\n${finalAnswerAndAfter}`;
+  }
+
+  if (/\*\*Lecture Connection\*\*|(^|\n)Lecture Connection:/i.test(trimmed)) return trimmed;
+
+  const lectureConnectionBlock = input.hasSources
+    ? ["**Lecture Connection**", "Use the matching lecture sources below as the grounded trail for this explanation."]
+    : ["**Lecture Connection**", "Lecture Connection: No matching lecture source was found for this topic."];
+
+  const finalAnswerMatch = trimmed.match(/\n## Final Answer\b/i);
+  if (!finalAnswerMatch || finalAnswerMatch.index === undefined) {
+    return `${trimmed}\n\n${lectureConnectionBlock.join("\n")}`;
+  }
+
+  const beforeFinal = trimmed.slice(0, finalAnswerMatch.index).trimEnd();
+  const finalAnswerAndAfter = trimmed.slice(finalAnswerMatch.index).trimStart();
+  return `${beforeFinal}\n\n${lectureConnectionBlock.join("\n")}\n\n${finalAnswerAndAfter}`;
+}
+
 export async function POST(req: Request) {
   try {
     const body: ChatRequest = await req.json();
@@ -1066,6 +1293,8 @@ export async function POST(req: Request) {
     const imageMediaType = body.imageMediaType;
     const textFileContent = body.textFileContent;
     const textFileName = body.textFileName;
+    const aboutUserContext = body.aboutUserContext?.trim() || "";
+    const responseStyleContext = body.responseStyleContext?.trim() || "";
     const pinnedSyllabusContent = body.pinnedSyllabusContent;
     const pinnedSyllabusName = body.pinnedSyllabusName;
     const knowledgeCourseContext = body.knowledgeCourseContext;
@@ -1075,10 +1304,14 @@ export async function POST(req: Request) {
     const difficulty = body.difficulty ?? "exam";
     const practiceMode = body.practiceMode ?? false;
     const calendarContext = normalizeCalendarContext(body.calendarContext);
+    const trainConsent = body.trainConsent === true;
+    const usageLogsConsent = body.usageLogsConsent;
 
     let ragContext = body.ragContext ?? [];
     let ragStyleSnippets = body.ragStyleSnippets ?? [];
     let ragCitations = dedupeCitations(body.ragCitations ?? []);
+    const hasKnowledgeBasePayload =
+      ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0;
 
     const hasImage = !!base64Image;
     const hasTextFile = !!textFileContent;
@@ -1093,6 +1326,101 @@ export async function POST(req: Request) {
     const effectiveHistory = correctionIntent
       ? dropLatestAssistantMessage(historyWithoutCurrent)
       : historyWithoutCurrent;
+
+    const trainingPrompt =
+      message ||
+      (textFileName
+        ? `[Attached file: ${textFileName}]`
+        : hasImage
+          ? "[Image request]"
+          : hasTextFile
+            ? "[Text file request]"
+            : "[No prompt provided]");
+
+    const sanitizeTrainingLogText = (value: string) =>
+      value
+        .replace(/((?:password|passcode|passwd)\s*[:=]\s*)([^\s]+)/gi, "$1[REDACTED]")
+        .replace(/((?:access_token|refresh_token|id_token)\s*[:=]\s*)([^\s&]+)/gi, "$1[REDACTED]")
+        .replace(/(authorization\s*:\s*bearer\s+)([a-z0-9._-]+)/gi, "$1[REDACTED]")
+        .replace(/(bearer\s+)([a-z0-9._-]{20,})/gi, "$1[REDACTED]")
+        .replace(/([?&](?:access_token|refresh_token|id_token)=)([^&\s]+)/gi, "$1[REDACTED]");
+
+    // This training log is intentionally separate from normal chats/messages history.
+    // Chats/messages keep powering the product. This log only records consented
+    // quality-improvement samples when the user explicitly enables train_on_data.
+    const maybeLogTrainingInteraction = async (assistantResponse: string) => {
+      if (!trainConsent) return;
+      if (!assistantResponse.trim()) return;
+
+      try {
+        const sanitizedPrompt = sanitizeTrainingLogText(trainingPrompt);
+        const sanitizedResponse = sanitizeTrainingLogText(assistantResponse);
+        const { error } = await supabaseAdmin.from("training_interactions").insert({
+          user_id: userId || null,
+          prompt: sanitizedPrompt,
+          response: sanitizedResponse,
+          user_prompt: sanitizedPrompt,
+          assistant_response: sanitizedResponse,
+          mode: isNikiMode ? "nemanja" : "pure",
+          teaching_mode: lectureMode,
+        });
+
+        if (error && process.env.NODE_ENV !== "production") {
+          console.warn("Training log insert failed:", error);
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Training log insert error:", error);
+        }
+      }
+    };
+
+    // This usage log is also separate from normal chats/messages history.
+    // It records coarse product telemetry only when share_usage_data is enabled.
+    // No prompt text, response text, auth secrets, or file contents belong here.
+    const maybeLogUsageInteraction = async () => {
+      if (!effectiveUsageLogsConsent) return;
+
+      try {
+        const resolvedCourse =
+          requestedKnowledgeCourse ??
+          focusCourseContext ??
+          knowledgeCourseContext ??
+          null;
+        const { error } = await supabaseAdmin.from("usage_interactions").insert({
+          user_id: userId || null,
+          mode: isNikiMode ? "nemanja" : "pure",
+          teaching_mode: lectureMode,
+          requested_course: requestedKnowledgeCourse ?? null,
+          active_course: knowledgeCourseContext ?? null,
+          focus_course: focusCourseContext ?? null,
+          focus_topic: focusTopicContext || null,
+          course: resolvedCourse,
+        });
+
+        if (error && process.env.NODE_ENV !== "production") {
+          console.warn("Usage log insert failed:", error);
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Usage log insert error:", error);
+        }
+      }
+    };
+
+    const buildLoggedTextResponse = async (content: string, init?: ResponseInit) => {
+      await maybeLogTrainingInteraction(content);
+      await maybeLogUsageInteraction();
+      return new Response(
+        content,
+        init ?? {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        }
+      );
+    };
 
     if (!message && !hasImage && !hasTextFile) {
       return NextResponse.json(
@@ -1113,14 +1441,22 @@ export async function POST(req: Request) {
       ? (
         await supabase
           .from("profiles")
-          .select("about_user, response_style")
+          .select("about_user, response_style, share_usage_data")
           .eq("id", userId)
           .maybeSingle()
       ).data
       : null;
 
+    const effectiveUsageLogsConsent =
+      usageLogsConsent === true ||
+      (usageLogsConsent === undefined && profile?.share_usage_data === true);
+
     const personalContext = [
-      profile?.about_user ? `User context: ${profile.about_user}` : "",
+      aboutUserContext
+        ? `User context: ${aboutUserContext}`
+        : profile?.about_user
+          ? `User context: ${profile.about_user}`
+          : "",
       calendarContext
         ? `Calendar context available: The user has upcoming saved events. Use the dedicated calendar system message for exact event details.`
         : "",
@@ -1128,14 +1464,29 @@ export async function POST(req: Request) {
       .filter(Boolean)
       .join("\n\n");
 
-    const styleInstructions = profile?.response_style
-      ? `Response style: ${profile.response_style}`
+    const styleInstructions = responseStyleContext
+      ? `Response style: ${responseStyleContext}`
+      : profile?.response_style
+        ? `Response style: ${profile.response_style}`
       : "";
 
     const detectedCourse = detectCourseFilter(message);
     const inferredMathCourse = inferCourseFromMathTopic(message);
     const courseSectionLookup = detectCourseSectionLookup(message);
     const courseTopicShorthand = detectCourseTopicShorthand(message);
+    const requestedKnowledgeCourse =
+      courseSectionLookup?.course ??
+      courseTopicShorthand?.course ??
+      detectedCourse ??
+      inferredMathCourse;
+    const explicitKnowledgeBaseRequest =
+      isExplicitKnowledgeBaseRequest(message) || !!courseSectionLookup || !!courseTopicShorthand;
+    const knowledgeBaseActive = hasKnowledgeBasePayload || explicitKnowledgeBaseRequest;
+    const knowledgeBaseCourseMismatch =
+      knowledgeBaseActive &&
+      !!knowledgeCourseContext &&
+      !!requestedKnowledgeCourse &&
+      normalizeCourseKey(knowledgeCourseContext) !== normalizeCourseKey(requestedKnowledgeCourse);
     const bareCourseOnlyMessage = isBareCourseOnlyMessage(message, detectedCourse);
     const recentCourseFromHistory = detectRecentCourseFromHistory(effectiveHistory);
     const focusCourseFallback = !detectedCourse && !courseSectionLookup && !courseTopicShorthand
@@ -1165,13 +1516,13 @@ export async function POST(req: Request) {
       /\b(all|show|list|those|them|that course|the lectures?)\b/i.test(message);
 
     if (
-      lectureMode &&
+      knowledgeBaseActive &&
       hasSpecificUnsupportedLectureDomain(message) &&
       !wantsLectureRecovery &&
       !detectedCourse &&
       !inferredMathCourse
     ) {
-      return new Response(
+      return await buildLoggedTextResponse(
         [
           "I don't have lecture retrieval context for that specific topic or course.",
           "",
@@ -1189,7 +1540,7 @@ export async function POST(req: Request) {
     if (lectureMode && !wantsLectureRecovery) {
       const broadTopicReply = buildBroadLectureTopicClarification(message);
       if (broadTopicReply) {
-        return new Response(broadTopicReply, {
+        return await buildLoggedTextResponse(broadTopicReply, {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1200,7 +1551,7 @@ export async function POST(req: Request) {
 
     if (courseSectionLookup && !wantsLectureRecovery) {
       const reply = await buildCourseSectionLookupReply(courseSectionLookup);
-      return new Response(reply, {
+      return await buildLoggedTextResponse(reply, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -1210,7 +1561,7 @@ export async function POST(req: Request) {
 
     if (isLectureCountIntent(message)) {
       const counts = await getLectureCourseCounts();
-      return new Response(buildLectureCountReply(counts), {
+      return await buildLoggedTextResponse(buildLectureCountReply(counts), {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -1224,7 +1575,7 @@ export async function POST(req: Request) {
       !courseForLectureList &&
       !isCalc1LectureListIntent(message)
     ) {
-      return new Response(buildLectureTopicPrompt([]), {
+      return await buildLoggedTextResponse(buildLectureTopicPrompt([]), {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -1241,7 +1592,7 @@ export async function POST(req: Request) {
       const lectures = await getLecturesByCourse(courseFilter);
 
       if (!lectures.length) {
-        return new Response(`I don't have any ${courseFilter} lectures in the database.`, {
+        return await buildLoggedTextResponse(`I don't have any ${courseFilter} lectures in the database.`, {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1261,7 +1612,7 @@ export async function POST(req: Request) {
         })
         .join("\n\n");
 
-      return new Response(reply, {
+      return await buildLoggedTextResponse(reply, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -1270,7 +1621,7 @@ export async function POST(req: Request) {
     }
 
     if (
-      lectureMode &&
+      knowledgeBaseActive &&
       (isLectureSummaryRequest(message) || isVideoLookupIntent(message)) &&
       ragContext.length === 0 &&
       ragCitations.length === 0
@@ -1278,7 +1629,7 @@ export async function POST(req: Request) {
       if (isVideoLookupIntent(message)) {
         const knownVideoReply = buildCitationLectureReply(message, []);
         if (knownVideoReply && !/don't have any matching lecture metadata/i.test(knownVideoReply)) {
-          return new Response(knownVideoReply, {
+          return await buildLoggedTextResponse(knownVideoReply, {
             headers: {
               "Content-Type": "text/plain; charset=utf-8",
               "Cache-Control": "no-cache",
@@ -1298,7 +1649,7 @@ export async function POST(req: Request) {
           body: JSON.stringify({
             question: message,
             lectureMode: true,
-            courseFilter: inferCourseFromMathTopic(message),
+            courseFilter: knowledgeCourseContext ?? inferCourseFromMathTopic(message),
             minSimilarity: 0.2,
             maxChunks: 8,
             maxStyleSnippets: isNikiMode ? 6 : 3,
@@ -1321,7 +1672,7 @@ export async function POST(req: Request) {
     }
 
     if (
-      lectureMode &&
+      knowledgeBaseActive &&
       courseTopicShorthand &&
       ragContext.length === 0 &&
       ragCitations.length === 0
@@ -1359,14 +1710,14 @@ export async function POST(req: Request) {
       }
     }
 
-    if (lectureMode) {
+    if (knowledgeBaseActive) {
       if (courseTopicShorthand && !wantsLectureRecovery) {
         const courseTopicSearchReply = await buildCourseTopicSearchReply({
           lookup: courseTopicShorthand,
           citations: ragCitations,
         });
         if (courseTopicSearchReply) {
-          return new Response(courseTopicSearchReply, {
+          return await buildLoggedTextResponse(courseTopicSearchReply, {
             headers: {
               "Content-Type": "text/plain; charset=utf-8",
               "Cache-Control": "no-cache",
@@ -1381,7 +1732,7 @@ export async function POST(req: Request) {
         citations: ragCitations,
       });
       if (lectureRecoveryReply) {
-        return new Response(sanitizeMathContent(lectureRecoveryReply), {
+        return await buildLoggedTextResponse(sanitizeMathContent(lectureRecoveryReply), {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1391,7 +1742,7 @@ export async function POST(req: Request) {
 
       const directLectureReply = buildCitationLectureReply(message, ragCitations);
       if (directLectureReply) {
-        return new Response(directLectureReply, {
+        return await buildLoggedTextResponse(directLectureReply, {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1404,7 +1755,7 @@ export async function POST(req: Request) {
         ragContext.length === 0 &&
         ragCitations.length === 0
       ) {
-        return new Response(
+        return await buildLoggedTextResponse(
           [
             "I do not have lecture retrieval context for that specific lecture.",
             "",
@@ -1422,6 +1773,7 @@ export async function POST(req: Request) {
 
     if (!hasImage && !hasTextFile) {
       const proceduralMathIntent = detectSimpleMathIntent(message);
+      const teachFirstMathRequest = isTeachFirstMathRequest(message, proceduralMathIntent);
       const correctionMathIntent = correctionIntent?.correctedMathIntent ?? null;
       const correctionMathExpression = correctionMathIntent
         ? extractRecentMathExpressionFromHistory(effectiveHistory)
@@ -1431,9 +1783,10 @@ export async function POST(req: Request) {
         : false;
       if (
         proceduralMathIntent &&
+        !teachFirstMathRequest &&
         incompleteProceduralMathRequest(message, proceduralMathIntent)
       ) {
-        return new Response(missingExpressionReply(proceduralMathIntent), {
+        return await buildLoggedTextResponse(missingExpressionReply(proceduralMathIntent, message), {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1449,7 +1802,24 @@ export async function POST(req: Request) {
       });
 
       if (deterministicMathReply) {
-        return new Response(normalizeModelMathOutput(deterministicMathReply), {
+        const knowledgeBasePrefix = knowledgeBaseActive
+          ? buildKnowledgeBaseReplyPrefix({
+            activeCourse: knowledgeCourseContext,
+            requestedCourse: requestedKnowledgeCourse,
+            mismatch: !!knowledgeBaseCourseMismatch,
+            hasSources: ragCitations.length > 0,
+          })
+          : "";
+        const reply = knowledgeBasePrefix
+          ? `${knowledgeBasePrefix}\n\n${deterministicMathReply}`
+          : deterministicMathReply;
+        const lectureSafeReply = ensureLectureConnectionSection({
+          content: reply,
+          lectureMode,
+          hasSources: ragCitations.length > 0,
+        });
+
+        return await buildLoggedTextResponse(normalizeModelMathOutput(lectureSafeReply), {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1458,7 +1828,7 @@ export async function POST(req: Request) {
       }
 
       if (correctionIntent && !correctionIntent.correctedCourse && !correctionMathIntent) {
-        return new Response(`${correctionIntent.acknowledgement}\n\nWhat topic should I switch to?`, {
+        return await buildLoggedTextResponse(`${correctionIntent.acknowledgement}\n\nWhat topic should I switch to?`, {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1467,7 +1837,7 @@ export async function POST(req: Request) {
       }
 
       if (correctionIntent?.correctedCourse && recentStudyIntent) {
-        return new Response(
+        return await buildLoggedTextResponse(
           `${correctionIntent.acknowledgement}\n\nWhat is your ${correctionIntent.correctedCourse} study block on? Send the chapter, section, or topic and I will narrow it right away.`,
           {
             headers: {
@@ -1481,7 +1851,7 @@ export async function POST(req: Request) {
       if (correctionMathIntent) {
         const correctionAcknowledgement = correctionIntent?.acknowledgement ?? "Got it.";
         if (!correctionMathExpression) {
-          return new Response(
+          return await buildLoggedTextResponse(
             `${correctionAcknowledgement}\n\nSend the expression and I will do it with ${correctionMathIntent}.`,
             {
               headers: {
@@ -1493,7 +1863,7 @@ export async function POST(req: Request) {
         }
 
         if (correctionMathIntent === "limit") {
-          return new Response(
+          return await buildLoggedTextResponse(
             `${correctionAcknowledgement}\n\n${contextualLimitFollowupReply(correctionMathExpression)}`,
             {
               headers: {
@@ -1518,8 +1888,13 @@ export async function POST(req: Request) {
           });
 
           if (correctedMathReply) {
-            return new Response(
-              `${correctionAcknowledgement}\n\n${normalizeModelMathOutput(correctedMathReply)}`,
+            const correctedLectureSafeReply = ensureLectureConnectionSection({
+              content: `${correctionAcknowledgement}\n\n${correctedMathReply}`,
+              lectureMode,
+              hasSources: ragCitations.length > 0,
+            });
+            return await buildLoggedTextResponse(
+              normalizeModelMathOutput(correctedLectureSafeReply),
               {
                 headers: {
                   "Content-Type": "text/plain; charset=utf-8",
@@ -1535,7 +1910,7 @@ export async function POST(req: Request) {
       if (!proceduralMathIntent && bareMathFollowupExpression) {
         const recentMathIntent = detectRecentMathIntentFromHistory(effectiveHistory);
         if (recentMathIntent === "limit") {
-          return new Response(contextualLimitFollowupReply(bareMathFollowupExpression), {
+          return await buildLoggedTextResponse(contextualLimitFollowupReply(bareMathFollowupExpression), {
             headers: {
               "Content-Type": "text/plain; charset=utf-8",
               "Cache-Control": "no-cache",
@@ -1558,7 +1933,12 @@ export async function POST(req: Request) {
           });
 
           if (contextualMathReply) {
-            return new Response(normalizeModelMathOutput(contextualMathReply), {
+            const contextualLectureSafeReply = ensureLectureConnectionSection({
+              content: contextualMathReply,
+              lectureMode,
+              hasSources: ragCitations.length > 0,
+            });
+            return await buildLoggedTextResponse(normalizeModelMathOutput(contextualLectureSafeReply), {
               headers: {
                 "Content-Type": "text/plain; charset=utf-8",
                 "Cache-Control": "no-cache",
@@ -1567,7 +1947,7 @@ export async function POST(req: Request) {
           }
         }
 
-        return new Response(ambiguousMathFollowupReply(bareMathFollowupExpression), {
+        return await buildLoggedTextResponse(ambiguousMathFollowupReply(bareMathFollowupExpression), {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1577,7 +1957,7 @@ export async function POST(req: Request) {
 
       const mathIntentClarification = buildMathIntentClarification(message);
       if (mathIntentClarification) {
-        return new Response(mathIntentClarification, {
+        return await buildLoggedTextResponse(mathIntentClarification, {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
@@ -1649,7 +2029,7 @@ export async function POST(req: Request) {
     });
 
     const lectureContextSystemContent =
-      lectureMode &&
+      knowledgeBaseActive &&
         (ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0)
         ? buildLectureContextSystemMessage({
           ragContext,
@@ -1665,6 +2045,7 @@ export async function POST(req: Request) {
       pinnedSyllabusContent,
       pinnedSyllabusName,
       knowledgeCourseContext,
+      knowledgeBaseEnabled: knowledgeBaseActive,
       latestAssistantMessage,
       practiceMode: practiceMode || isPracticeRequest(message) || isLectureSummaryRequest(message),
     });
@@ -1672,6 +2053,7 @@ export async function POST(req: Request) {
       isProfessorMode: isNikiMode,
       lectureMode,
       hasLectureContext: !!lectureContextSystemContent,
+      knowledgeBaseActive,
       longFormNonDeterministic,
     });
     const intentResolutionSystemContent =
@@ -1701,9 +2083,29 @@ export async function POST(req: Request) {
         recentUserMessage: getRecentSubstantiveUserMessage(effectiveHistory),
       })
       : "";
+    const proceduralMathIntent = !hasImage && !hasTextFile ? detectSimpleMathIntent(message) : null;
+    const teachFirstMathSystemContent = isTeachFirstMathRequest(message, proceduralMathIntent)
+      ? buildTeachFirstMathSystemMessage(proceduralMathIntent as NonNullable<ReturnType<typeof detectSimpleMathIntent>>)
+      : "";
+    const knowledgeBaseTransparencySystemContent = knowledgeBaseActive
+      ? buildKnowledgeBaseTransparencySystemMessage({
+        activeCourse: knowledgeCourseContext,
+        requestedCourse: requestedKnowledgeCourse,
+        mismatch: !!knowledgeBaseCourseMismatch,
+        hasSources: ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0,
+      })
+      : "";
+    const focusMismatch = detectFocusMismatch(message, focusTopicContext);
+    const focusModeSystemContent = buildFocusModeSystemMessage({
+      focusCourse: focusCourseFallback,
+      focusTopic: focusTopicContext,
+    });
+    const focusMismatchSystemContent = focusMismatch
+      ? buildFocusMismatchSystemMessage(focusMismatch)
+      : "";
 
     if (studyHelpClarification) {
-      return new Response(studyHelpClarification, {
+      return await buildLoggedTextResponse(studyHelpClarification, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -1723,14 +2125,27 @@ export async function POST(req: Request) {
     const ollamaMessages = [
       { role: "system", content: systemPrompt },
       { role: "system" as const, content: modeReminderSystemContent },
+      { role: "system" as const, content: buildMemoryBoundarySystemMessage() },
       ...(intentResolutionSystemContent
         ? [{ role: "system" as const, content: intentResolutionSystemContent }]
         : []),
       ...(correctionSystemContent
         ? [{ role: "system" as const, content: correctionSystemContent }]
         : []),
+      ...(teachFirstMathSystemContent
+        ? [{ role: "system" as const, content: teachFirstMathSystemContent }]
+        : []),
+      ...(knowledgeBaseTransparencySystemContent
+        ? [{ role: "system" as const, content: knowledgeBaseTransparencySystemContent }]
+        : []),
       ...(shortFollowupContextSystemContent
         ? [{ role: "system" as const, content: shortFollowupContextSystemContent }]
+        : []),
+      ...(focusModeSystemContent
+        ? [{ role: "system" as const, content: focusModeSystemContent }]
+        : []),
+      ...(focusMismatchSystemContent
+        ? [{ role: "system" as const, content: focusMismatchSystemContent }]
         : []),
       ...(calendarContext
         ? [{ role: "system" as const, content: buildCalendarContextSystemMessage(calendarContext) }]
@@ -1742,7 +2157,9 @@ export async function POST(req: Request) {
             {
               role: "system" as const,
               content:
-                "Lecture mode is enabled, but no lecture retrieval context is available. Do not invent lecture-specific details.",
+                knowledgeBaseActive
+                  ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained, include a short Lecture Connection fallback near the end, and do not invent lecture-specific details."
+                  : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained, include a short Lecture Connection fallback near the end, and do not invent lecture-specific details or citations.",
             },
           ]
           : []),
@@ -1761,7 +2178,9 @@ export async function POST(req: Request) {
       process.env.OLLAMA_API_URL?.trim() || "http://127.0.0.1:11434";
 
     const shouldBufferForRepair =
-      (forceStructuredMath && !hasImage) || (longFormNonDeterministic && !hasImage);
+      (lectureMode && !hasImage) ||
+      (forceStructuredMath && !hasImage) ||
+      (longFormNonDeterministic && !hasImage);
     const modelTemperature = forceStructuredMath ? 0 : longFormNonDeterministic ? 0.35 : 0.15;
     const modelNumPredict = longFormNonDeterministic ? 2600 : hasImage ? 1200 : 1800;
 
@@ -1805,11 +2224,16 @@ export async function POST(req: Request) {
 
       const stableJson = await stableMathResponse.json().catch(() => null);
       const stableContent = String(stableJson?.message?.content ?? "");
-      const stableOutput = forceStructuredMath
-        ? normalizeModelMathOutput(stableContent)
-        : sanitizeMathContent(normalizeBufferedModelOutput(stableContent));
+      const lectureSafeStableContent = ensureLectureConnectionSection({
+        content: stableContent,
+        lectureMode,
+        hasSources: ragCitations.length > 0,
+      });
+      const stableOutput = forceStructuredMath || lectureMode
+        ? normalizeModelMathOutput(lectureSafeStableContent)
+        : sanitizeMathContent(normalizeBufferedModelOutput(lectureSafeStableContent));
 
-      return new Response(stableOutput, {
+      return await buildLoggedTextResponse(stableOutput, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -1866,6 +2290,8 @@ export async function POST(req: Request) {
         const encoder = new TextEncoder();
         let buffer = "";
         let closed = false;
+        let streamedContent = "";
+        let completed = false;
 
         const safeClose = () => {
           if (!closed) {
@@ -1879,9 +2305,14 @@ export async function POST(req: Request) {
             try {
               const parsed = JSON.parse(obj);
               if (parsed.message?.content) {
-                controller.enqueue(encoder.encode(parsed.message.content));
+                const chunk = String(parsed.message.content);
+                streamedContent += chunk;
+                controller.enqueue(encoder.encode(chunk));
               }
-              if (parsed.done) return true;
+              if (parsed.done) {
+                completed = true;
+                return true;
+              }
             } catch {
               // ignore malformed partial objects
             }
@@ -1915,6 +2346,10 @@ export async function POST(req: Request) {
           if (isDevLog) console.log("❌ Stream error:", err);
         } finally {
           reader.releaseLock();
+          if (completed) {
+            await maybeLogTrainingInteraction(streamedContent);
+            await maybeLogUsageInteraction();
+          }
           safeClose();
         }
       },

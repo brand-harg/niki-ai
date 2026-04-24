@@ -35,7 +35,9 @@ const BROKEN_MARKDOWN = /\*\s+\*\s*Step\s*-\s*by\s*-\s*Step|\*\*\s*Step\s+-\s+by
 const INVALID_BACKSLASH_NUMBER = /(?<!\\)\\[0-9]/;
 
 function stripDisplayMath(text) {
-  return text.replace(/\$\$[\s\S]*?\$\$/g, "");
+  return text
+    .replace(/\$\$[\s\S]*?\$\$/g, "")
+    .replace(/\$[^\n$]+\$/g, "");
 }
 
 function hasProseInsideDisplayMath(text) {
@@ -116,11 +118,63 @@ $ f'(x)=5 $`,
     contains: [/\$f\(x\)=5x\$/, /\$f'\(x\)=5\$/],
   },
   {
+    name: "artifact-inline-parentheses-delimiters-normalize",
+    input: `Worked example: The derivative of \\(x^2\\) is \\(2x\\).`,
+    ensureFinal: false,
+    contains: [/\$x\^2\$/, /\$2x\$/],
+    rejects: [/\\\(/, /\\\)/],
+  },
+  {
+    name: "artifact-block-bracket-delimiters-normalize",
+    input: `Formula:\n\\[\n\\int u\\,dv = uv - \\int v\\,du\n\\]\nApply it below.`,
+    ensureFinal: false,
+    contains: [/\$\$\n\\int u\\,dv = uv - \\int v\\,du\n\$\$/],
+    rejects: [/\\\[/, /\\\]/],
+  },
+  {
     name: "bare-inline-math-in-prose",
     input: `The derivative of x^2 is 2x.
 The function is f(x)=5x.`,
     ensureFinal: false,
     contains: [/\$x\^2\$/, /\$2x\$/, /\$f\(x\)=5x\$/],
+  },
+  {
+    name: "mixed-inline-assignments-with-trig",
+    input: `Choose u(x) = x^2, v(x) = sin(x), and keep f(x) ready.`,
+    ensureFinal: false,
+    contains: [/\$u\(x\) = x\^2\$/, /\$v\(x\)\$\s*=\s*\$\\sin\(x\)\$/, /\$f\(x\)\$/],
+  },
+  {
+    name: "mixed-inline-exponential-and-substitution",
+    input: `Using product rule with e^(x) and sin(x), then substitute x^3 into f(x).`,
+    ensureFinal: false,
+    contains: [/\$e\^\{x\}\$/, /\$\\sin\(x\)\$/, /\$x\^3\$/, /\$f\(x\)\$/],
+  },
+  {
+    name: "implicit-product-inline-expression-stays-readable",
+    input: `Differentiate sin(x)e^(2x) using the product rule.`,
+    ensureFinal: false,
+    contains: [/\$\\sin\(x\)e\^\{2x\}\$/],
+    rejects: [/sin\(x\)e\^\(2x\)/],
+  },
+  {
+    name: "adjacent-inline-expressions-get-spacing",
+    input: `Choose u(x)=x^2,v(x)=sin(x), then continue.`,
+    ensureFinal: false,
+    contains: [/\$u\(x\)=x\^2\$, \$v\(x\)=\\sin\(x\)\$/],
+    rejects: [/\$u\(x\)=x\^2\$,?\$v\(x\)=\\sin\(x\)\$/],
+  },
+  {
+    name: "title-and-intro-inline-chain-rule",
+    input: `**Derivative of sin(x^2)**\n\nSo now we take the derivative of sin(x^2).`,
+    ensureFinal: false,
+    contains: [/\*\*Derivative of \$\\sin\(x\^2\)\$\*\*/, /derivative of \$\\sin\(x\^2\)\$/],
+  },
+  {
+    name: "title-inline-product-factors",
+    input: `**Derivative of e^(x^2) ln(x)**`,
+    ensureFinal: false,
+    contains: [/\*\*Derivative of \$e\^\{x\^2\}\$ \$\\ln\(x\)\$\*\*/],
   },
   {
     name: "raw-text-command-outside-display",
@@ -168,6 +222,75 @@ The AST states that an alternating series \\sum_{n=1}^{\\infty} (-1)^{n-1} b_n c
 
 ## Final Answer
 Alternating Series Test (AST): An alternating series \\sum_{n=1}^{\\infty} (-1)^{n-1} \\frac{1}{n} converges if \\lim_{n \\to \\infty} b_n = 0.`,
+  },
+  {
+    name: "exponential-e-caret-parentheses",
+    input: `Find the derivative of e^(2x) + 3x.
+$$
+f(x) = e^(2x) + 3x
+$$
+$$
+f'(x) = 2e^(2x) + 3
+$$
+## Final Answer
+$$
+f'(x) = 2e^(2x) + 3
+$$`,
+    contains: [/e\^\{2x\}/],
+  },
+  {
+    name: "exponential-e-caret-negative-exponent",
+    input: `Laplace transform: L{e^(-st)} where s > 0.
+$$
+L\\{e^{-st}\\} = \\frac{1}{s}
+$$
+## Final Answer
+$$
+L\\{e^{-st}\\} = \\frac{1}{s}
+$$`,
+    contains: [/e\^\{-st\}/],
+  },
+  {
+    name: "trig-sin-unnormalized",
+    input: `Product rule with sin(x):
+$$
+f(x) = x \\cdot sin(x)
+$$
+$$
+f'(x) = sin(x) + x \\cdot cos(x)
+$$
+## Final Answer
+$$
+f'(x) = sin(x) + x \\cdot cos(x)
+$$`,
+    contains: [/\\sin\(x\)/, /\\cos\(x\)/],
+  },
+  {
+    name: "trig-already-valid-latex",
+    input: `Verified trigonometric functions:
+$$
+\\sin(x) + \\cos(x) + \\tan(x)
+$$
+## Final Answer
+$$
+\\sin(x) + \\cos(x) + \\tan(x)
+$$`,
+    contains: [/\\sin\(x\)/, /\\cos\(x\)/, /\\tan\(x\)/],
+  },
+  {
+    name: "mixed-exponential-and-trig-product-rule",
+    input: `Find the derivative of e^(2x) * sin(x).
+$$
+f(x) = e^(2x) \\cdot sin(x)
+$$
+$$
+f'(x) = 2e^(2x) \\cdot sin(x) + e^(2x) \\cdot cos(x)
+$$
+## Final Answer
+$$
+f'(x) = 2e^(2x) \\cdot sin(x) + e^(2x) \\cdot cos(x)
+$$`,
+    contains: [/e\^\{2x\}/, /\\sin\(x\)/, /\\cos\(x\)/],
   },
 ];
 

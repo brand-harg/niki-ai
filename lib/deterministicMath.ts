@@ -13,21 +13,43 @@ type PolynomialTerm = {
   exponent: number;
 };
 
+type DerivativeRuleIntent = "product" | "chain" | "quotient" | null;
+
 function detectSimpleMathIntent(message: string): SimpleMathIntent | null {
-  if (/^(solve|evaluate|calculate|compute|do)\s+(it|this|that)$/i.test(message.trim())) return "solve";
-  if (/\b(derivative|differentiate|dy\/dx|d\/dx)\b/i.test(message)) return "derivative";
-  if (/\b(integral|integrate|antiderivative)\b/i.test(message)) return "integral";
-  if (/\b(limit|lim|approaches)\b/i.test(message)) return "limit";
+  const normalized = message.trim();
+  if (/^(solve|evaluate|calculate|compute|do)\s+(it|this|that)$/i.test(normalized)) return "solve";
+  if (
+    /\b(derivative|differentiate|dy\/dx|d\/dx|slope)\b/i.test(message) ||
+    /\bf'\s*\(\s*x\s*\)/i.test(message) ||
+    /\b(product|chain|quotient|power)\s+rule\b/i.test(message) ||
+    /\bimplicit\s+differentiation\b/i.test(message) ||
+    /\blog\s+differentiation\b/i.test(message)
+  ) {
+    return "derivative";
+  }
+  if (
+    /\b(integral|integrate|antiderivative)\b/i.test(message) ||
+    /∫/.test(message) ||
+    /\bintegration\s+by\s+parts\b/i.test(message) ||
+    /\bu(?:-|\s)?sub(?:stitution)?\b/i.test(message) ||
+    /\bsubstitution\b/i.test(message) ||
+    /\bpartial\s+fractions?\b/i.test(message)
+  ) {
+    return "integral";
+  }
+  if (/\b(limit|lim|approaches)\b/i.test(message) || /x\s*(?:→|->|\\to)\s*/i.test(message)) return "limit";
   if (/\b(factor|factorize|factored form)\b/i.test(message)) return "factor";
   if (/\b(expand|expanded form)\b/i.test(message)) return "expand";
   if (/\b(simplify|reduce|combine like terms)\b/i.test(message)) return "simplify";
-  if (/\b(solve|find x|roots?|zeros?|quadratic formula)\b/i.test(message)) return "solve";
+  if (/\b(solve|find x|roots?|zeros?|quadratic formula)\b/i.test(message) || /=/.test(normalized)) return "solve";
   return null;
 }
 
 function incompleteProceduralMathRequest(message: string, intent: SimpleMathIntent): boolean {
   const compact = message.trim().replace(/[?.!,;:]+$/g, "");
   if (/^(solve|evaluate|calculate|compute|do)\s+(it|this|that)$/i.test(compact)) return true;
+
+  const derivativeRuleIntent = intent === "derivative" ? detectDerivativeRuleIntent(compact) : null;
 
   if (intent === "limit") {
     const hasLimitTarget = /\b(?:approaches|to)\s*[+-]?(?:\d|[a-z]|infinity|∞)|(?:->|\\to)\s*[+-]?(?:\d|[a-z]|infinity|∞)/i.test(
@@ -43,17 +65,30 @@ function incompleteProceduralMathRequest(message: string, intent: SimpleMathInte
   const hasExpressionClue =
     /(\d|=|[a-z]\s*[\+\-\*\/\^]|[+\-*/^()]|\\frac|\\int|\$)/i.test(compact) ||
     /\b(of|for|on|in)\s+(?=[-+*/^().0-9a-z\s]*[\dx=+\-*/^()\\])[-+*/^().0-9a-z\s]+$/i.test(compact);
+  if (derivativeRuleIntent && !hasCompleteDerivativeRuleExpression(compact, derivativeRuleIntent)) {
+    return true;
+  }
   if (hasExpressionClue) return false;
 
   if (intent === "derivative") {
     return /\b(take|find|compute|calculate|do|give me|show me)\b[\s\S]{0,30}\b(derivative|differentiate|d\/dx)\b/i.test(
       compact
-    );
+    ) ||
+      /\b(product|chain|quotient|power)\s+rule\b/i.test(compact) ||
+      /\bimplicit\s+differentiation\b/i.test(compact) ||
+      /\blog\s+differentiation\b/i.test(compact) ||
+      /\bf'\s*\(\s*x\s*\)\b/i.test(compact) ||
+      /\bslope\b/i.test(compact);
   }
   if (intent === "integral") {
     return /\b(find|compute|calculate|do|give me|show me)\b[\s\S]{0,30}\b(integral|integrate|antiderivative)\b/i.test(
       compact
-    );
+    ) ||
+      /∫/.test(compact) ||
+      /\bintegration\s+by\s+parts\b/i.test(compact) ||
+      /\bu(?:-|\s)?sub(?:stitution)?\b/i.test(compact) ||
+      /\bsubstitution\b/i.test(compact) ||
+      /\bpartial\s+fractions?\b/i.test(compact);
   }
   if (intent === "limit") {
     return /\b(find|compute|calculate|do|give me|show me|evaluate)\b[\s\S]{0,30}\b(limit)\b/i.test(
@@ -63,7 +98,18 @@ function incompleteProceduralMathRequest(message: string, intent: SimpleMathInte
   return /\b(factor|expand|simplify|solve|find roots?|find zeros?)\b\s*$/i.test(compact);
 }
 
-function missingExpressionReply(intent: SimpleMathIntent): string {
+function missingExpressionReply(intent: SimpleMathIntent, message?: string): string {
+  const derivativeRuleIntent = intent === "derivative" ? detectDerivativeRuleIntent(message ?? "") : null;
+  if (derivativeRuleIntent === "product") {
+    return "Send me the full product for the product rule, or I can show you a standard example like x sin(x).";
+  }
+  if (derivativeRuleIntent === "chain") {
+    return "Send me the full composed function for the chain rule, or I can show you a standard example like sin(x^2).";
+  }
+  if (derivativeRuleIntent === "quotient") {
+    return "Send me the full quotient for the quotient rule, or I can show you a standard example like (x^2+1)/(x-3).";
+  }
+
   const target =
     intent === "derivative"
       ? "function to differentiate"
@@ -75,6 +121,45 @@ function missingExpressionReply(intent: SimpleMathIntent): string {
             ? "equation to solve"
             : "expression to work with";
   return `Send me the ${target}, and I will format the solution cleanly.`;
+}
+
+function detectDerivativeRuleIntent(message: string): DerivativeRuleIntent {
+  if (/\bproduct\s+rule\b/i.test(message)) return "product";
+  if (/\bchain\s+rule\b/i.test(message)) return "chain";
+  if (/\bquotient\s+rule\b/i.test(message)) return "quotient";
+  return null;
+}
+
+function hasCompleteDerivativeRuleExpression(message: string, rule: DerivativeRuleIntent): boolean {
+  const expression = extractSimpleMathExpression(message, "derivative") ?? message;
+  const compact = expression.toLowerCase().replace(/\s+/g, "");
+
+  if (rule === "quotient") {
+    return /\\frac\{.+\}\{.+\}|.+\/.+/.test(compact);
+  }
+
+  if (rule === "chain") {
+    return (
+      /\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\((?:[^()]*[+\-*/^][^()]*)\)/.test(compact) ||
+      /\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\([a-z0-9]+\^[^()]+\)/.test(compact) ||
+      /\be\^\([^)]*[+\-*/^][^)]*\)/.test(compact) ||
+      /\be\^\{[^}]*[+\-*/^][^}]*\}/.test(compact) ||
+      /\b[a-z][a-z0-9']*\((?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\([^()]+\)\)/.test(compact)
+    );
+  }
+
+  if (rule === "product") {
+    return (
+      /\\cdot|\*/.test(compact) ||
+      /\)\(/.test(compact) ||
+      /\)\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt|e\^|[a-z])/.test(compact) ||
+      /\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\([^()]+\)\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt|e\^|[a-z0-9(])/.test(compact) ||
+      /\be\^\{[^}]+\}(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt|[a-z0-9(])/.test(compact) ||
+      /\be\^\([^)]*\)(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt|[a-z0-9(])/.test(compact)
+    );
+  }
+
+  return true;
 }
 
 function extractSimpleMathExpression(message: string, intent: SimpleMathIntent): string | null {
@@ -91,6 +176,11 @@ function extractSimpleMathExpression(message: string, intent: SimpleMathIntent):
         /\bderivative\s+(?:of|for|on)\s+(.+)$/i,
         /\bdifferentiate\s+(.+)$/i,
         /\bd\/dx\s+(.+)$/i,
+        /\bf'\s*\(\s*x\s*\)\s*(?:of|for|on)?\s*(.+)$/i,
+        /\bslope\s+(?:of|for|on|at)\s+(.+)$/i,
+        /\b(?:product|chain|quotient|power)\s+rule(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
+        /\bimplicit\s+differentiation(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
+        /\blog\s+differentiation(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
       ]
       : intent === "integral"
         ? [
@@ -98,11 +188,17 @@ function extractSimpleMathExpression(message: string, intent: SimpleMathIntent):
         /\bintegral\s+(?:of|for|on)\s+(.+)$/i,
         /\bintegrate\s+(.+)$/i,
         /\bantiderivative\s+(?:of|for)\s+(.+)$/i,
+        /∫\s*(.+)$/i,
+        /\bintegration\s+by\s+parts(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
+        /\bu(?:-|\s)?sub(?:stitution)?(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
+        /\bsubstitution(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
+        /\bpartial\s+fractions?(?:\s+(?:with|for|on|of))?\s+(.+)$/i,
         ]
         : intent === "limit"
           ? [
             /\b(?:find|compute|calculate|show|do|evaluate)\s+(?:the\s+)?limit\s+(?:of)?\s*(.+)$/i,
             /\blimit\s+(?:of)?\s*(.+)$/i,
+            /\blim\s+(.+)$/i,
             /\bas\s+x\s+approaches\s+[^ ]+\s+of\s+(.+)$/i,
           ]
         : intent === "factor"
@@ -139,6 +235,10 @@ function extractSimpleMathExpression(message: string, intent: SimpleMathIntent):
         .replace(/^for\s+y\s*=\s*/i, "y=")
         .trim();
     }
+  }
+
+  if (intent === "solve" && /=/.test(source)) {
+    return source;
   }
 
   return null;
@@ -4455,6 +4555,127 @@ function derivativeFormulaForExpression(expression: string): string {
   return "\\frac{d}{dx}x^{n}=n x^{n-1}";
 }
 
+function teachingDerivativeFormulaForExpression(expression: string): string {
+  const normalized = normalizeCasExpression(expression) ?? expression.toLowerCase().replace(/\s+/g, "");
+
+  if (/^sin\(.+\)$/.test(normalized)) return "\\frac{d}{dx}\\sin(u)=\\cos(u)\\cdot u'";
+  if (/^cos\(.+\)$/.test(normalized)) return "\\frac{d}{dx}\\cos(u)=-\\sin(u)\\cdot u'";
+  if (/^tan\(.+\)$/.test(normalized)) return "\\frac{d}{dx}\\tan(u)=\\sec^{2}(u)\\cdot u'";
+  if (/^log\(.+\)$/.test(normalized)) return "\\frac{d}{dx}\\ln(u)=\\frac{u'}{u}";
+  if (/^(?:exp\(.+\)|e\^.+)$/.test(normalized)) return "\\frac{d}{dx}e^{u}=e^{u}\\cdot u'";
+
+  return derivativeFormulaForExpression(expression);
+}
+
+function buildPolynomialDerivativeApplicationLatex(terms: PolynomialTerm[]): string {
+  const lines = terms.map((term) => {
+    const source = formatPolynomialLatex([term]);
+    if (term.exponent === 0) {
+      return `\\frac{d}{dx}\\left(${source}\\right)=0`;
+    }
+
+    if (term.exponent === 1) {
+      if (Math.abs(term.coefficient) === 1) {
+        const sign = term.coefficient < 0 ? "-" : "";
+        return `\\frac{d}{dx}\\left(${source}\\right)=${sign}\\frac{d}{dx}(x)=${formatNumber(term.coefficient)}\\cdot 1`;
+      }
+
+      return `\\frac{d}{dx}\\left(${source}\\right)=${formatNumber(term.coefficient)}\\cdot\\frac{d}{dx}(x)=${formatNumber(term.coefficient)}\\cdot 1`;
+    }
+
+    if (Math.abs(term.coefficient) === 1) {
+      const sign = term.coefficient < 0 ? "-" : "";
+      return `\\frac{d}{dx}\\left(${source}\\right)=${sign}${term.exponent}x^{${term.exponent - 1}}`;
+    }
+
+    return `\\frac{d}{dx}\\left(${source}\\right)=${formatNumber(term.coefficient)}\\cdot ${term.exponent}x^{${term.exponent - 1}}`;
+  });
+
+  return `\\begin{aligned}${lines.map((line) => `${line}\\\\`).join("")}\\end{aligned}`.replace(/\\\\\\end\{aligned\}$/, "\\end{aligned}");
+}
+
+function buildTeachingDerivativeApplicationLines(expression: string, casResult: string): string[] {
+  const normalized = normalizeCasExpression(expression) ?? expression.toLowerCase().replace(/\s+/g, "");
+  const expressionLatex = cleanCasLatex(nerdamer(normalized).toTeX());
+
+  const buildCompositeLines = (
+    innerRaw: string,
+    outerLatex: string,
+    outerRuleLatex: string,
+    appliedLatex: string
+  ): string[] => {
+    const inner = innerRaw.trim();
+    const innerLatex = cleanCasLatex(nerdamer(inner).toTeX());
+    const innerDerivative = cleanCasLatex(nerdamer(`diff(${inner},x)`).toTeX());
+    return [
+      `Inner function: $u=${innerLatex}$, so $u'=${innerDerivative}$.`,
+      `Outer function: $${outerLatex}$, so use $${outerRuleLatex}$.`,
+      "",
+      displayMath(`\\frac{d}{dx}\\left(${outerLatex}\\right)=${appliedLatex}`),
+    ];
+  };
+
+  const sinMatch = normalized.match(/^sin\((.+)\)$/);
+  if (sinMatch) {
+    return buildCompositeLines(
+      sinMatch[1],
+      `\\sin\\left(${cleanCasLatex(nerdamer(sinMatch[1]).toTeX())}\\right)`,
+      "\\frac{d}{dx}\\sin(u)=\\cos(u)\\cdot u'",
+      `\\cos\\left(${cleanCasLatex(nerdamer(sinMatch[1]).toTeX())}\\right)\\cdot${cleanCasLatex(nerdamer(`diff(${sinMatch[1]},x)`).toTeX())}`
+    );
+  }
+
+  const cosMatch = normalized.match(/^cos\((.+)\)$/);
+  if (cosMatch) {
+    return buildCompositeLines(
+      cosMatch[1],
+      `\\cos\\left(${cleanCasLatex(nerdamer(cosMatch[1]).toTeX())}\\right)`,
+      "\\frac{d}{dx}\\cos(u)=-\\sin(u)\\cdot u'",
+      `-\\sin\\left(${cleanCasLatex(nerdamer(cosMatch[1]).toTeX())}\\right)\\cdot${cleanCasLatex(nerdamer(`diff(${cosMatch[1]},x)`).toTeX())}`
+    );
+  }
+
+  const tanMatch = normalized.match(/^tan\((.+)\)$/);
+  if (tanMatch) {
+    return buildCompositeLines(
+      tanMatch[1],
+      `\\tan\\left(${cleanCasLatex(nerdamer(tanMatch[1]).toTeX())}\\right)`,
+      "\\frac{d}{dx}\\tan(u)=\\sec^{2}(u)\\cdot u'",
+      `\\sec^{2}\\left(${cleanCasLatex(nerdamer(tanMatch[1]).toTeX())}\\right)\\cdot${cleanCasLatex(nerdamer(`diff(${tanMatch[1]},x)`).toTeX())}`
+    );
+  }
+
+  const logMatch = normalized.match(/^log\((.+)\)$/);
+  if (logMatch) {
+    const inner = logMatch[1];
+    const innerLatex = cleanCasLatex(nerdamer(inner).toTeX());
+    const innerDerivative = cleanCasLatex(nerdamer(`diff(${inner},x)`).toTeX());
+    return [
+      `Inner function: $u=${innerLatex}$, so $u'=${innerDerivative}$.`,
+      "Outer function: $\\ln(u)$, so use $\\frac{d}{dx}\\ln(u)=\\frac{u'}{u}$.",
+      "",
+      displayMath(`\\frac{d}{dx}\\left(\\ln\\left(${innerLatex}\\right)\\right)=\\frac{${innerDerivative}}{${innerLatex}}`),
+    ];
+  }
+
+  const expMatch = normalized.match(/^exp\((.+)\)$/) ?? normalized.match(/^e\^\((.+)\)$/) ?? normalized.match(/^e\^(.+)$/);
+  if (expMatch) {
+    const inner = expMatch[1];
+    const innerLatex = cleanCasLatex(nerdamer(inner).toTeX());
+    const innerDerivative = cleanCasLatex(nerdamer(`diff(${inner},x)`).toTeX());
+    return [
+      `Inner function: $u=${innerLatex}$, so $u'=${innerDerivative}$.`,
+      "Outer function: $e^{u}$, so use $\\frac{d}{dx}e^{u}=e^{u}\\cdot u'$.",
+      "",
+      displayMath(`\\frac{d}{dx}\\left(e^{${innerLatex}}\\right)=e^{${innerLatex}}\\cdot${innerDerivative}`),
+    ];
+  }
+
+  return [
+    displayMath(`\\frac{d}{dx}\\left(${expressionLatex}\\right)=${casResult}`),
+  ];
+}
+
 function integralFormulaForExpression(expression: string): string {
   const normalized = normalizeCasExpression(expression) ?? expression.toLowerCase().replace(/\s+/g, "");
 
@@ -4620,9 +4841,9 @@ function buildSimpleDerivativeReply({
       ? `So now we take the derivative of ${expression}. Remember, for a line this is just its slope.`
     : `We will differentiate ${expression} with respect to x.`;
   const ruleLine = isLectureStyle
-    ? "What do we do here? We identify the rule first, then plug in. Since x has derivative 1, the coefficient 5 stays as the slope."
+    ? "What do we do here? Identify the rule first, then plug the actual term into it before simplifying."
     : isProfessorMode
-      ? "What do we use here? The power rule and constant multiple rule. The derivative of x is 1."
+      ? "What do we use here? The power rule and constant multiple rule. Plug the actual term into the rule before simplifying."
     : "Use the constant multiple rule and the power rule.";
   const closing = isLectureStyle
     ? "That is the whole point: a linear function has constant change, so its derivative is constant."
@@ -4652,6 +4873,16 @@ function buildSimpleDerivativeReply({
       ]
       : [];
 
+  const teachingApplicationStep =
+    isLectureStyle
+      ? [
+        "",
+        "**Step 3: Apply the formula to this problem**",
+        "",
+        displayMath(buildPolynomialDerivativeApplicationLatex(terms)),
+      ]
+      : [];
+
   const lines = [
     `**Derivative of ${expression}**`,
     "",
@@ -4669,10 +4900,9 @@ function buildSimpleDerivativeReply({
     "",
     "**Formula used:**",
     displayMath(derivativeFormulaForExpression(expression)),
+    ...teachingApplicationStep,
     "",
-    displayMath(`f'(x) = ${derivative}`),
-    "",
-    "**Step 3: Simplify**",
+    isLectureStyle ? "**Step 4: Simplify**" : "**Step 3: Simplify**",
     "",
     displayMath(`f'(x) = ${derivative}`),
     ...instructorNotes,
@@ -5354,7 +5584,7 @@ function buildDeterministicMathReply({
       : displayMath(`\\int ${cleanCasLatex(nerdamer(normalizeCasExpression(expression) ?? expression).toTeX())}\\,dx = ${casResult}`);
   const formulaLine = displayMath(
     intent === "derivative"
-      ? derivativeFormulaForExpression(expression)
+      ? (isProfessorMode ? teachingDerivativeFormulaForExpression(expression) : derivativeFormulaForExpression(expression))
       : integralFormulaForExpression(expression)
   );
   const finalLine =
@@ -5393,6 +5623,15 @@ function buildDeterministicMathReply({
         displayMath(`\\begin{aligned}u&=${cleanCasLatex(nerdamer(normalizeCasExpression(expression) ?? expression).toTeX())}\\\\ dv&=dx\\\\ du&=\\frac{1}{x}\\,dx\\\\ v&=x\\end{aligned}`),
       ]
       : [];
+  const derivativeApplicationLines =
+    intent === "derivative" && isLectureStyle
+      ? [
+        "",
+        "**Step 3: Apply the formula to this problem**",
+        "",
+        ...buildTeachingDerivativeApplicationLines(expression, casResult),
+      ]
+      : [];
 
   return [
     `**${title}**`,
@@ -5412,10 +5651,11 @@ function buildDeterministicMathReply({
     "**Formula used:**",
     formulaLine,
     ...ruleDetails,
+    ...derivativeApplicationLines,
     "",
-    resultLine,
-    "",
-    "**Step 3: Simplify**",
+    isLectureStyle && intent === "derivative"
+      ? "**Step 4: Simplify**"
+      : "**Step 3: Simplify**",
     "",
     resultLine,
     ...instructorNotes,

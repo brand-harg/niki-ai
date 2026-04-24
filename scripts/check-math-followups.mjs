@@ -15,7 +15,7 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: false,
     },
-    expect: [/Derivative of ln\(5x\)/i, /f'\(x\)\s*=\s*\\frac\{1\}\{x\}/],
+    expect: [/Derivative of .*ln\(5x\)/i, /f'\(x\)\s*=\s*\\frac\{1\}\{x\}/],
     reject: [/What do you want me to do/i, /Qwen/i],
   },
   {
@@ -32,7 +32,7 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: false,
     },
-    expect: [/Integral of ln\(5x\)/i, /x\\ln\(5x\)-x \+ C/],
+    expect: [/Integral of .*ln\(5x\)/i, /x\\ln\(5x\)-x \+ C/],
     reject: [/What do you want me to do/i, /Qwen/i],
   },
   {
@@ -123,6 +123,76 @@ const scenarios = [
     },
     expect: [/Calculus 1 section 2\.2/i],
     reject: [/Calculus 2/i, /integration by parts/i, /Qwen/i],
+  },
+  {
+    id: "focus-mode-scopes-broad-teaching-request",
+    body: {
+      message: "teach me",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+      focusCourseContext: "Calculus 1",
+      focusTopicContext: "derivatives",
+    },
+    expect: [/derivatives/i, /Calculus 1/i],
+    reject: [/What do you mean/i, /Qwen/i],
+  },
+  {
+    id: "focus-mode-gently-steers-unrelated-request",
+    body: {
+      message: "teach me integrals",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+      focusCourseContext: "Calculus 1",
+      focusTopicContext: "derivatives",
+    },
+    expect: [/integrals/i, /derivatives/i, /(switch focus|current focus|active focus|focus is)/i],
+    reject: [/I can't help/i, /Qwen/i],
+  },
+  {
+    id: "teach-me-method-explains-before-asking-for-input",
+    body: {
+      message: "teach me integration by parts",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/integration by parts/i, /\\int u \\, dv = uv - \\int v \\, du/i, /(example|for example|let'?s use)/i],
+    reject: [/Send me the integrand/i, /Qwen/i],
+  },
+  {
+    id: "incomplete-product-rule-asks-for-full-product",
+    body: {
+      message: "product rule with sin(x)",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/full product/i, /standard example like x sin\(x\)/i],
+    reject: [/Derivative of .*sin\(x\)/i, /f'\(x\)\s*=\s*\\cos\(x\)/i, /Qwen/i],
+  },
+  {
+    id: "teaching-derivative-shows-formula-application-step",
+    body: {
+      message: "derivative of 5x",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Step 3: Apply the formula to this problem/i, /\\frac\{d\}\{dx\}\\left\(5x\\right\)=5\\cdot\\frac\{d\}\{dx\}\(x\)=5\\cdot 1/i],
+    reject: [/Qwen/i],
+  },
+  {
+    id: "teaching-chain-rule-shows-inner-and-outer-clearly",
+    body: {
+      message: "derivative of sin(x^2)",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [/Step 3: Apply the formula to this problem/i, /Inner function:/i, /Outer function:/i, /\\cos\\left\(x\^\{2\}\\right\)\\cdot2x/i],
+    reject: [/Qwen/i],
   },
 ];
 

@@ -16,7 +16,19 @@ import html2canvas from "html2canvas";
 import { inferCourseFromMathTopic } from "@/lib/courseFilters";
 import { clearAuthCallbackUrl, hasAuthCallbackParams, recoverSessionFromUrl } from "@/lib/authRecovery";
 import { ensureProfileForSession, mergeProfileWithFallback, profileFallbackFromSession } from "@/lib/authProfile";
+import { resolveAvatarUrl } from "@/lib/avatarUrl";
 import { sanitizeMathContent } from "@/lib/mathFormatting";
+import {
+  DEFAULT_PERSONALIZATION_SETTINGS,
+  readLocalPersonalizationSettings,
+  writeLocalPersonalizationSettings,
+  type PersonalizationSettings,
+} from "@/lib/personalization";
+import {
+  DEFAULT_GENERAL_SETTINGS,
+  readLocalGeneralSettings,
+  type GeneralSettings,
+} from "@/lib/generalSettings";
 
 // --- ICONS ---
 const PlusIcon = () => (
@@ -44,6 +56,9 @@ type Message = {
   retrievalConfidence?: RagResponse["retrievalConfidence"];
   mode?: "pure" | "nemanja";
   teachingEnabled?: boolean;
+  knowledgeBaseCourse?: string;
+  requestedCourse?: string;
+  knowledgeBaseMismatch?: boolean;
 };
 
 type AppSession = { user: { id: string } } | null;
@@ -54,15 +69,27 @@ type AppProfile = {
   theme_accent?: "cyan" | "green" | "amber";
   default_niki_mode?: boolean;
   train_on_data?: boolean;
+  is_searchable?: boolean;
   avatar_url?: string;
   current_unit?: string;
   compact_mode?: boolean;
+  cmd_enter_to_send?: boolean;
+  share_usage_data?: boolean;
+  about_user?: string;
+  response_style?: string;
 };
 
 const AUTH_TIMEOUT_MS = 6000;
 const KNOWLEDGE_BASE_STORAGE_KEY = "niki_knowledge_base_course";
 const PINNED_SYLLABUS_STORAGE_KEY = "niki_pinned_syllabus";
 const CHAT_FOCUS_STORAGE_KEY = "niki_chat_focus";
+const RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY = "niki_recent_knowledge_contexts";
+const TRAINING_PROMPT_SNOOZE_KEY = "niki_train_on_data_prompt_until";
+const TRAINING_PROMPT_SNOOZE_MS = 1000 * 60 * 60 * 24 * 14;
+const CURRENT_CHAT_MODE_STORAGE_KEY = "niki_current_chat_mode";
+const CURRENT_SESSION_SNAPSHOT_STORAGE_KEY = "niki_current_session_snapshot";
+const LAST_ARTIFACT_PANEL_STORAGE_KEY = "niki_last_artifact_panel";
+const PENDING_HOME_ACTION_STORAGE_KEY = "niki_pending_home_action";
 
 type KnowledgeBaseCourse = {
   label: string;
@@ -85,6 +112,63 @@ type FocusTopicSuggestion = {
   topic: string;
   keywords: string[];
 };
+
+type ArtifactKind = "notes" | "worked example" | "practice set" | "lecture summary";
+
+type ArtifactPanelState = {
+  messageIndex: number | null;
+  kind: ArtifactKind;
+  title: string;
+  sourcePrompt: string;
+  content: string;
+  savedArtifactId?: string | null;
+  courseTag?: string | null;
+  topicTag?: string | null;
+  isPublic?: boolean | null;
+  sourceCourse?: string | null;
+  sourceConfidence?: RagResponse["retrievalConfidence"] | null;
+  sourceAttached?: boolean;
+};
+
+type SavedArtifact = {
+  id: string;
+  title: string;
+  content: string;
+  source_prompt?: string | null;
+  kind?: ArtifactKind | null;
+  course_tag?: string | null;
+  topic_tag?: string | null;
+  is_public?: boolean | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+type RecentKnowledgeContext = {
+  id: string;
+  course: string;
+  topic: string;
+  updatedAt: string;
+};
+
+type KnowledgeBaseStatus = {
+  indexedLectureCount: number;
+  courseCounts: Array<{ course: string; count: number }>;
+  status: "Healthy" | "Warning" | "Missing";
+};
+
+type PendingHomeAction = "new-chat" | "open-artifact";
+
+type LoginGatePrompt = {
+  title: string;
+  detail: string;
+};
+
+const ONBOARDING_PROMPTS = [
+  "Create notes on derivatives ->",
+  "Explain limits step-by-step ->",
+  "Give me practice problems ->",
+  "Help me study for Calc 1 ->",
+];
 
 const KNOWLEDGE_BASE_COURSES: KnowledgeBaseCourse[] = [
   { label: "Elementary Algebra", courseContext: "Elementary Algebra", shortLabel: "Elem Alg" },
@@ -145,6 +229,209 @@ function normalizeSuggestionText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function sanitizeDownloadFilename(value: string, fallback: string) {
+  const trimmed = value.trim();
+  const safe = trimmed
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return safe || fallback;
+}
+
+function isPracticeRequestText(value: string) {
+  const normalized = normalizeSuggestionText(value);
+  if (!normalized) return false;
+
+  return (
+    /\bpractice\b/.test(normalized) ||
+    /\bpractice problems?\b/.test(normalized) ||
+    /\bmore problems?\b/.test(normalized) ||
+    /\bproblem set\b/.test(normalized) ||
+    /\bworksheet\b/.test(normalized) ||
+    /\bdrill\b/.test(normalized)
+  );
+}
+
+function inferArtifactKind(sourcePrompt: string, content: string): ArtifactKind {
+  const combined = `${sourcePrompt}\n${content}`.toLowerCase();
+  if (/\b(practice|quiz|test|exam|drill|problem set|worksheet)\b/.test(combined)) {
+    return "practice set";
+  }
+  if (/\b(summary|summarize|lecture|teach|explain|walk me through|missed class)\b/.test(combined)) {
+    return "lecture summary";
+  }
+  if (/\b(notes|study guide|review sheet|key ideas)\b/.test(combined)) {
+    return "notes";
+  }
+  if (/\b(step-by-step solution|final answer|formula used|step \d+:)\b/i.test(content)) {
+    return "worked example";
+  }
+  return "notes";
+}
+
+function concatenatePdfChunks(chunks: Uint8Array[]) {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return merged;
+}
+
+function buildSinglePagePdfFromJpeg(jpegBytes: Uint8Array, width: number, height: number) {
+  const encoder = new TextEncoder();
+  const pageWidth = Math.max(1, Math.round(width * 0.75));
+  const pageHeight = Math.max(1, Math.round(height * 0.75));
+  const contentStream = encoder.encode(`q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ\n`);
+  const objects: Uint8Array[] = [
+    encoder.encode("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"),
+    encoder.encode("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"),
+    encoder.encode(
+      `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`
+    ),
+    concatenatePdfChunks([
+      encoder.encode(
+        `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${Math.max(1, Math.round(width))} /Height ${Math.max(1, Math.round(height))} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
+      ),
+      jpegBytes,
+      encoder.encode("\nendstream\nendobj\n"),
+    ]),
+    concatenatePdfChunks([
+      encoder.encode(`5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n`),
+      contentStream,
+      encoder.encode("endstream\nendobj\n"),
+    ]),
+  ];
+
+  const header = encoder.encode("%PDF-1.4\n%\xFF\xFF\xFF\xFF\n");
+  const chunks: Uint8Array[] = [header];
+  const offsets = [0];
+  let offset = header.length;
+
+  for (const objectBytes of objects) {
+    offsets.push(offset);
+    chunks.push(objectBytes);
+    offset += objectBytes.length;
+  }
+
+  const xrefOffset = offset;
+  const xrefLines = [
+    "xref",
+    `0 ${objects.length + 1}`,
+    "0000000000 65535 f ",
+    ...offsets.slice(1).map((entryOffset) => `${entryOffset.toString().padStart(10, "0")} 00000 n `),
+    "trailer",
+    `<< /Size ${objects.length + 1} /Root 1 0 R >>`,
+    "startxref",
+    `${xrefOffset}`,
+    "%%EOF",
+  ];
+  chunks.push(encoder.encode(`${xrefLines.join("\n")}\n`));
+
+  return new Blob([concatenatePdfChunks(chunks)], { type: "application/pdf" });
+}
+
+function buildArtifactTitle(kind: ArtifactKind, sourcePrompt: string): string {
+  const cleanedPrompt = sourcePrompt
+    .replace(/\s+/g, " ")
+    .replace(/^[^a-z0-9]+/i, "")
+    .trim();
+
+  if (!cleanedPrompt) {
+    return kind === "lecture summary"
+      ? "Lecture Summary"
+      : kind === "practice set"
+        ? "Practice Set"
+        : kind === "worked example"
+          ? "Worked Example"
+          : "Study Notes";
+  }
+
+  const compactPrompt = cleanedPrompt.length > 72 ? `${cleanedPrompt.slice(0, 69).trimEnd()}...` : cleanedPrompt;
+  const prefix =
+    kind === "lecture summary"
+      ? "Lecture Summary"
+      : kind === "practice set"
+        ? "Practice Set"
+        : kind === "worked example"
+          ? "Worked Example"
+          : "Study Notes";
+
+  return `${prefix} - ${compactPrompt}`;
+}
+
+function artifactKindLabel(kind: ArtifactKind): string {
+  return kind === "lecture summary"
+    ? "Summary"
+    : kind === "worked example"
+      ? "Worked Example"
+      : kind === "practice set"
+        ? "Practice Set"
+        : "Notes";
+}
+
+function serializeArtifactWorkspace(panel: ArtifactPanelState | null): string | null {
+  if (!panel) return null;
+  return JSON.stringify({
+    title: panel.title,
+    content: panel.content,
+    kind: panel.kind,
+    courseTag: panel.courseTag ?? null,
+    topicTag: panel.topicTag ?? null,
+    isPublic: panel.isPublic ?? null,
+  });
+}
+
+function parseStoredArtifactPanel(rawValue: string | null): ArtifactPanelState | null {
+  if (!rawValue) return null;
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<ArtifactPanelState>;
+    if (
+      typeof parsed?.title !== "string" ||
+      typeof parsed?.content !== "string" ||
+      typeof parsed?.sourcePrompt !== "string" ||
+      (parsed?.kind !== "notes" &&
+        parsed?.kind !== "worked example" &&
+        parsed?.kind !== "practice set" &&
+        parsed?.kind !== "lecture summary")
+    ) {
+      return null;
+    }
+
+    return {
+      messageIndex:
+        typeof parsed.messageIndex === "number" ? parsed.messageIndex : null,
+      kind: parsed.kind,
+      title: parsed.title,
+      sourcePrompt: parsed.sourcePrompt,
+      content: parsed.content,
+      savedArtifactId:
+        typeof parsed.savedArtifactId === "string" ? parsed.savedArtifactId : null,
+      courseTag: typeof parsed.courseTag === "string" ? parsed.courseTag : null,
+      topicTag: typeof parsed.topicTag === "string" ? parsed.topicTag : null,
+      isPublic: typeof parsed.isPublic === "boolean" ? parsed.isPublic : null,
+      sourceCourse:
+        typeof parsed.sourceCourse === "string" ? parsed.sourceCourse : null,
+      sourceConfidence:
+        parsed.sourceConfidence === "high" ||
+        parsed.sourceConfidence === "medium" ||
+        parsed.sourceConfidence === "low" ||
+        parsed.sourceConfidence === "none"
+          ? parsed.sourceConfidence
+          : null,
+      sourceAttached: parsed.sourceAttached === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function getFocusSuggestion(course: string, draft: string): string | null {
   const normalizedDraft = normalizeSuggestionText(draft);
   if (!normalizedDraft || normalizedDraft.length < 3) return null;
@@ -190,6 +477,22 @@ function formatPinnedTimestamp(value?: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+function normalizeRecentContextTopic(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function buildRecentContextTopic(course: string, draft: string, fallbackTopic: string): string {
+  const explicitTopic = normalizeRecentContextTopic(fallbackTopic);
+  if (explicitTopic) return explicitTopic;
+
+  const suggestedTopic = getFocusSuggestion(course, draft);
+  if (suggestedTopic) return suggestedTopic;
+
+  const compactDraft = normalizeRecentContextTopic(draft);
+  if (compactDraft.length <= 72) return compactDraft;
+  return `${compactDraft.slice(0, 69).trimEnd()}...`;
 }
 
 function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOUT_MS): Promise<T> {
@@ -385,6 +688,13 @@ function cleanEvidenceText(value?: string) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
+function normalizeCourseKey(value?: string) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function getCitationEvidenceMeta(citation: RagCitation) {
   const excerpt = cleanEvidenceText(citation.excerpt);
   const sectionHint = cleanEvidenceText(citation.sectionHint);
@@ -429,6 +739,18 @@ function isLectureInventoryRequest(message: string) {
   );
 }
 
+function isExplicitKnowledgeBaseRequest(message: string) {
+  return (
+    /\b(source|sources|citation|citations|cite|evidence|transcript|clip|clips|timestamp|timestamps|video|videos|watch|grounded|lecture connection)\b/i.test(
+      message
+    ) ||
+    /where did (?:that|this) come from/i.test(message) ||
+    /show (?:me )?(?:the )?(?:source|sources|citations|evidence)/i.test(message) ||
+    /peek evidence/i.test(message) ||
+    /\b(lecture|lectures)\b/i.test(message)
+  );
+}
+
 function getCalloutKind(text: string) {
   if (/^Efficiency Tip\b/i.test(text)) return "math-callout-efficiency";
   if (/^Concept Check\b/i.test(text)) return "math-callout-concept";
@@ -459,10 +781,16 @@ const CitationCard = ({
   citations,
   confidence,
   accentColor,
+  knowledgeBaseCourse,
+  requestedCourse,
+  knowledgeBaseMismatch,
 }: {
   citations: RagCitation[];
   confidence?: RagResponse["retrievalConfidence"];
   accentColor: string;
+  knowledgeBaseCourse?: string;
+  requestedCourse?: string;
+  knowledgeBaseMismatch?: boolean;
 }) => {
   const isGreen = accentColor === "green";
   const isAmber = accentColor === "amber";
@@ -473,13 +801,16 @@ const CitationCard = ({
   const [activeClip, setActiveClip] = useState<RagCitation | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const shownConfidence = confidence ?? confidenceFromCitations(unique);
+  const activeLectureSet = knowledgeBaseCourse?.trim() || "";
+  const requestedCourseLabel = requestedCourse?.trim() || "";
+  const lowRelevance = !!knowledgeBaseMismatch || shownConfidence === "low";
   const confidenceLabel =
-    shownConfidence === "high"
+    lowRelevance
+      ? "Low relevance"
+      : shownConfidence === "high"
       ? "High confidence"
       : shownConfidence === "medium"
         ? "Medium confidence"
-        : shownConfidence === "low"
-          ? "Low confidence"
           : "No confidence score";
 
   if (!unique.length) return null;
@@ -490,9 +821,19 @@ const CitationCard = ({
     <>
     <div className={`mt-4 rounded-2xl border ${accentBorder} ${accentBg} p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_45px_rgba(0,0,0,0.18)]`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-          Sources
-        </p>
+        <div className="min-w-0">
+          <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
+            Sources
+          </p>
+          {activeLectureSet && (
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">
+              Active lecture set: {activeLectureSet}
+              {knowledgeBaseMismatch && requestedCourseLabel
+                ? ` · Current question looks like ${requestedCourseLabel}`
+                : ""}
+            </p>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -604,6 +945,14 @@ const CitationCard = ({
                 <p className="mt-1 text-xs text-slate-500">
                   Inspect the evidence behind this answer. Exact transcript evidence is shown when available; foundational matches are labeled plainly.
                 </p>
+                {activeLectureSet && (
+                  <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                    Active lecture set: {activeLectureSet}
+                    {knowledgeBaseMismatch && requestedCourseLabel
+                      ? ` · This question looks like ${requestedCourseLabel}, so the current lecture sources are low relevance.`
+                      : ""}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -640,6 +989,11 @@ const CitationCard = ({
                           <p className="text-right text-[10px] leading-4 text-slate-500">
                             {evidenceMeta.detail}
                           </p>
+                          {lowRelevance && (
+                            <p className="text-right text-[10px] leading-4 text-amber-300/80">
+                              Low relevance to the current question.
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -953,15 +1307,43 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
-  const [activeKnowledgeCourse, setActiveKnowledgeCourse] = useState<string>("Calculus 1");
+  const [activeKnowledgeCourse, setActiveKnowledgeCourse] = useState<string | null>(null);
   const [pinnedSyllabus, setPinnedSyllabus] = useState<PinnedSyllabus | null>(null);
   const [chatFocus, setChatFocus] = useState<ChatFocusState>({
-    course: "Calculus 1",
+    course: "",
     topic: "",
   });
+  const [personalization, setPersonalization] = useState<PersonalizationSettings>(
+    DEFAULT_PERSONALIZATION_SETTINGS
+  );
+  const [localGeneralSettings, setLocalGeneralSettings] = useState<GeneralSettings>(
+    DEFAULT_GENERAL_SETTINGS
+  );
   const [focusModeExpanded, setFocusModeExpanded] = useState<boolean | null>(null);
+  const [artifactPanel, setArtifactPanel] = useState<ArtifactPanelState | null>(null);
+  const [recentArtifactResume, setRecentArtifactResume] = useState<ArtifactPanelState | null>(null);
+  const [artifactBaselineSnapshot, setArtifactBaselineSnapshot] = useState<string | null>(null);
+  const [artifactCreationNotice, setArtifactCreationNotice] = useState<ArtifactPanelState | null>(null);
+  const [savedArtifacts, setSavedArtifacts] = useState<SavedArtifact[]>([]);
+  const [publicArtifacts, setPublicArtifacts] = useState<SavedArtifact[]>([]);
+  const [recentKnowledgeContexts, setRecentKnowledgeContexts] = useState<RecentKnowledgeContext[]>([]);
+  const [studyProgressNotice, setStudyProgressNotice] = useState<string | null>(null);
+  const [knowledgeBaseStatus, setKnowledgeBaseStatus] = useState<KnowledgeBaseStatus>({
+    indexedLectureCount: 0,
+    courseCounts: [],
+    status: "Missing",
+  });
+  const [isSyllabusPreviewOpen, setIsSyllabusPreviewOpen] = useState(false);
+  const [artifactSaveNotice, setArtifactSaveNotice] = useState<string | null>(null);
+  const [knowledgeBaseNotice, setKnowledgeBaseNotice] = useState<string | null>(null);
+  const [sourceHealthExpanded, setSourceHealthExpanded] = useState(false);
+  const [loginGatePrompt, setLoginGatePrompt] = useState<LoginGatePrompt | null>(null);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [trainingPromptSnoozedUntil, setTrainingPromptSnoozedUntil] = useState<number | null>(null);
+  const [trainingPromptHidden, setTrainingPromptHidden] = useState(false);
+  const [trainingPromptBusy, setTrainingPromptBusy] = useState(false);
+  const headerAvatarUrl = resolveAvatarUrl(profile?.avatar_url);
 
   // --- RENAME STATE ---
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
@@ -969,17 +1351,25 @@ export default function Home() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatViewportRef = useRef<HTMLDivElement>(null);
+  const syllabusUploadInputRef = useRef<HTMLInputElement>(null);
   const currentChatIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const artifactPreviewRef = useRef<HTMLDivElement>(null);
   const isUnmountingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(null);
   const profileLoadedRef = useRef(false);
+  const lastFocusAnnouncementRef = useRef<string>("");
 
   // --- DYNAMIC THEME ENGINE ---
-  const isGreen = profile?.theme_accent === "green";
-  const isAmber = profile?.theme_accent === "amber";
+  const effectiveThemeAccent = profile?.theme_accent ?? localGeneralSettings.theme_accent;
+  const effectiveCompactMode = profile?.compact_mode ?? localGeneralSettings.compact_mode;
+  const effectiveCmdEnterToSend =
+    profile?.cmd_enter_to_send ?? localGeneralSettings.cmd_enter_to_send;
+
+  const isGreen = effectiveThemeAccent === "green";
+  const isAmber = effectiveThemeAccent === "amber";
 
   const accentColor = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
   const accentBg = isGreen ? "bg-green-500" : isAmber ? "bg-amber-500" : "bg-cyan-500";
@@ -1000,24 +1390,52 @@ export default function Home() {
 
   const knowledgeBaseCourse = useMemo(
     () =>
-      KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === activeKnowledgeCourse) ??
-      KNOWLEDGE_BASE_COURSES[2],
+      KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === activeKnowledgeCourse) ?? null,
     [activeKnowledgeCourse]
   );
 
+  const activeLectureSetLabel = knowledgeBaseCourse?.label ?? "No active lecture set";
+  const activeLectureSetShortLabel = knowledgeBaseCourse?.shortLabel ?? "Cleared";
+
+  const activeLectureIndexedCount = useMemo(() => {
+    if (!activeKnowledgeCourse) return 0;
+
+    const normalizedActiveCourse = activeKnowledgeCourse.toLowerCase().replace(/\s+/g, " ").trim();
+    const match = knowledgeBaseStatus.courseCounts.find((row) => {
+      const normalizedCourse = row.course.toLowerCase().replace(/\s+/g, " ").trim();
+      return normalizedCourse === normalizedActiveCourse;
+    });
+
+    return match?.count ?? 0;
+  }, [activeKnowledgeCourse, knowledgeBaseStatus.courseCounts]);
+
   const sourceHealth = useMemo(() => {
-    if (pinnedSyllabus) {
-      return {
-        label: "READY",
-        detail: "Lecture retrieval and pinned syllabus context are both available.",
-      };
+    const hasPinnedSyllabus = !!pinnedSyllabus;
+    const hasLectures = knowledgeBaseStatus.indexedLectureCount > 0;
+    const hasActiveCourseCoverage = !activeKnowledgeCourse || activeLectureIndexedCount > 0;
+    const status = !hasLectures ? "Missing" : hasActiveCourseCoverage ? "Healthy" : "Warning";
+
+    let detail = hasPinnedSyllabus
+      ? "Syllabus pinned and ready to guide course context."
+      : "Choose a course to see lecture coverage.";
+    if (!hasLectures) {
+      detail = "No lecture data is available yet.";
     }
 
     return {
-      label: "INDEXED",
-      detail: "Lecture retrieval is available across every supported course.",
+      label: status,
+      detail,
     };
-  }, [pinnedSyllabus]);
+  }, [
+    activeKnowledgeCourse,
+    activeLectureIndexedCount,
+    knowledgeBaseStatus.indexedLectureCount,
+    pinnedSyllabus,
+  ]);
+
+  const sourceHealthCourseBreakdown = useMemo(() => {
+    return [...knowledgeBaseStatus.courseCounts].sort((a, b) => b.count - a.count);
+  }, [knowledgeBaseStatus.courseCounts]);
 
   const attachedKnowledgeButtonLabel = useMemo(() => {
     if (attachedFile?.type !== "text") return null;
@@ -1029,7 +1447,7 @@ export default function Home() {
   const focusCourseLabel = useMemo(() => {
     return (
       KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === chatFocus.course)?.label ??
-      "Calc 1"
+      "No subject selected"
     );
   }, [chatFocus.course]);
 
@@ -1039,8 +1457,125 @@ export default function Home() {
   }, [chatFocus.course, chatFocus.topic, inputValue]);
 
   const focusSummary = useMemo(() => {
-    return `${focusCourseLabel} · ${chatFocus.topic.trim() || "No topic set"}`;
-  }, [chatFocus.topic, focusCourseLabel]);
+    const trimmedTopic = chatFocus.topic.trim();
+    if (!chatFocus.course) {
+      return trimmedTopic ? `No subject selected · ${trimmedTopic}` : "No subject selected";
+    }
+    return `${focusCourseLabel} · ${trimmedTopic || "No topic set"}`;
+  }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
+
+  const focusStatusLabel = useMemo(() => {
+    const trimmedTopic = chatFocus.topic.trim();
+    if (!chatFocus.course && !trimmedTopic) return "No course selected";
+    if (!chatFocus.course) return `Focus: ${trimmedTopic}`;
+    if (!trimmedTopic) return `Focus: ${focusCourseLabel}`;
+    return `Focus: ${focusCourseLabel} • ${trimmedTopic}`;
+  }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
+
+  const sessionStudyLabel = useMemo(() => {
+    const trimmedTopic = chatFocus.topic.trim();
+    if (!chatFocus.course) return "";
+    if (!trimmedTopic) return `Studying: ${focusCourseLabel}`;
+    return `Studying: ${focusCourseLabel} • ${trimmedTopic}`;
+  }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
+
+  const practiceModeActive = useMemo(() => {
+    return messages.some(
+      (message) => message.role === "user" && isPracticeRequestText(message.content)
+    );
+  }, [messages]);
+
+  const knowledgeBaseActivationCourse = useMemo(() => {
+    const candidate = activeKnowledgeCourse ?? chatFocus.course;
+    if (!candidate) return null;
+    return KNOWLEDGE_BASE_COURSES.some((course) => course.courseContext === candidate)
+      ? candidate
+      : null;
+  }, [activeKnowledgeCourse, chatFocus.course]);
+
+  const substantiveMessageCount = useMemo(
+    () => messages.filter((msg) => !ALL_GREETING_TEXTS.has(msg.content ?? "")).length,
+    [messages]
+  );
+
+  const shouldShowTrainingPrompt =
+    !!session?.user?.id &&
+    profileLoaded &&
+    profile?.train_on_data === false &&
+    substantiveMessageCount >= 4 &&
+    !trainingPromptHidden &&
+    (!trainingPromptSnoozedUntil || trainingPromptSnoozedUntil <= Date.now());
+
+  const shouldShowOnboarding =
+    chatHistory.length === 0 &&
+    !currentChatId &&
+    !isLoading &&
+    isGreetingOnly(messages);
+
+  const effectivePersonalization = useMemo(
+    () => ({
+      about_user: profile?.about_user ?? personalization.about_user,
+      response_style: profile?.response_style ?? personalization.response_style,
+      default_niki_mode: profile?.default_niki_mode ?? personalization.default_niki_mode,
+    }),
+    [
+      personalization.about_user,
+      personalization.default_niki_mode,
+      personalization.response_style,
+      profile?.about_user,
+      profile?.default_niki_mode,
+      profile?.response_style,
+    ]
+  );
+
+  const focusModeHeaderClass =
+    focusModeExpanded === true
+      ? "rounded-2xl border border-white/10 bg-[#0b0b0b]/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+      : "rounded-full border border-white/10 bg-[#0b0b0b]/92 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:rounded-2xl sm:px-3 sm:py-3";
+
+  const artifactPreviewContent = useMemo(() => {
+    return artifactPanel ? sanitizeMathContent(artifactPanel.content) : "";
+  }, [artifactPanel]);
+
+  const artifactHasUnsavedChanges = useMemo(() => {
+    if (!artifactPanel) return false;
+    return serializeArtifactWorkspace(artifactPanel) !== artifactBaselineSnapshot;
+  }, [artifactBaselineSnapshot, artifactPanel]);
+
+  const recentArtifacts = useMemo(() => {
+    if (!artifactPanel?.savedArtifactId) {
+      return savedArtifacts.slice(0, 4);
+    }
+    return savedArtifacts
+      .filter((artifact) => artifact.id !== artifactPanel.savedArtifactId)
+      .slice(0, 4);
+  }, [artifactPanel?.savedArtifactId, savedArtifacts]);
+
+  const confirmArtifactLeave = () => {
+    if (!artifactHasUnsavedChanges) return true;
+    return window.confirm("You have unsaved changes");
+  };
+
+  const openArtifactWorkspace = (
+    nextArtifactPanel: ArtifactPanelState,
+    options?: { promptOnReplace?: boolean }
+  ) => {
+    if (options?.promptOnReplace !== false && artifactPanel && !confirmArtifactLeave()) {
+      return false;
+    }
+
+    setArtifactPanel(nextArtifactPanel);
+    setArtifactBaselineSnapshot(serializeArtifactWorkspace(nextArtifactPanel));
+    return true;
+  };
+
+  const closeArtifactWorkspace = () => {
+    if (!artifactPanel) return true;
+    if (!confirmArtifactLeave()) return false;
+    setArtifactPanel(null);
+    setArtifactBaselineSnapshot(null);
+    return true;
+  };
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 768px)");
@@ -1053,9 +1588,56 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!knowledgeBaseNotice) return;
+    const timeout = window.setTimeout(() => setKnowledgeBaseNotice(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [knowledgeBaseNotice]);
+
+  useEffect(() => {
+    if (!artifactCreationNotice) return;
+    const timeout = window.setTimeout(() => setArtifactCreationNotice(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [artifactCreationNotice]);
+
+  useEffect(() => {
+    if (!studyProgressNotice) return;
+    const timeout = window.setTimeout(() => setStudyProgressNotice(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [studyProgressNotice]);
+
+  useEffect(() => {
+    if (!artifactHasUnsavedChanges) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [artifactHasUnsavedChanges]);
+
+  useEffect(() => {
     try {
+      setPersonalization(readLocalPersonalizationSettings());
+      setLocalGeneralSettings(readLocalGeneralSettings());
+      const storedTrainingPromptSnooze = window.localStorage.getItem(TRAINING_PROMPT_SNOOZE_KEY);
+      if (storedTrainingPromptSnooze) {
+        const parsed = Number(storedTrainingPromptSnooze);
+        if (Number.isFinite(parsed) && parsed > Date.now()) {
+          setTrainingPromptSnoozedUntil(parsed);
+        } else {
+          window.localStorage.removeItem(TRAINING_PROMPT_SNOOZE_KEY);
+        }
+      }
+
       const storedCourse = window.localStorage.getItem(KNOWLEDGE_BASE_STORAGE_KEY);
-      if (storedCourse && KNOWLEDGE_BASE_COURSES.some((course) => course.courseContext === storedCourse)) {
+      if (storedCourse === "__cleared__") {
+        setActiveKnowledgeCourse(null);
+      } else if (
+        storedCourse &&
+        KNOWLEDGE_BASE_COURSES.some((course) => course.courseContext === storedCourse)
+      ) {
         setActiveKnowledgeCourse(storedCourse);
       }
 
@@ -1080,6 +1662,14 @@ export default function Home() {
           });
         }
       }
+
+      const storedArtifact = parseStoredArtifactPanel(
+        window.localStorage.getItem(LAST_ARTIFACT_PANEL_STORAGE_KEY)
+      );
+      if (storedArtifact) {
+        setRecentArtifactResume(storedArtifact);
+      }
+
     } catch {
       // Ignore local storage boot failures and keep defaults.
     }
@@ -1087,7 +1677,11 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(KNOWLEDGE_BASE_STORAGE_KEY, activeKnowledgeCourse);
+      if (activeKnowledgeCourse) {
+        window.localStorage.setItem(KNOWLEDGE_BASE_STORAGE_KEY, activeKnowledgeCourse);
+      } else {
+        window.localStorage.setItem(KNOWLEDGE_BASE_STORAGE_KEY, "__cleared__");
+      }
     } catch {
       // Ignore storage persistence failures.
     }
@@ -1114,8 +1708,174 @@ export default function Home() {
   }, [chatFocus]);
 
   useEffect(() => {
+    try {
+      if (session?.user?.id) {
+        window.localStorage.setItem(
+          RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY,
+          JSON.stringify(recentKnowledgeContexts)
+        );
+      } else {
+        window.localStorage.removeItem(RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [recentKnowledgeContexts, session?.user?.id]);
+
+  useEffect(() => {
+    try {
+      if (!session?.user?.id) {
+        setRecentKnowledgeContexts([]);
+        window.localStorage.removeItem(RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY);
+        return;
+      }
+
+      const storedRecentContexts = window.localStorage.getItem(
+        RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY
+      );
+      if (!storedRecentContexts) {
+        setRecentKnowledgeContexts([]);
+        return;
+      }
+
+      const parsed = JSON.parse(storedRecentContexts) as RecentKnowledgeContext[];
+      if (Array.isArray(parsed)) {
+        const [mostRecent] = parsed.filter(
+          (item): item is RecentKnowledgeContext =>
+            !!item &&
+            typeof item.id === "string" &&
+            typeof item.course === "string" &&
+            typeof item.topic === "string" &&
+            typeof item.updatedAt === "string"
+        );
+        setRecentKnowledgeContexts(mostRecent ? [mostRecent] : []);
+      }
+    } catch {
+      setRecentKnowledgeContexts([]);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    const normalizedFocusCourse =
+      chatFocus.course &&
+      KNOWLEDGE_BASE_COURSES.some((course) => course.courseContext === chatFocus.course)
+        ? chatFocus.course
+        : null;
+
+    if (normalizedFocusCourse !== activeKnowledgeCourse) {
+      setActiveKnowledgeCourse(normalizedFocusCourse);
+    }
+  }, [activeKnowledgeCourse, chatFocus.course]);
+
+  useEffect(() => {
+    const trimmedTopic = chatFocus.topic.trim();
+    const focusKey = `${chatFocus.course}::${trimmedTopic}`;
+
+    if (!chatFocus.course) {
+      lastFocusAnnouncementRef.current = focusKey;
+      return;
+    }
+
+    if (!lastFocusAnnouncementRef.current) {
+      lastFocusAnnouncementRef.current = focusKey;
+      return;
+    }
+
+    if (lastFocusAnnouncementRef.current === focusKey) return;
+
+    const timeout = window.setTimeout(() => {
+      setStudyProgressNotice(`You're working through ${focusCourseLabel} topics.`);
+      lastFocusAnnouncementRef.current = focusKey;
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
+
+  useEffect(() => {
+    try {
+      writeLocalPersonalizationSettings(effectivePersonalization);
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [effectivePersonalization]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        CURRENT_CHAT_MODE_STORAGE_KEY,
+        isNikiMode ? "Nemanja Mode" : "Pure Logic"
+      );
+      window.localStorage.setItem(
+        CURRENT_SESSION_SNAPSHOT_STORAGE_KEY,
+        JSON.stringify({
+          course: chatFocus.course,
+          topic: chatFocus.topic.trim(),
+          mode: isNikiMode ? "Nemanja Mode" : "Pure Logic",
+          practice: practiceModeActive,
+        })
+      );
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [chatFocus.course, chatFocus.topic, isNikiMode, practiceModeActive]);
+
+  useEffect(() => {
+    if (!artifactPanel) return;
+    try {
+      window.localStorage.setItem(
+        LAST_ARTIFACT_PANEL_STORAGE_KEY,
+        JSON.stringify(artifactPanel)
+      );
+      setRecentArtifactResume(artifactPanel);
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [artifactPanel]);
+
+  useEffect(() => {
+    if (profile?.train_on_data) {
+      setTrainingPromptHidden(true);
+    }
+  }, [profile?.train_on_data]);
+
+  useEffect(() => {
     profileLoadedRef.current = profileLoaded;
   }, [profileLoaded]);
+
+  useEffect(() => {
+    try {
+      const pendingAction = window.localStorage.getItem(
+        PENDING_HOME_ACTION_STORAGE_KEY
+      ) as PendingHomeAction | null;
+      if (!pendingAction) return;
+
+      if (pendingAction === "new-chat") {
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
+        isStreamingRef.current = false;
+        setIsLoading(false);
+        if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
+        setAttachedFile(null);
+        setCurrentChatId(null);
+        currentChatIdRef.current = null;
+        setMessages(createGreeting(isNikiMode));
+        setConfirmDeleteId(null);
+        setRenamingChatId(null);
+      } else if (pendingAction === "open-artifact") {
+        const storedArtifact = parseStoredArtifactPanel(
+          window.localStorage.getItem(LAST_ARTIFACT_PANEL_STORAGE_KEY)
+        );
+        if (storedArtifact) {
+          setArtifactPanel(storedArtifact);
+          setArtifactBaselineSnapshot(serializeArtifactWorkspace(storedArtifact));
+        }
+      }
+
+      window.localStorage.removeItem(PENDING_HOME_ACTION_STORAGE_KEY);
+    } catch {
+      // Ignore storage access failures.
+    }
+  }, [attachedFile?.preview, isNikiMode]);
 
   const switchNikiMode = (mode: boolean) => {
     setIsNikiMode(mode);
@@ -1218,6 +1978,51 @@ export default function Home() {
         </code>
       );
     },
+  };
+
+  const artifactMarkdownComponents: Components = {
+    ...mathMarkdownComponents,
+    h1: ({ children, ...props }) => (
+      <h1
+        className="mb-5 mt-2 border-b border-white/10 pb-3 text-[1.55rem] font-black tracking-tight text-white sm:text-[1.8rem]"
+        {...props}
+      >
+        {children}
+      </h1>
+    ),
+    h2: ({ children, ...props }) => {
+      const text = React.Children.toArray(children).join("").trim().toLowerCase();
+      const isFinalAnswer = text === "final answer";
+
+      if (isFinalAnswer) {
+        return (
+          <h2
+            className={`mt-7 mb-3 rounded-lg border ${accentBorder} bg-white/[0.04] px-4 py-2 text-[1.05rem] font-black uppercase tracking-widest ${accentColor}`}
+            {...props}
+          >
+            {children}
+          </h2>
+        );
+      }
+
+      return (
+        <h2
+          className={`mb-4 mt-8 border-b ${accentBorder} pb-2 text-[1.1rem] font-black tracking-wide ${accentColor} sm:text-[1.2rem]`}
+          {...props}
+        >
+          {children}
+        </h2>
+      );
+    },
+    h3: ({ children, ...props }) => (
+      <h3
+        className="mb-3 mt-6 text-[1rem] font-extrabold tracking-tight text-slate-100 sm:text-[1.05rem]"
+        {...props}
+      >
+        {children}
+      </h3>
+    ),
+    hr: ({ ...props }) => <hr className="my-7 border-white/10" {...props} />,
   };
 
 
@@ -1373,13 +2178,11 @@ export default function Home() {
     if (messageCount > 0) return;
     if (session && !profileLoaded) return;
 
-    const preferredMode = profile?.default_niki_mode ?? isNikiMode;
+    const preferredMode = effectivePersonalization.default_niki_mode;
     setMessages(createGreeting(preferredMode));
 
-    if (profile?.default_niki_mode !== undefined) {
-      setIsNikiMode(profile.default_niki_mode);
-    }
-  }, [isNikiMode, messageCount, profile?.default_niki_mode, profileLoaded, session]);
+    setIsNikiMode(preferredMode);
+  }, [effectivePersonalization.default_niki_mode, messageCount, profileLoaded, session]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1441,6 +2244,78 @@ export default function Home() {
     if (error) console.log("Fetch history error:", error);
     if (data) setChatHistory(data);
   };
+
+  const fetchStudyArtifacts = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("study_artifacts")
+      .select("*")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log("Fetch study artifacts error:", error);
+      return;
+    }
+
+    if (data) {
+      setSavedArtifacts(data as SavedArtifact[]);
+    }
+  };
+
+  const fetchPublicArtifacts = async () => {
+    try {
+      const response = await fetch("/api/artifacts/public", { cache: "no-store" });
+      if (!response.ok) {
+        console.log("Fetch public artifacts error:", response.status);
+        return;
+      }
+
+      const payload = (await response.json()) as { artifacts?: SavedArtifact[] };
+      setPublicArtifacts(Array.isArray(payload.artifacts) ? payload.artifacts : []);
+    } catch (error) {
+      console.log("Fetch public artifacts error:", error);
+    }
+  };
+
+  const fetchKnowledgeBaseStatus = async () => {
+    try {
+      const response = await fetch("/api/knowledge-base/status", { cache: "no-store" });
+      if (!response.ok) {
+        console.log("Fetch knowledge base status error:", response.status);
+        return;
+      }
+
+      const payload = (await response.json()) as Partial<KnowledgeBaseStatus>;
+      setKnowledgeBaseStatus({
+        indexedLectureCount:
+          typeof payload.indexedLectureCount === "number" ? payload.indexedLectureCount : 0,
+        courseCounts: Array.isArray(payload.courseCounts) ? payload.courseCounts : [],
+        status:
+          payload.status === "Healthy" || payload.status === "Warning" || payload.status === "Missing"
+            ? payload.status
+            : "Missing",
+      });
+    } catch (error) {
+      console.log("Fetch knowledge base status error:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setSavedArtifacts([]);
+    } else {
+      void fetchStudyArtifacts(session.user.id);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    void fetchPublicArtifacts();
+  }, []);
+
+  useEffect(() => {
+    void fetchKnowledgeBaseStatus();
+  }, []);
 
   const loadChat = async (chatId: string) => {
     setCurrentChatId(chatId);
@@ -1570,8 +2445,26 @@ export default function Home() {
     setAttachedFile(null);
   };
 
+  const showKnowledgeBaseNotice = (message: string) => {
+    setKnowledgeBaseNotice(message);
+  };
+
+  const showLoginGatePrompt = (detail: string) => {
+    setLoginGatePrompt({
+      title: "Log in to save your study progress",
+      detail,
+    });
+  };
+
   const handlePinAttachedSyllabus = async () => {
     if (attachedFile?.type !== "text") return;
+    if (!session?.user?.id) {
+      showKnowledgeBaseNotice("Log in to save your study progress.");
+      showLoginGatePrompt(
+        "Pinning a syllabus keeps your course context available the next time you come back."
+      );
+      return;
+    }
 
     try {
       const content = (await attachedFile.file.text()).trim();
@@ -1587,16 +2480,110 @@ export default function Home() {
     }
   };
 
-  const handleScreenshot = async () => {
-    const target =
-      chatViewportRef.current ??
-      (document.querySelector("[data-chat-capture]") as HTMLDivElement | null);
-
-    if (!target) {
-      alert("Screenshot target not found. Please reload and try again.");
+  const handleUploadPinnedSyllabus = async (file: File) => {
+    if (!session?.user?.id) {
+      showKnowledgeBaseNotice("Log in to save your study progress.");
+      showLoginGatePrompt(
+        "Upload a syllabus after you log in and Niki will be able to keep it attached to your study context."
+      );
       return;
     }
 
+    try {
+      const content = (await file.text()).trim();
+      if (!content) return;
+
+      setPinnedSyllabus({
+        name: file.name,
+        content: content.slice(0, 20000),
+        pinnedAt: new Date().toISOString(),
+      });
+      setIsSyllabusPreviewOpen(true);
+    } catch (error) {
+      console.warn("Could not upload pinned syllabus:", error);
+    }
+  };
+
+  const handleKnowledgeFileInputChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await handleUploadPinnedSyllabus(file);
+    event.target.value = "";
+  };
+
+  const handleSetActiveLectureSet = () => {
+    if (!knowledgeBaseActivationCourse) return;
+    setActiveKnowledgeCourse(knowledgeBaseActivationCourse);
+    setChatFocus((prev) => ({
+      ...prev,
+      course: knowledgeBaseActivationCourse,
+    }));
+  };
+
+  const handleClearActiveLectureSet = () => {
+    setActiveKnowledgeCourse(null);
+    setChatFocus((prev) => ({
+      ...prev,
+      course: "",
+    }));
+  };
+
+  const handleSelectKnowledgeCourse = (courseContext: string) => {
+    const nextCourse = chatFocus.course === courseContext ? "" : courseContext;
+    setActiveKnowledgeCourse(nextCourse || null);
+    setChatFocus((prev) => ({
+      ...prev,
+      course: nextCourse,
+      topic: "",
+    }));
+  };
+
+  const applyKnowledgeCourse = (courseContext: string) => {
+    setActiveKnowledgeCourse(courseContext);
+    setChatFocus((prev) => ({
+      ...prev,
+      course: courseContext,
+      topic: "",
+    }));
+  };
+
+  const handleRestoreRecentContext = (context: RecentKnowledgeContext) => {
+    setActiveKnowledgeCourse(context.course);
+    setChatFocus({
+      course: context.course,
+      topic: context.topic,
+    });
+  };
+
+  const trackRecentKnowledgeContext = (draft: string) => {
+    const normalizedDraft = draft.trim();
+    if (!normalizedDraft) return;
+
+    const course =
+      inferCourseFromMathTopic(normalizedDraft) ??
+      chatFocus.course ??
+      activeKnowledgeCourse ??
+      "Calculus 1";
+    const topic = buildRecentContextTopic(course, normalizedDraft, chatFocus.topic);
+    if (!topic) return;
+
+    const updatedAt = new Date().toISOString();
+    const nextContext: RecentKnowledgeContext = {
+      id: `${course}::${topic.toLowerCase()}`,
+      course,
+      topic,
+      updatedAt,
+    };
+
+    setRecentKnowledgeContexts([nextContext]);
+  };
+
+  const captureElementCanvas = async (
+    target: HTMLElement,
+    cloneSelector?: string
+  ) => {
     const colorProps = [
       "color",
       "background-color",
@@ -1663,16 +2650,17 @@ export default function Home() {
     try {
       makeScreenshotSafe(target);
 
-      const canvas = await html2canvas(target, {
+      return await html2canvas(target, {
         scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: "#030303",
         onclone: (doc: Document) => {
-          const cloneTarget =
-            doc.querySelector("[data-chat-capture]") as HTMLElement | null;
-          if (!cloneTarget) return;
-          for (const node of [cloneTarget, ...Array.from(cloneTarget.querySelectorAll("*"))]) {
+          const cloneTarget = cloneSelector
+            ? (doc.querySelector(cloneSelector) as HTMLElement | null)
+            : null;
+          const activeTarget = cloneTarget ?? target;
+          for (const node of [activeTarget, ...Array.from(activeTarget.querySelectorAll("*"))]) {
             if (!(node instanceof HTMLElement)) continue;
             node.style.backgroundImage = "none";
             node.style.boxShadow = "none";
@@ -1682,14 +2670,6 @@ export default function Home() {
           }
         },
       });
-
-      const link = document.createElement("a");
-      link.download = `nikiai-chat-${Date.now()}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    } catch (err) {
-      console.error("Screenshot failed:", err);
-      alert("Screenshot failed. I could not capture this view in the browser.");
     } finally {
       for (const patch of patches) {
         if (patch.prev) {
@@ -1698,6 +2678,29 @@ export default function Home() {
           patch.el.style.removeProperty(patch.prop);
         }
       }
+    }
+  };
+
+  const handleScreenshot = async () => {
+    const target =
+      chatViewportRef.current ??
+      (document.querySelector("[data-chat-capture]") as HTMLDivElement | null);
+
+    if (!target) {
+      alert("Screenshot target not found. Please reload and try again.");
+      return;
+    }
+
+    try {
+      const canvas = await captureElementCanvas(target, "[data-chat-capture]");
+
+      const link = document.createElement("a");
+      link.download = `nikiai-chat-${Date.now()}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("Screenshot failed:", err);
+      alert("Screenshot failed. I could not capture this view in the browser.");
     }
   };
 
@@ -1739,6 +2742,14 @@ export default function Home() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (effectiveCmdEnterToSend) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSend();
+      }
+      return;
+    }
+
     if (e.key === "Enter") {
       e.preventDefault();
       handleSend();
@@ -1799,21 +2810,21 @@ export default function Home() {
     question: string,
     options?: { teachingMode?: boolean; nikiMode?: boolean }
   ): Promise<RagResponse | null> => {
-    const teachingMode = options?.teachingMode ?? lectureMode;
     const nikiMode = options?.nikiMode ?? isNikiMode;
-    if (!teachingMode || !question.trim()) return null;
+    if (!question.trim()) return null;
+    if (!isExplicitKnowledgeBaseRequest(question)) return null;
     if (isLectureInventoryRequest(question)) return null;
 
     try {
       const knowledgeFallback = activeKnowledgeCourse || profile?.current_unit;
-      const inferredCourse = inferCourseFromMathTopic(question, knowledgeFallback);
+      const inferredCourse = inferCourseFromMathTopic(question);
       const res = await fetch("/api/rag/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
           lectureMode: true,
-          courseFilter: inferredCourse,
+          courseFilter: knowledgeFallback || inferredCourse,
           minSimilarity: 0.2,
           maxChunks: 8,
           maxStyleSnippets: nikiMode ? 6 : 3,
@@ -1899,6 +2910,10 @@ export default function Home() {
       { role: "user", content: displayContent },
     ];
 
+    if (trimmedUserText) {
+      trackRecentKnowledgeContext(trimmedUserText);
+    }
+
     setMessages((prev) => [...prev, { role: "user", content: displayContent }]);
     if (clearComposer) setInputValue("");
     setIsLoading(true);
@@ -1966,6 +2981,12 @@ export default function Home() {
       let base64Image: string | null = null;
       let textFileContent: string | null = null;
       const rag = await fetchRag(trimmedUserText, { teachingMode, nikiMode });
+      const activeLectureSet = activeKnowledgeCourse || profile?.current_unit || undefined;
+      const requestedCourse = inferCourseFromMathTopic(trimmedUserText);
+      const knowledgeBaseMismatch =
+        !!activeLectureSet &&
+        !!requestedCourse &&
+        normalizeCourseKey(activeLectureSet) !== normalizeCourseKey(requestedCourse);
       const calendarContext = session?.user?.id
         ? await fetchUpcomingCalendarContext(session.user.id)
         : "";
@@ -1991,6 +3012,9 @@ export default function Home() {
           userId: session?.user?.id,
           chatId,
           trainConsent: profile?.train_on_data,
+          usageLogsConsent: profile?.share_usage_data,
+          aboutUserContext: effectivePersonalization.about_user || undefined,
+          responseStyleContext: effectivePersonalization.response_style || undefined,
           lectureMode: teachingMode,
           ragContext: rag?.context ?? [],
           ragStyleSnippets: rag?.styleSnippets ?? [],
@@ -2048,6 +3072,9 @@ export default function Home() {
           retrievalConfidence: rag?.retrievalConfidence,
           mode: nikiMode ? "nemanja" : "pure",
           teachingEnabled: teachingMode,
+          knowledgeBaseCourse: activeLectureSet,
+          requestedCourse,
+          knowledgeBaseMismatch,
         },
       ]);
 
@@ -2074,6 +3101,10 @@ export default function Home() {
                   existing?.retrievalConfidence ?? rag?.retrievalConfidence,
                 mode: existing?.mode ?? (nikiMode ? "nemanja" : "pure"),
                 teachingEnabled: existing?.teachingEnabled ?? teachingMode,
+                knowledgeBaseCourse: existing?.knowledgeBaseCourse ?? activeLectureSet,
+                requestedCourse: existing?.requestedCourse ?? requestedCourse,
+                knowledgeBaseMismatch:
+                  existing?.knowledgeBaseMismatch ?? knowledgeBaseMismatch,
               };
               return updated;
             });
@@ -2099,6 +3130,9 @@ export default function Home() {
               retrievalConfidence: rag?.retrievalConfidence,
               mode: nikiMode ? "nemanja" : "pure",
               teachingEnabled: teachingMode,
+              knowledgeBaseCourse: activeLectureSet,
+              requestedCourse,
+              knowledgeBaseMismatch,
             };
           }
           return updated;
@@ -2140,12 +3174,59 @@ export default function Home() {
     }
   };
 
+  const handleTurnOnTrainingConsent = async () => {
+    if (!session?.user?.id || trainingPromptBusy) return;
+
+    setTrainingPromptBusy(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ train_on_data: true })
+        .eq("id", session.user.id);
+
+      if (error) {
+        console.error("Training consent update failed:", error);
+        return;
+      }
+
+      setProfile((prev) => (prev ? { ...prev, train_on_data: true } : prev));
+      setTrainingPromptHidden(true);
+      setTrainingPromptSnoozedUntil(null);
+      try {
+        window.localStorage.removeItem(TRAINING_PROMPT_SNOOZE_KEY);
+      } catch {
+        // Ignore storage cleanup failures.
+      }
+    } finally {
+      setTrainingPromptBusy(false);
+    }
+  };
+
+  const handleSnoozeTrainingPrompt = () => {
+    const snoozeUntil = Date.now() + TRAINING_PROMPT_SNOOZE_MS;
+    setTrainingPromptHidden(true);
+    setTrainingPromptSnoozedUntil(snoozeUntil);
+    try {
+      window.localStorage.setItem(TRAINING_PROMPT_SNOOZE_KEY, String(snoozeUntil));
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  };
+
   const handleSend = async () => {
     await sendChatMessage({
       userText: inputValue,
       attached: attachedFile,
       clearComposer: true,
       consumeAttachedFile: true,
+    });
+  };
+
+  const handleOnboardingPrompt = async (prompt: string) => {
+    setInputValue(prompt);
+    await sendChatMessage({
+      userText: prompt,
+      clearComposer: true,
     });
   };
 
@@ -2180,6 +3261,259 @@ export default function Home() {
     };
   };
 
+  const handleOpenArtifact = (messageIndex: number) => {
+    const sourceMessage = messages[messageIndex];
+    const sourceUserMessage = messageIndex > 0 ? messages[messageIndex - 1] : null;
+
+    if (sourceMessage?.role !== "ai" || !sourceMessage.content.trim()) return;
+
+    const sourcePrompt = sourceUserMessage?.role === "user" ? sourceUserMessage.content.trim() : "";
+    const { clean } = parseThoughtTrace(sourceMessage.content);
+    const artifactKind = inferArtifactKind(sourcePrompt, clean);
+    const derivedCourseTag =
+      inferCourseFromMathTopic(sourcePrompt) ??
+      (chatFocus.course || activeKnowledgeCourse || null);
+    const derivedTopicTag = chatFocus.topic.trim() || null;
+    const citations = sourceMessage.citations ?? [];
+    const sourceAttached = citations.length > 0;
+    const sourceCourse =
+      sourceMessage.knowledgeBaseCourse ??
+      sourceMessage.requestedCourse ??
+      citations[0]?.course ??
+      null;
+    setArtifactSaveNotice(null);
+    const nextArtifactPanel: ArtifactPanelState = {
+      messageIndex,
+      kind: artifactKind,
+      title: buildArtifactTitle(artifactKind, sourcePrompt),
+      sourcePrompt,
+      content: clean,
+      savedArtifactId: null,
+      courseTag: derivedCourseTag,
+      topicTag: derivedTopicTag,
+      isPublic: session?.user?.id ? profile?.is_searchable === true : null,
+      sourceCourse,
+      sourceConfidence: sourceAttached
+        ? sourceMessage.retrievalConfidence ?? confidenceFromCitations(citations)
+        : null,
+      sourceAttached,
+    };
+
+    openArtifactWorkspace(nextArtifactPanel);
+    setArtifactCreationNotice(nextArtifactPanel);
+    setStudyProgressNotice("You're building reusable study material.");
+  };
+
+  const handleArtifactContentChange = (content: string) => {
+    setArtifactSaveNotice(null);
+    setArtifactPanel((prev) => (prev ? { ...prev, content } : prev));
+  };
+
+  const handleArtifactVisibilityToggle = () => {
+    if (!session?.user?.id) return;
+    setArtifactSaveNotice(null);
+    setArtifactPanel((prev) =>
+      prev ? { ...prev, isPublic: !(prev.isPublic ?? (profile?.is_searchable === true)) } : prev
+    );
+  };
+
+  const handleArtifactRefresh = () => {
+    if (!artifactPanel) return;
+    if (artifactPanel.messageIndex === null) return;
+    const sourceMessage = messages[artifactPanel.messageIndex];
+    if (sourceMessage?.role !== "ai") return;
+    const { clean } = parseThoughtTrace(sourceMessage.content);
+    setArtifactPanel((prev) => (prev ? { ...prev, content: clean } : prev));
+  };
+
+  const handleOpenSavedArtifact = (artifact: SavedArtifact) => {
+    setArtifactSaveNotice(null);
+    const opened = openArtifactWorkspace({
+      messageIndex: null,
+      kind: artifact.kind ?? inferArtifactKind(artifact.source_prompt ?? "", artifact.content),
+      title: artifact.title,
+      sourcePrompt: artifact.source_prompt ?? "",
+      content: artifact.content,
+      savedArtifactId: artifact.id,
+      courseTag: artifact.course_tag ?? null,
+      topicTag: artifact.topic_tag ?? null,
+      isPublic: artifact.is_public ?? null,
+      sourceCourse: null,
+      sourceConfidence: null,
+      sourceAttached: false,
+    });
+    if (opened) setActiveTab("projects");
+  };
+
+  const handleOpenPublicArtifact = (artifact: SavedArtifact) => {
+    setArtifactSaveNotice("Public artifact opened as a reference copy.");
+    const opened = openArtifactWorkspace({
+      messageIndex: null,
+      kind: artifact.kind ?? inferArtifactKind(artifact.source_prompt ?? "", artifact.content),
+      title: artifact.title,
+      sourcePrompt: artifact.source_prompt ?? "",
+      content: artifact.content,
+      savedArtifactId: null,
+      courseTag: artifact.course_tag ?? null,
+      topicTag: artifact.topic_tag ?? null,
+      isPublic: artifact.is_public ?? true,
+      sourceCourse: null,
+      sourceConfidence: null,
+      sourceAttached: false,
+    });
+    if (opened) setActiveTab("projects");
+  };
+
+  const handleResumeRecentArtifact = () => {
+    if (!recentArtifactResume) return;
+    openArtifactWorkspace(recentArtifactResume);
+  };
+
+  const handleSaveArtifact = async () => {
+    if (!artifactPanel) return;
+
+    if (!session?.user?.id) {
+      setArtifactSaveNotice("Log in to save your study progress.");
+      showLoginGatePrompt(
+        "You can keep editing and exporting this artifact right now. Log in when you're ready to save it to your Study Library."
+      );
+      return;
+    }
+
+    const resolvedCourseTag =
+      artifactPanel.courseTag ??
+      inferCourseFromMathTopic(artifactPanel.sourcePrompt) ??
+      chatFocus.course ??
+      activeKnowledgeCourse ??
+      null;
+    const resolvedTopicTag = artifactPanel.topicTag ?? (chatFocus.topic.trim() || null);
+    const payload = {
+      user_id: session.user.id,
+      title: artifactPanel.title.trim() || buildArtifactTitle(artifactPanel.kind, artifactPanel.sourcePrompt),
+      content: artifactPanel.content,
+      source_prompt: artifactPanel.sourcePrompt || null,
+      kind: artifactPanel.kind,
+      course_tag: resolvedCourseTag,
+      topic_tag: resolvedTopicTag,
+      is_public: artifactPanel.isPublic ?? (profile?.is_searchable === true),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (artifactPanel.savedArtifactId) {
+      const { data, error } = await supabase
+        .from("study_artifacts")
+        .update(payload)
+        .eq("id", artifactPanel.savedArtifactId)
+        .select("*")
+        .single();
+
+      if (error) {
+        console.log("Update artifact error:", error);
+        setArtifactSaveNotice("I couldn't update that artifact right now.");
+        return;
+      }
+
+      if (data) {
+        setSavedArtifacts((prev) => {
+          const next = prev.filter((artifact) => artifact.id !== data.id);
+          return [data as SavedArtifact, ...next];
+        });
+        setArtifactPanel((prev) => {
+          if (!prev) return prev;
+          const nextPanel = {
+            ...prev,
+            savedArtifactId: data.id,
+            title: data.title,
+            courseTag: data.course_tag ?? resolvedCourseTag,
+            topicTag: data.topic_tag ?? resolvedTopicTag,
+            isPublic: data.is_public ?? prev.isPublic ?? null,
+          };
+          setArtifactBaselineSnapshot(serializeArtifactWorkspace(nextPanel));
+          return nextPanel;
+        });
+      }
+
+      void fetchPublicArtifacts();
+
+      setArtifactSaveNotice("Saved to your Study Library");
+      setStudyProgressNotice(
+        resolvedCourseTag
+          ? `You're working through ${resolvedCourseTag} topics.`
+          : "You're building on this study session."
+      );
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("study_artifacts")
+      .insert({
+        ...payload,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      console.log("Save artifact error:", error);
+      setArtifactSaveNotice("I couldn't save that artifact right now.");
+      return;
+    }
+
+    if (data) {
+      setSavedArtifacts((prev) => [data as SavedArtifact, ...prev]);
+      setArtifactPanel((prev) => {
+        if (!prev) return prev;
+        const nextPanel = {
+          ...prev,
+          savedArtifactId: data.id,
+          title: data.title,
+          courseTag: data.course_tag ?? resolvedCourseTag,
+          topicTag: data.topic_tag ?? resolvedTopicTag,
+          isPublic: data.is_public ?? false,
+        };
+        setArtifactBaselineSnapshot(serializeArtifactWorkspace(nextPanel));
+        return nextPanel;
+      });
+    }
+
+    void fetchPublicArtifacts();
+
+    setArtifactSaveNotice("Saved to your Study Library");
+    setStudyProgressNotice(
+      resolvedCourseTag
+        ? `You're working through ${resolvedCourseTag} topics.`
+        : "You're building on this study session."
+    );
+  };
+
+  const handleArtifactExportPdf = async () => {
+    const target = artifactPreviewRef.current;
+    if (!target || !artifactPanel) {
+      alert("Artifact preview is not ready yet.");
+      return;
+    }
+
+    try {
+      const canvas = await captureElementCanvas(target, "[data-artifact-export]");
+      const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      const base64 = jpegDataUrl.split(",")[1];
+      if (!base64) {
+        alert("Artifact export failed. I could not prepare the PDF download.");
+        return;
+      }
+      const jpegBytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const pdfBlob = buildSinglePagePdfFromJpeg(jpegBytes, canvas.width, canvas.height);
+      const objectUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement("a");
+      link.download = `${sanitizeDownloadFilename(artifactPanel.title, "study-artifact")}.pdf`;
+      link.href = objectUrl;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (error) {
+      console.error("Artifact export failed:", error);
+      alert("Artifact export failed. I could not prepare the PDF download.");
+    }
+  };
+
   const handleExplainThis = async (messageIndex: number) => {
     const { sourceMessage, sourceUserMessage } = getMessageFollowupContext(messageIndex);
 
@@ -2204,7 +3538,7 @@ export default function Home() {
 
   const handleResponseFollowup = async (
     messageIndex: number,
-    action: "another" | "explain" | "harder"
+    action: "another" | "explain" | "harder" | "check" | "more"
   ) => {
     const { sourceMessage, sourceUserMessage, sourceMode, sourceTeaching } =
       getMessageFollowupContext(messageIndex);
@@ -2219,6 +3553,16 @@ export default function Home() {
 
     if (action === "explain") {
       await handleExplainThis(messageIndex);
+      return;
+    }
+
+    if (action === "check" || action === "more") {
+      await sendChatMessage({
+        userText: action === "check" ? "Check my answers" : "Give me more problems",
+        requestHistoryBase: messages.slice(0, messageIndex + 1),
+        nikiMode: sourceMode,
+        teachingMode: sourceTeaching,
+      });
       return;
     }
 
@@ -2326,10 +3670,10 @@ export default function Home() {
         <div className="p-4 pt-6">
           <button
             onClick={startNewSession}
-            className="w-full flex items-center justify-between gap-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl px-4 py-3 transition-all group outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+            className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all group outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] ${accentBorder} bg-white/[0.06] hover:bg-white/[0.1]`}
           >
-            <span className="text-sm font-bold text-slate-200">
-              New Session
+            <span className="text-sm font-bold text-slate-100">
+              Start New Session
             </span>
             <div className={`p-1 rounded-md bg-white/5 ${accentGroupHoverBg} transition-all group-hover:text-white`}>
               <PlusIcon />
@@ -2402,46 +3746,242 @@ export default function Home() {
               )}
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className={`p-4 rounded-2xl bg-white/[0.02] border ${accentBorder}`}>
+            <div className="space-y-5 sm:space-y-4">
+              <input
+                ref={syllabusUploadInputRef}
+                type="file"
+                accept=".txt,.md,.csv,.ics,.json"
+                onChange={handleKnowledgeFileInputChange}
+                className="hidden"
+              />
+
+              {knowledgeBaseNotice && (
+                <div className={`rounded-2xl border ${accentBorder} bg-white/[0.03] px-4 py-3`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[11px] leading-5 text-slate-300">{knowledgeBaseNotice}</p>
+                    <button
+                      type="button"
+                      onClick={() => router.push("/login")}
+                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
+                    >
+                      Log In
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div
+                role={knowledgeBaseActivationCourse ? "button" : undefined}
+                tabIndex={knowledgeBaseActivationCourse ? 0 : -1}
+                onClick={() => {
+                  if (knowledgeBaseActivationCourse) handleSetActiveLectureSet();
+                }}
+                onKeyDown={(event) => {
+                  if (!knowledgeBaseActivationCourse) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleSetActiveLectureSet();
+                  }
+                }}
+                className={`w-full rounded-2xl border p-4 text-left transition-all outline-none ${
+                  activeKnowledgeCourse
+                    ? `${accentBorder} bg-white/[0.03] hover:bg-white/[0.05]`
+                    : knowledgeBaseActivationCourse
+                      ? `${accentBorder} bg-white/[0.02] opacity-95 hover:bg-white/[0.04]`
+                      : "border-white/10 bg-white/[0.02] opacity-90"
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
                       Active Lecture Set
                     </p>
                     <p className="text-sm text-slate-100 font-bold">
-                      {knowledgeBaseCourse.label}
+                      {activeLectureSetLabel}
                     </p>
                     <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                      Retrieval falls back to this course when the chat prompt does not lock one in by itself.
+                      {activeKnowledgeCourse
+                        ? "Use this set to guide chat responses and lecture retrieval."
+                        : "Choose a course below to lock retrieval onto a lecture set, or leave it clear to let chat infer the course."}
                     </p>
                   </div>
-                  <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
-                    {knowledgeBaseCourse.shortLabel}
+                  <div
+                    className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
+                      activeKnowledgeCourse
+                        ? `${accentBorder} bg-white/[0.04] ${accentColor}`
+                        : "border-white/10 bg-white/[0.03] text-slate-500"
+                    }`}
+                  >
+                    {activeLectureSetShortLabel}
                   </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleSetActiveLectureSet();
+                    }}
+                    disabled={!knowledgeBaseActivationCourse}
+                    className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
+                      knowledgeBaseActivationCourse
+                        ? `${accentBorder} bg-white/[0.05] ${accentColor} hover:bg-white/[0.08]`
+                        : "border-white/10 bg-white/[0.03] text-slate-500"
+                    }`}
+                  >
+                    Set Active
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleClearActiveLectureSet();
+                    }}
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all hover:border-white/20 hover:text-white"
+                  >
+                    Clear
+                  </button>
                 </div>
               </div>
 
-              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+              <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={sourceHealthExpanded}
+                title="Using lecture data for responses"
+                onClick={() => setSourceHealthExpanded((prev) => !prev)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSourceHealthExpanded((prev) => !prev);
+                  }
+                }}
+                className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4 transition-all outline-none hover:bg-white/[0.04]`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
                       Source Health
                     </p>
                     <p className="text-sm font-bold text-slate-100">
-                      {sourceHealth.label}
+                      {knowledgeBaseStatus.indexedLectureCount} lectures available
                     </p>
-                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                      {sourceHealth.detail}
+                    {activeKnowledgeCourse ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          applyKnowledgeCourse(activeKnowledgeCourse);
+                        }}
+                        className={`mt-2 rounded-full border px-2.5 py-1 text-[11px] font-bold leading-5 transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
+                      >
+                        {activeLectureIndexedCount} in {activeLectureSetLabel}
+                      </button>
+                    ) : (
+                      <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                        {sourceHealth.detail}
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                      Using lecture data for responses
                     </p>
                   </div>
-                  <div className="mt-1 flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-300">
-                      Healthy
+                  <div className="mt-1 flex items-start gap-2">
+                    <div
+                      className={`flex items-center gap-2 rounded-full border px-2.5 py-1 ${
+                      sourceHealth.label === "Healthy"
+                        ? "border-emerald-500/20 bg-emerald-500/10"
+                        : sourceHealth.label === "Warning"
+                          ? "border-amber-500/20 bg-amber-500/10"
+                          : "border-rose-500/20 bg-rose-500/10"
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                        sourceHealth.label === "Healthy"
+                          ? "bg-emerald-400"
+                          : sourceHealth.label === "Warning"
+                            ? "bg-amber-400"
+                            : "bg-rose-400"
+                        }`}
+                      />
+                      <span
+                        className={`text-[9px] font-black uppercase tracking-widest ${
+                        sourceHealth.label === "Healthy"
+                          ? "text-emerald-300"
+                          : sourceHealth.label === "Warning"
+                            ? "text-amber-300"
+                            : "text-rose-300"
+                        }`}
+                      >
+                        {sourceHealth.label}
+                      </span>
+                    </div>
+                    <span className="pt-1 text-slate-500" aria-hidden="true">
+                      <svg
+                        className={`h-4 w-4 transition-transform ${sourceHealthExpanded ? "rotate-180" : ""}`}
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m5 7 5 5 5-5" />
+                      </svg>
                     </span>
                   </div>
                 </div>
+
+                {sourceHealthExpanded && (
+                  <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        By course
+                      </p>
+                      {sourceHealthCourseBreakdown.length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          {sourceHealthCourseBreakdown.map((course) => {
+                            const matchingCourse = KNOWLEDGE_BASE_COURSES.find(
+                              (entry) => entry.courseContext === course.course
+                            );
+                            const courseLabel = matchingCourse?.label ?? course.course;
+                            const isActiveCourse =
+                              course.course === activeKnowledgeCourse ||
+                              course.course === chatFocus.course;
+
+                            return (
+                              <button
+                                key={course.course}
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (matchingCourse) {
+                                    applyKnowledgeCourse(matchingCourse.courseContext);
+                                  }
+                                }}
+                                disabled={!matchingCourse}
+                                className={`flex w-full items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-[11px] transition-all outline-none ${
+                                  isActiveCourse
+                                    ? `${accentBorder} bg-white/[0.05] ${accentColor}`
+                                    : "border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.04]"
+                                } ${!matchingCourse ? "cursor-default opacity-80" : ""}`}
+                              >
+                                <span className={isActiveCourse ? "font-black" : ""}>{courseLabel}</span>
+                                <span className={`font-black uppercase tracking-widest ${isActiveCourse ? accentColor : "text-slate-500"}`}>
+                                  {course.count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                          No indexed lecture breakdown is available yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
@@ -2461,7 +4001,7 @@ export default function Home() {
                       </>
                     ) : (
                       <p className="text-[11px] leading-5 text-slate-500">
-                        Attach a syllabus, schedule, or calendar file in chat, then pin it here so study help can follow your real course timeline.
+                        Upload or pin a syllabus, schedule, or study file so chat can follow your real course timeline without turning the panel into a file dump.
                       </p>
                     )}
                   </div>
@@ -2473,6 +4013,22 @@ export default function Home() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!session?.user?.id) {
+                        showKnowledgeBaseNotice("Log in to save your study progress.");
+                        showLoginGatePrompt(
+                          "Upload a syllabus after you log in and Niki will be able to keep it attached to your study context."
+                        );
+                        return;
+                      }
+                      syllabusUploadInputRef.current?.click();
+                    }}
+                    className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
+                  >
+                    {session?.user?.id ? "Upload / Attach File" : "Log in to upload a syllabus"}
+                  </button>
                   {attachedKnowledgeButtonLabel && (
                     <button
                       type="button"
@@ -2480,6 +4036,15 @@ export default function Home() {
                       className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
                     >
                       {attachedKnowledgeButtonLabel}
+                    </button>
+                  )}
+                  {pinnedSyllabus && (
+                    <button
+                      type="button"
+                      onClick={() => setIsSyllabusPreviewOpen(true)}
+                      className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all hover:border-white/20 hover:text-white"
+                    >
+                      Preview
                     </button>
                   )}
                   {pinnedSyllabus && (
@@ -2495,21 +4060,175 @@ export default function Home() {
               </div>
 
               <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+                      Study Library
+                    </p>
+                    <p className="text-sm font-bold text-slate-100">
+                      {session ? "Saved artifacts" : "Save later when you log in"}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      {session
+                        ? "Saved artifacts reopen in the panel so you can keep editing, exporting, or reviewing them."
+                        : "You can still generate, edit, and export artifacts while logged out. Log in to save them for later."}
+                    </p>
+                  </div>
+                  {session ? (
+                    <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                      {savedArtifacts.length}
+                    </div>
+                  ) : null}
+                </div>
+
+                {session ? (
+                  savedArtifacts.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {savedArtifacts.slice(0, 8).map((artifact) => (
+                        <button
+                          key={artifact.id}
+                          type="button"
+                          onClick={() => handleOpenSavedArtifact(artifact)}
+                          className="w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-100">
+                                {artifact.title}
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] leading-4 text-slate-500">
+                                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${artifact.is_public ? `${accentBorder} ${accentColor} bg-white/[0.04]` : "border-white/10 bg-white/[0.03] text-slate-500"}`}>
+                                  {artifact.is_public ? "🌐 Public" : "🔒 Private"}
+                                </span>
+                                <span>
+                                {(artifact.course_tag ?? "Study artifact")}
+                                {artifact.topic_tag ? ` · ${artifact.topic_tag}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                              {formatPinnedTimestamp(artifact.updated_at ?? artifact.created_at)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-[11px] leading-5 text-slate-500">
+                      Save an artifact from the panel and it will show up here with its title, timestamp, and course tag.
+                    </p>
+                  )
+                ) : (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[11px] leading-5 text-slate-500">
+                      Log in to build a persistent study library. Your current artifact work still stays fully usable in-session.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => router.push("/login")}
+                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
+                    >
+                      Log In
+                    </button>
+                  </div>
+                )}
+
+                {publicArtifacts.length > 0 && (
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={`text-[10px] font-black ${accentColor} uppercase`}>
+                          Public Discovery
+                        </p>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                          Only artifacts explicitly marked public are discoverable here.
+                        </p>
+                      </div>
+                      <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        {publicArtifacts.length}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {publicArtifacts.slice(0, 5).map((artifact) => (
+                        <button
+                          key={`public-${artifact.id}`}
+                          type="button"
+                          onClick={() => handleOpenPublicArtifact(artifact)}
+                          className="w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-100">
+                                {artifact.title}
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] leading-4 text-slate-500">
+                                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${accentBorder} ${accentColor} bg-white/[0.04]`}>
+                                  🌐 Public
+                                </span>
+                                <span>
+                                  {(artifact.course_tag ?? "Study artifact")}
+                                  {artifact.topic_tag ? ` · ${artifact.topic_tag}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                              {formatPinnedTimestamp(artifact.updated_at ?? artifact.created_at)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+                <p className={`text-[10px] font-black ${accentColor} uppercase mb-3`}>
+                  Recent Context
+                </p>
+                {recentKnowledgeContexts.length > 0 ? (
+                  <div className="space-y-2">
+                    {recentKnowledgeContexts.map((context) => (
+                      <button
+                        key={context.id}
+                        type="button"
+                        onClick={() => handleRestoreRecentContext(context)}
+                        className="w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
+                      >
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-100">
+                          {KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === context.course)?.label ??
+                            context.course}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">{context.topic}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] leading-5 text-slate-500">
+                    No recent topic yet. Start a chat to build your study context.
+                  </p>
+                )}
+              </div>
+
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
                 <p className={`text-[10px] font-black ${accentColor} uppercase mb-3`}>
                   Courses
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {KNOWLEDGE_BASE_COURSES.map((course) => {
-                    const isActiveCourse = course.courseContext === activeKnowledgeCourse;
+                    const isActiveCourse =
+                      course.courseContext === activeKnowledgeCourse ||
+                      course.courseContext === chatFocus.course;
                     return (
                       <button
                         key={course.courseContext}
                         type="button"
-                        onClick={() => setActiveKnowledgeCourse(course.courseContext)}
+                        onClick={() => handleSelectKnowledgeCourse(course.courseContext)}
                         className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${
                           isActiveCourse
-                            ? `${accentBorder} bg-white/[0.06] ${accentColor}`
-                            : "border-white/10 bg-white/[0.02] text-slate-500 hover:border-white/20 hover:text-slate-300"
+                            ? `${accentBorder} bg-white/[0.06] ${accentColor} shadow-[0_0_0_1px_rgba(255,255,255,0.02)]`
+                            : "border-white/10 bg-white/[0.02] text-slate-500 hover:border-white/20 hover:bg-white/[0.04] hover:text-slate-300"
                         }`}
                       >
                         {course.label}
@@ -2574,8 +4293,8 @@ export default function Home() {
                   <div
                     className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}
                   >
-                    {profile?.avatar_url ? (
-                      <Image src={profile.avatar_url} alt="User" fill className="object-cover" />
+                    {headerAvatarUrl ? (
+                      <Image src={headerAvatarUrl} alt="User" fill className="object-cover" unoptimized />
                     ) : (
                       profile?.first_name?.[0] || profile?.username?.[0] || "U"
                     )}
@@ -2608,19 +4327,74 @@ export default function Home() {
             chatViewportRef.current = el;
           }}
           data-chat-capture
-          className={`flex-1 min-h-0 overflow-y-auto ${profile?.compact_mode ? "pt-4 pb-6 text-[15px]" : "pt-7 sm:pt-10 pb-8 text-[17px] sm:text-[18px]"
+          className={`flex-1 min-h-0 overflow-y-auto ${effectiveCompactMode ? "pt-3 pb-36 sm:pb-8 text-[15px]" : "pt-4 sm:pt-10 pb-40 sm:pb-8 text-[17px] sm:text-[18px]"
             } px-3 sm:px-6 scroll-smooth`}
         >
-          <div className="max-w-5xl mx-auto space-y-7 sm:space-y-10">
+          <div className="mx-auto max-w-5xl space-y-5 sm:space-y-10">
+            {sessionStudyLabel && (
+              <div className="px-1">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                  {sessionStudyLabel}
+                </p>
+              </div>
+            )}
+
+            {!artifactPanel && recentArtifactResume && (
+              <div className="px-1">
+                <div className={`rounded-2xl border ${accentBorder} bg-white/[0.025] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-100">
+                        Continue your last study artifact
+                      </p>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                        {recentArtifactResume.title}
+                        {recentArtifactResume.courseTag ? ` · ${recentArtifactResume.courseTag}` : ""}
+                        {recentArtifactResume.topicTag ? ` · ${recentArtifactResume.topicTag}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResumeRecentArtifact}
+                      className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.04] ${accentColor} hover:bg-white/[0.08]`}
+                    >
+                      Open workspace
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {studyProgressNotice && (
+              <div className="px-1">
+                <p className="text-[11px] font-bold text-slate-500" aria-live="polite">
+                  {studyProgressNotice}
+                </p>
+              </div>
+            )}
+
+            <div className="px-1">
+              <div className="flex flex-wrap items-center gap-2" aria-live="polite">
+                <p className="text-[11px] font-bold text-slate-500">
+                  {focusStatusLabel}
+                </p>
+                {practiceModeActive && (
+                  <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${accentBorder} bg-white/[0.035] ${accentColor}`}>
+                    Practice Mode
+                  </span>
+                )}
+              </div>
+            </div>
+
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex w-full ${profile?.compact_mode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500 
+                className={`flex w-full ${effectiveCompactMode ? "gap-4" : "gap-6"} items-start animate-in fade-in slide-in-from-bottom-2 duration-500 
                 ${msg.role === "user" ? "justify-end" : "justify-start"
                   }`}
               >
                 <div
-                  className={`${profile?.compact_mode ? "w-7 h-7 text-xs" : "w-8 h-8 sm:w-9 sm:h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] 
+                  className={`${effectiveCompactMode ? "w-7 h-7 text-xs" : "w-8 h-8 sm:w-9 sm:h-9 text-sm"} flex-shrink-0 rounded-xl flex items-center justify-center font-black shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] 
                   ${msg.role === "ai" ? aiBubbleBg : "bg-white/10 text-white"
                     } ${msg.role === "user" ? "order-2" : "order-1"}`}
                 >
@@ -2633,7 +4407,11 @@ export default function Home() {
                   className={`max-w-[calc(100%-3.25rem)] sm:max-w-[880px] text-slate-200 pt-1 select-text selection:bg-white/20 leading-7 sm:leading-8 text-base sm:text-lg overflow-hidden 
                     ${msg.role === "user" ? "text-right order-1" : "text-left order-2"}`}
                 >
-                  {msg.role === "ai" ? (
+                  {msg.role === "ai" && ALL_GREETING_TEXTS.has(msg.content) && messages.length > 1 ? (
+                    <div className="inline-flex max-w-full items-center rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-[11px] font-bold tracking-wide text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-4 sm:py-2 sm:text-xs">
+                      {msg.content}
+                    </div>
+                  ) : msg.role === "ai" ? (
                     (() => {
                       const isStreamingMessage = isLoading && i === messages.length - 1;
 
@@ -2678,7 +4456,7 @@ export default function Home() {
                           {steps.length > 0 && (
                             <ThoughtTrace
                               steps={steps}
-                              accentColor={profile?.theme_accent ?? "cyan"}
+                              accentColor={effectiveThemeAccent}
                             />
                           )}
 
@@ -2686,7 +4464,10 @@ export default function Home() {
                             <CitationCard
                               citations={msg.citations}
                               confidence={msg.retrievalConfidence}
-                              accentColor={profile?.theme_accent ?? "cyan"}
+                              accentColor={effectiveThemeAccent}
+                              knowledgeBaseCourse={msg.knowledgeBaseCourse}
+                              requestedCourse={msg.requestedCourse}
+                              knowledgeBaseMismatch={msg.knowledgeBaseMismatch}
                             />
                           )}
 
@@ -2720,6 +4501,34 @@ export default function Home() {
                                 >
                                   Harder problem
                                 </button>
+                                {practiceModeActive && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleResponseFollowup(i, "check")}
+                                      disabled={isLoading}
+                                      className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all outline-none hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      Check my answers
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleResponseFollowup(i, "more")}
+                                      disabled={isLoading}
+                                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40`}
+                                    >
+                                      Give me more problems
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenArtifact(i)}
+                                  disabled={isLoading}
+                                  className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all outline-none hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  OPEN ARTIFACT
+                                </button>
                               </div>
                             )}
                         </>
@@ -2733,6 +4542,33 @@ export default function Home() {
                 </div>
               </div>
             ))}
+
+            {shouldShowOnboarding && (
+              <div className="mx-auto max-w-3xl rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5 sm:py-5">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                  Quick Start
+                </p>
+                <p className="text-sm font-bold text-slate-100">
+                  Start by asking a question or selecting a course below.
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                  NikiAI helps you learn with structured notes, lecture-aware answers, and reusable study artifacts.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {ONBOARDING_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => void handleOnboardingPrompt(prompt)}
+                      disabled={isLoading}
+                      className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-200 outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:scale-[1.02] hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40`}
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {isLoading && (
               <div className="flex gap-6 items-start">
@@ -2757,37 +4593,69 @@ export default function Home() {
         </div>
 
         {/* FOOTER INPUT */}
-        <footer className="shrink-0 px-3 sm:px-6 lg:px-8 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-6 pt-4 sm:pt-6 border-t border-white/8 bg-[#030303]/98 backdrop-blur">
-          <div className="max-w-[880px] mx-auto space-y-3">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <div className="max-w-[340px] flex items-center p-1 bg-[#0b0b0b]/95 rounded-xl border border-white/10 shadow-2xl w-full sm:w-auto backdrop-blur">
-              <button
-                onClick={() => switchNikiMode(false)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                  }`}
-              >
-                Pure Logic
-              </button>
-              <button
-                onClick={() => switchNikiMode(true)}
-                className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all outline-none ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                  }`}
-              >
-                Nemanja Mode
-              </button>
-              </div>
-              {isNikiMode && (
-                <button
-                  type="button"
-                  onClick={() => setLectureMode((prev) => !prev)}
-                  className={`rounded-xl border px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all outline-none ${lectureMode ? `${accentBorder} bg-white/[0.06] ${accentColor}` : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"}`}
+        <footer className="sticky bottom-0 z-20 shrink-0 border-t border-white/8 bg-[#030303]/98 px-3 pt-1 sm:static sm:px-6 sm:pt-4 lg:px-8 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-6 backdrop-blur">
+          <div className="mx-auto max-w-[880px] space-y-0.5 sm:space-y-1">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+              <div className="justify-self-end">
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none select-none rounded-full border border-transparent px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest opacity-0 sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px]"
                 >
-                  {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                  Teaching: OFF
+                </div>
+              </div>
+
+              <div className="flex max-w-[300px] items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur sm:max-w-[340px] sm:rounded-xl w-auto justify-self-center">
+                <button
+                  onClick={() => switchNikiMode(false)}
+                  className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${!isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                    }`}
+                >
+                  Pure Logic
                 </button>
-              )}
+                <button
+                  onClick={() => switchNikiMode(true)}
+                  className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                    }`}
+                >
+                  Nemanja Mode
+                </button>
+              </div>
+
+              <div className="justify-self-start">
+                {isNikiMode ? (
+                  <button
+                    type="button"
+                    onClick={() => setLectureMode((prev) => !prev)}
+                    className={`rounded-full border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px] ${lectureMode ? `${accentBorder} bg-white/[0.06] ${accentColor}` : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"}`}
+                  >
+                    {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                  </button>
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none select-none rounded-full border border-transparent px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest opacity-0 sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px]"
+                  >
+                    Teaching: OFF
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#0b0b0b]/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="flex min-h-[12px] items-center justify-start sm:justify-center">
+              <p
+                className={`text-[10px] font-bold tracking-wide transition-opacity ${
+                  isNikiMode && lectureMode ? `${accentColor} opacity-90` : "opacity-0"
+                }`}
+                aria-live="polite"
+              >
+                {isNikiMode && lectureMode
+                  ? `Teaching Mode Active${chatFocus.topic.trim() ? ` · Focus: ${focusCourseLabel} — ${chatFocus.topic.trim()}` : ""}`
+                  : "Teaching Mode Inactive"}
+              </p>
+            </div>
+
+            <div className={focusModeHeaderClass}>
               <button
                 type="button"
                 onClick={toggleFocusMode}
@@ -2798,12 +4666,12 @@ export default function Home() {
                   <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
                     Focus Mode
                   </p>
-                  <p className="mt-1 truncate text-[11px] text-slate-500">
+                  <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:mt-1">
                     {focusSummary}
                   </p>
                 </div>
                 <svg
-                  className={`h-4 w-4 flex-shrink-0 text-slate-500 transition-transform ${
+                  className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${
                     focusModeExpanded === true
                       ? "rotate-180"
                       : focusModeExpanded === null
@@ -2838,6 +4706,9 @@ export default function Home() {
                       }
                       className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
                     >
+                      <option value="" className="bg-[#0d0d0d] text-slate-200">
+                        No subject selected
+                      </option>
                       {KNOWLEDGE_BASE_COURSES.map((course) => (
                         <option key={course.courseContext} value={course.courseContext} className="bg-[#0d0d0d] text-slate-200">
                           {course.label}
@@ -2889,11 +4760,71 @@ export default function Home() {
             <FilePreview
               attached={attachedFile}
               onRemove={handleRemoveFile}
-              accentColor={profile?.theme_accent ?? "cyan"}
+              accentColor={effectiveThemeAccent}
             />
 
-            <div className="bg-[#101010]/95 border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-[0_22px_70px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-white/25 transition-all backdrop-blur">
-              <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
+            {shouldShowTrainingPrompt && (
+              <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/92 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-white">
+                      Help improve NikiAI for everyone?
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Allow anonymized math interactions to improve future responses.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={handleTurnOnTrainingConsent}
+                      disabled={trainingPromptBusy}
+                      className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.05] ${accentColor} hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {trainingPromptBusy ? "Saving..." : "Turn On"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSnoozeTrainingPrompt}
+                      className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
+                    >
+                      Not now
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {artifactCreationNotice && (
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.03] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-100">
+                      Study artifact created
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      {artifactKindLabel(artifactCreationNotice.kind)}
+                      {artifactCreationNotice.courseTag
+                        ? ` · ${artifactCreationNotice.courseTag}`
+                        : ""}
+                      {artifactCreationNotice.topicTag
+                        ? ` · ${artifactCreationNotice.topicTag}`
+                        : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setArtifactPanel(artifactCreationNotice)}
+                    className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.04] ${accentColor} hover:bg-white/[0.08]`}
+                  >
+                    Open workspace
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#101010]/95 border border-white/10 rounded-[1.35rem] sm:rounded-[2rem] p-2.5 sm:p-3 shadow-[0_22px_70px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-white/25 transition-all backdrop-blur">
+              <div className="flex flex-wrap items-end gap-2 sm:flex-nowrap sm:gap-3">
                 <FileUploadButton
                   onFileSelect={handleFileSelect}
                   onScreenshot={handleScreenshot}
@@ -2901,27 +4832,29 @@ export default function Home() {
                   onToggleLectureMode={
                     isNikiMode ? () => setLectureMode((prev) => !prev) : undefined
                   }
-                  accentColor={profile?.theme_accent ?? "cyan"}
+                  accentColor={effectiveThemeAccent}
                   disabled={isLoading}
                 />
 
-                <input
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  type="text"
-                  placeholder={
-                    attachedFile
-                      ? `Ask about ${attachedFile.file.name}…`
-                      : isNikiMode && lectureMode
-                        ? "Teaching: ask with retrieval context..."
-                        : isNikiMode
-                          ? "Ask in Nemanja Mode..."
-                          : "Ask a math, code, or technical question..."
-                  }
-                  className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-4 sm:px-5 ${profile?.compact_mode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
-                    } placeholder:text-slate-500 shadow-none`}
-                />
+                <div className="min-w-0 flex-1 basis-[13rem]">
+                  <input
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    type="text"
+                    placeholder={
+                      attachedFile
+                        ? `Ask about ${attachedFile.file.name}…`
+                        : isNikiMode && lectureMode
+                          ? "Teaching: ask with retrieval context..."
+                          : isNikiMode
+                            ? "Ask in Nemanja Mode..."
+                            : "Ask a math, code, or technical question..."
+                    }
+                    className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-3 sm:px-5 ${effectiveCompactMode ? "text-base py-3.5" : "text-base sm:text-lg py-3.5 sm:py-4"
+                      } placeholder:text-slate-500 shadow-none`}
+                  />
+                </div>
 
                 <button
                   type="button"
@@ -2936,7 +4869,7 @@ export default function Home() {
                         : "Push to talk"
                       : "Voice input is not supported in this browser"
                   }
-                  className={`grid h-11 w-full shrink-0 place-items-center rounded-[1rem] border text-slate-300 transition sm:w-11 ${isListening
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-[1rem] border text-slate-300 transition ${isListening
                     ? `${accentBorder} bg-cyan-500/10 text-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.16)]`
                     : "border-white/10 bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
                     }`}
@@ -2950,7 +4883,7 @@ export default function Home() {
                 <button
                   onClick={handleSend}
                   disabled={isLoading || (!inputValue.trim() && !attachedFile)}
-                  className={`shrink-0 w-full sm:w-auto bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-6 sm:px-8 py-3 sm:py-4 rounded-[1.2rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]`}
+                  className={`shrink-0 bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-5 sm:px-8 py-3 sm:py-4 rounded-[1.15rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]`}
                 >
                   {isLoading ? "Thinking" : "Send"}
                 </button>
@@ -2959,6 +4892,310 @@ export default function Home() {
           </div>
         </footer>
       </section>
+
+      {loginGatePrompt && (
+        <>
+          <button
+            type="button"
+            aria-label="Close login prompt"
+            onClick={() => setLoginGatePrompt(null)}
+            className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px]"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Login required"
+            className="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-3xl border border-white/10 bg-[#090909]/98 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl sm:bottom-8"
+          >
+            <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+              Keep your progress
+            </p>
+            <h2 className="mt-2 text-lg font-extrabold tracking-tight text-white">
+              {loginGatePrompt.title}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {loginGatePrompt.detail}
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setLoginGatePrompt(null)}
+                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginGatePrompt(null);
+                  router.push("/login");
+                }}
+                className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.04] ${accentColor} hover:bg-white/[0.08]`}
+              >
+                Log In
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {isSyllabusPreviewOpen && pinnedSyllabus && (
+        <>
+          <button
+            type="button"
+            aria-label="Close syllabus preview"
+            onClick={() => setIsSyllabusPreviewOpen(false)}
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
+          />
+          <div className="fixed inset-x-3 top-8 z-50 mx-auto max-w-3xl rounded-3xl border border-white/10 bg-[#090909]/98 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl sm:inset-x-8">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
+              <div className="min-w-0">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                  Pinned Syllabus
+                </p>
+                <h2 className="mt-2 truncate text-lg font-extrabold tracking-tight text-white">
+                  {pinnedSyllabus.name}
+                </h2>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Attached {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)} for retrieval-aware study help.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSyllabusPreviewOpen(false)}
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto px-4 py-4 sm:px-5">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-slate-200 whitespace-pre-wrap">
+                {pinnedSyllabus.content}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {artifactPanel && (
+        <>
+          <button
+            type="button"
+            aria-label="Close artifact panel"
+            onClick={closeArtifactWorkspace}
+            className="fixed inset-0 z-40 animate-in fade-in duration-200 bg-black/60 backdrop-blur-[2px]"
+          />
+          <aside className="fixed inset-y-0 right-0 z-50 flex w-full animate-in slide-in-from-right-6 fade-in duration-300 sm:min-w-[420px] sm:w-[min(92vw,48rem)] lg:w-[min(56vw,52rem)] lg:max-w-[52rem] flex-col border-l border-white/10 bg-[#090909]/98 shadow-[-24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
+              <div className="min-w-0">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                  📘 Study Artifact
+                </p>
+                <h2 className="mt-2 text-lg font-extrabold tracking-tight text-white">
+                  {artifactPanel.title}
+                </h2>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Structured notes generated from your request
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  <span className={`rounded-full border px-2.5 py-1 ${accentBorder} bg-white/[0.04] ${accentColor}`}>
+                    {artifactKindLabel(artifactPanel.kind)}
+                  </span>
+                  {(artifactPanel.courseTag || artifactPanel.topicTag) && (
+                    <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-slate-400">
+                      {[artifactPanel.courseTag, artifactPanel.topicTag].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                  {artifactPanel.isPublic !== null && artifactPanel.isPublic !== undefined && (
+                    <span className={`rounded-full border px-2.5 py-1 ${artifactPanel.isPublic ? `${accentBorder} bg-white/[0.04] ${accentColor}` : "border-white/10 bg-white/[0.03] text-slate-400"}`}>
+                      {artifactPanel.isPublic ? "🌐 Public" : "🔒 Private"}
+                    </span>
+                  )}
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-slate-400">
+                    {artifactPanel.sourceAttached
+                      ? `${artifactPanel.sourceCourse ?? "Lecture source"} · ${artifactPanel.sourceConfidence === "high"
+                        ? "high confidence"
+                        : artifactPanel.sourceConfidence === "medium"
+                          ? "medium confidence"
+                          : artifactPanel.sourceConfidence === "low"
+                            ? "low confidence"
+                            : "source attached"}`
+                      : "No lecture source attached"}
+                  </span>
+                  {artifactHasUnsavedChanges ? (
+                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-amber-300">
+                      Unsaved changes
+                    </span>
+                  ) : session?.user?.id ? (
+                    artifactPanel.savedArtifactId ? (
+                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-300">
+                        Saved
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-slate-400">
+                        Draft
+                      </span>
+                    )
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {session?.user?.id && (
+                  <button
+                    type="button"
+                    onClick={handleArtifactVisibilityToggle}
+                    className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition ${artifactPanel.isPublic ? `${accentBorder} bg-white/[0.05] ${accentColor} hover:bg-white/[0.08]` : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:text-white"}`}
+                  >
+                    {artifactPanel.isPublic ? "Make Private" : "Make Public"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleSaveArtifact()}
+                  disabled={!!session?.user?.id && !!artifactPanel.savedArtifactId && !artifactHasUnsavedChanges}
+                  className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition ${accentBorder} bg-white/[0.05] ${accentColor} hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-45`}
+                >
+                  {!session?.user?.id
+                    ? "Save to Study Library"
+                    : artifactPanel.savedArtifactId
+                      ? "Save Changes"
+                      : "Save to Study Library"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleArtifactRefresh}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={handleArtifactExportPdf}
+                  className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition ${accentBorder} bg-white/[0.05] ${accentColor} hover:bg-white/[0.08]`}
+                >
+                  Export PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={closeArtifactWorkspace}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            {artifactSaveNotice && (
+              <div className="border-b border-white/10 px-4 py-2 sm:px-5">
+                <p className="text-[11px] text-slate-400">{artifactSaveNotice}</p>
+              </div>
+            )}
+
+            <div className="grid min-h-0 flex-1 gap-4 overflow-hidden px-4 py-4 sm:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] sm:px-5">
+              <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+                <div className="border-b border-white/10 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Editable Content
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Update notes, examples, or summaries here. The preview updates in place.
+                  </p>
+                  <p className="mt-2 text-[10px] text-slate-600">
+                    Try lightweight section markers like <code className="rounded bg-white/[0.04] px-1 py-0.5 text-[0.95em] text-slate-400">&lt;!-- Definition --&gt;</code> and <code className="rounded bg-white/[0.04] px-1 py-0.5 text-[0.95em] text-slate-400">&lt;!-- Rules --&gt;</code>.
+                  </p>
+                </div>
+                {session?.user?.id && recentArtifacts.length > 0 && (
+                  <div className="border-b border-white/10 px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Recent Artifacts
+                      </p>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">
+                        {savedArtifacts.length} saved
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {recentArtifacts.map((artifact) => (
+                        <button
+                          key={`panel-${artifact.id}`}
+                          type="button"
+                          onClick={() => handleOpenSavedArtifact(artifact)}
+                          className="w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-100">
+                                {artifact.title}
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] leading-4 text-slate-500">
+                                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${artifact.is_public ? `${accentBorder} ${accentColor} bg-white/[0.04]` : "border-white/10 bg-white/[0.03] text-slate-500"}`}>
+                                  {artifact.is_public ? "🌐 Public" : "🔒 Private"}
+                                </span>
+                                <span>{artifactKindLabel((artifact.kind as ArtifactKind | null) ?? "notes")}</span>
+                                <span>{artifact.course_tag ?? "No course"}</span>
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                              {formatPinnedTimestamp(artifact.updated_at ?? artifact.created_at)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <textarea
+                  value={artifactPanel.content}
+                  onChange={(event) => handleArtifactContentChange(event.target.value)}
+                  className="min-h-[18rem] flex-1 resize-none bg-transparent px-4 py-4 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600"
+                  placeholder={`Edit notes, formulas, or structure...
+
+<!-- Definition -->
+
+<!-- Rules -->
+
+<!-- Example -->`}
+                />
+              </section>
+
+              <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d]/95">
+                <div className="border-b border-white/10 px-4 py-3">
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                    Preview
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Structured sections and LaTeX render here with the same math pipeline as chat.
+                  </p>
+                </div>
+                <div
+                  ref={artifactPreviewRef}
+                  data-artifact-export
+                  className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+                >
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_60px_rgba(0,0,0,0.22)]">
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${accentBorder} bg-white/[0.04] ${accentColor}`}>
+                        {artifactPanel.kind}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        Live Preview
+                      </span>
+                    </div>
+                    <div className="prose prose-invert prose-base sm:prose-lg max-w-none prose-p:my-4 prose-li:my-2 prose-ul:my-4 prose-ol:my-4 prose-headings:my-4 [&_.katex-display]:my-5 [&_.katex-display]:overflow-x-auto [&_hr]:border-white/10">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                        components={artifactMarkdownComponents}
+                      >
+                        {artifactPreviewContent}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </aside>
+        </>
+      )}
 
       <CommandPalette
         isOpen={isPaletteOpen}
@@ -2969,7 +5206,7 @@ export default function Home() {
         onToggleLectureMode={
           isNikiMode ? () => setLectureMode((prev) => !prev) : undefined
         }
-        accentColor={profile?.theme_accent ?? "cyan"}
+        accentColor={effectiveThemeAccent}
         hasActiveChat={!!currentChatId}
         currentChatTitle={chatHistory.find((c) => c.id === currentChatId)?.title ?? ""}
         onNewSession={startNewSession}

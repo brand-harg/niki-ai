@@ -1,5 +1,22 @@
 const CODE_FENCE_PATTERN = /```[\s\S]*?```/g;
 
+function normalizeEscapedMathDelimiters(content: string): string {
+  return content
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_match, expr: string) => {
+      const trimmed = expr.trim();
+      if (!trimmed) return "";
+      return `\n$$\n${trimmed}\n$$\n`;
+    })
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_match, expr: string) => {
+      const trimmed = expr.trim();
+      if (!trimmed || /[\n\r]/.test(trimmed)) {
+        if (!trimmed) return "";
+        return `\n$$\n${trimmed}\n$$\n`;
+      }
+      return `$${trimmed}$`;
+    });
+}
+
 function wrapBareLatexEnvironments(content: string): string {
   const lines = content.split("\n");
   const out: string[] = [];
@@ -118,7 +135,7 @@ function isLikelyInlineMathExpression(expression: string): boolean {
     /\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\(/i.test(trimmed) ||
     /\b\d+[a-z](?:\^\{?-?\d+\}?|\^\d+)?\b/i.test(trimmed) ||
     /\b[a-z](?:\^\{?-?\d+\}?|\^\d+)\b/i.test(trimmed) ||
-    /\b[a-z](?:'|\([^)\n]+\))\b/i.test(trimmed) ||
+    /\b[a-z][a-z0-9']*(?:\([^)\n]+\)|')/i.test(trimmed) ||
     /\b\d+(?:\.\d+)?\/\d+(?:\.\d+)?\b/.test(trimmed);
 
   if (!hasMathShape) return false;
@@ -155,41 +172,105 @@ function normalizeInlineDollarMath(content: string): string {
 
 function wrapBareInlineMath(text: string): string {
   const lines = text.split("\n");
+  const inlineMathAtom =
+    String.raw`(?:e\^\([^)\n]+\)|e\^\{[^}\n]+\}|(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\([^)\n]+\)|[A-Za-z][A-Za-z0-9']*\([^)\n]+\)|[0-9]+(?:\.[0-9]+)?|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?|[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?|[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?)`;
+  const richInlineMathAtom =
+    String.raw`(?:e\^\([^)\n]+\)|e\^\{[^}\n]+\}|(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\([^)\n]+\)|[A-Za-z][A-Za-z0-9']*\([^)\n]+\)|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)|[A-Za-z]\^\{?-?\d+\}?|[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?)`;
+  const inlineTokens: string[] = [];
 
-  const wrapIfInline = (expr: string) => {
-    if (!isLikelyInlineMathExpression(expr)) return expr;
-    const trimmed = expr.trim();
-    if (/^\$.*\$$/.test(trimmed)) return trimmed;
-    return `$${trimmed}$`;
-  };
-
-  const wrapLine = (line: string) => {
+  const wrapSegment = (segment: string) => {
     if (
-      !line.trim() ||
-      line.includes("$$") ||
-      containsRawLatexCommand(line) ||
-      line.includes("@@CODE_BLOCK_") ||
-      line.includes("@@MATH_BLOCK_") ||
-      /^#{1,6}\s/.test(line.trim()) ||
-      /^\s*[-*]\s/.test(line)
+      !segment.trim() ||
+      containsRawLatexCommand(segment) ||
+      segment.includes("@@CODE_BLOCK_") ||
+      segment.includes("@@MATH_BLOCK_") ||
+      /^#{1,6}\s/.test(segment.trim()) ||
+      /^\s*[-*]\s/.test(segment)
     ) {
-      return line;
+      return segment;
     }
 
-    let wrapped = line.replace(
-      /(^|[\s(])((?:[A-Za-z](?:'|\([^)\n]+\))?|[0-9]+(?:\.[0-9]+)?|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?)(?:\s*[=+\-*/^]\s*(?:[A-Za-z](?:'|\([^)\n]+\))?|[0-9]+(?:\.[0-9]+)?|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?))+)(?=[\s).,;:!?]|$)/g,
-      (_match, lead: string, expr: string) => `${lead}${wrapIfInline(expr)}`
+    const protectInline = (expr: string) => {
+      if (!isLikelyInlineMathExpression(expr)) return expr;
+      const trimmed = normalizeTrigFunctions(normalizeExponents(expr.trim()));
+      if (/^\$.*\$$/.test(trimmed)) return trimmed;
+      const token = `@@INLINE_WRAP_${inlineTokens.length}@@`;
+      inlineTokens.push(`$${trimmed}$`);
+      return token;
+    };
+
+    let wrapped = segment.replace(
+      new RegExp(
+        String.raw`(^|[\s(,])((?:e\^\([^)\n]+\)|e\^\{[^}\n]+\}|(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\([^)\n]+\)))(?=[\s).,;:!?*]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead}${protectInline(expr)}`
     );
 
     wrapped = wrapped.replace(
-      /\b(of|is|are|equals|becomes|gives|yields)\s+([A-Za-z](?:\([^)\n]+\))?|[A-Za-z]'\([^)\n]+\)|\d+[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?|[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)|\d+\/\d+)\b/g,
-      (_match, lead: string, expr: string) => `${lead} ${wrapIfInline(expr)}`
+      new RegExp(
+        String.raw`(^|[\s(,])((?:${richInlineMathAtom})(?:\s*(?:${richInlineMathAtom}))+)(?=[\s).,;:!?]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead}${protectInline(expr)}`
+    );
+
+    wrapped = wrapped.replace(
+      new RegExp(
+        String.raw`(^|[\s(,])((?:${inlineMathAtom})(?:\s*[=+\-*/^]\s*(?:${inlineMathAtom}))+)(?=[\s).,;:!?]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead}${protectInline(expr)}`
+    );
+
+    wrapped = wrapped.replace(
+      new RegExp(
+        String.raw`\b(of|is|are|equals|becomes|gives|yields|with|using)\s+(${inlineMathAtom})(?=[\s).,;:!?]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead} ${protectInline(expr)}`
+    );
+
+    wrapped = wrapped.replace(
+      new RegExp(
+        String.raw`(^|[\s(,])(${inlineMathAtom})(?=[\s).,;:!?]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead}${protectInline(expr)}`
     );
 
     return wrapped.replace(/[ \t]{2,}/g, " ");
   };
 
-  return lines.map(wrapLine).join("\n");
+  const wrapLine = (line: string) => {
+    if (!line.trim() || line.includes("$$")) return line;
+    return line
+      .split(/(\$[^\n$]+\$)/g)
+      .map((segment) => {
+        if (/^\$[^\n$]+\$$/.test(segment)) return segment;
+        return wrapSegment(segment);
+      })
+      .join("");
+  };
+
+  let restored = lines
+    .map(wrapLine)
+    .join("\n");
+
+  while (/@@INLINE_WRAP_(\d+)@@/.test(restored)) {
+    restored = restored.replace(/@@INLINE_WRAP_(\d+)@@/g, (_match, index: string) => inlineTokens[Number(index)] ?? "");
+  }
+
+  return restored;
+}
+
+function normalizeInlineMathSpacing(content: string): string {
+  return content
+    .replace(/(\$[^\n$]+\$)(?=\$[^\n$]+\$)/g, "$1 ")
+    .replace(/([,:;])(?=\$[^\n$]+\$)/g, "$1 ")
+    .replace(/([A-Za-z0-9)\]])(?=\$[^\n$]+\$)/g, "$1 ")
+    .replace(/(\$[^\n$]+\$)(?=[A-Za-z0-9(\\[])/g, "$1 ")
+    .replace(/[ \t]{2,}/g, " ");
 }
 
 function repairLooseMathLines(content: string): string {
@@ -245,8 +326,9 @@ function repairLooseMathLines(content: string): string {
 }
 
 function containsRawLatexCommand(line: string): boolean {
+  const outsideInlineMath = line.replace(/\$[^\n$]+\$/g, "");
   return /\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)\b/.test(
-    line
+    outsideInlineMath
   );
 }
 
@@ -489,6 +571,61 @@ function repairSeriesTestProse(content: string): string {
     );
 }
 
+function normalizeExponents(expression: string): string {
+  // Normalize e^(...) to e^{...}
+  // Pattern: e followed by ^ followed by ( and content, then )
+  // Preserve e^{...} which is already correct
+  return expression.replace(/e\^\(([^)]*)\)/g, "e^{$1}");
+}
+
+function normalizeTrigFunctions(expression: string): string {
+  // Normalize sin(...), cos(...), tan(...), sec(...), csc(...), cot(...) to \sin(...), etc.
+  // Avoid double-normalizing already-escaped versions
+  let result = expression;
+
+  // For each trig function, replace unescaped versions
+  // We check if preceded by backslash to avoid double-escaping
+  const trigFns = ["sin", "cos", "tan", "sec", "csc", "cot", "ln", "log", "sqrt"];
+
+  for (const fn of trigFns) {
+    // Match: word boundary + function name + optional whitespace + opening paren
+    // Use a callback to check context and avoid double-escaping
+    const pattern = new RegExp(`\\b${fn}\\s*\\(`, "g");
+    let match;
+
+    // Collect all matches first
+    const matches: Array<{ index: number; text: string }> = [];
+    while ((match = pattern.exec(result)) !== null) {
+      matches.push({ index: match.index, text: match[0] });
+    }
+
+    // Replace from end to start to avoid index shifting
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const { index } = matches[i];
+      // Check if preceded by backslash (avoid double-escaping)
+      if (index === 0 || result[index - 1] !== "\\") {
+        // Find the paren position
+        const parenPos = result.indexOf("(", index);
+        const replacement = result.substring(index, parenPos);
+        result = result.substring(0, index) + `\\${replacement}` + result.substring(parenPos);
+      }
+    }
+  }
+
+  return result;
+}
+
+function normalizeInlineMathExpressions(content: string): string {
+  // Apply exponential and trig function normalization to all inline math
+  // Pattern: $...$
+  return content.replace(/\$([^\n$]+?)\$/g, (match, expr: string) => {
+    // Don't normalize if it's display math or contains code block tokens
+    if (match.includes("@@")) return match;
+    const normalized = normalizeTrigFunctions(normalizeExponents(expr.trim()));
+    return `$${normalized}$`;
+  });
+}
+
 function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureFinalAnswer: boolean }): string {
   if (!content || typeof content !== "string") return "";
 
@@ -515,16 +652,13 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
       /\\\\(frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)\b/g,
       "\\$1"
     )
-    .replace(/\\\[/g, "$$$$")
-    .replace(/\\\]/g, "$$$$")
-    .replace(/\\\(/g, "$")
-    .replace(/\\\)/g, "$")
     .replace(/\bInt\s+/g, "\\int ")
     .replace(/\${3,}/g, "$$$$")
     .replace(/[ \t]+\$(?=\s*$)/gm, "")
     .replace(/\*\*\s*Formula\s+used\s*:\s*\*\*/gi, "**Formula used:**")
     .replace(/\*\*\s*Rule\s+used\s*:\s*\*\*/gi, "**Rule used:**");
 
+  cleaned = normalizeEscapedMathDelimiters(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = normalizeInlineDollarMath(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
@@ -545,20 +679,25 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
     const token = `@@MATH_BLOCK_${displayBlocks.length}@@`;
     const split = splitMathAndTrailingProse(trimmed);
     if (split.suffix && split.math && containsRawLatexCommand(split.math)) {
-      displayBlocks.push(`$$\n${cleanExtractedMathExpression(split.math)}\n$$`);
+      const normalized = normalizeTrigFunctions(normalizeExponents(cleanExtractedMathExpression(split.math)));
+      displayBlocks.push(`$$\n${normalized}\n$$`);
       return `${token}\n\n${split.suffix}`;
     }
 
-    displayBlocks.push(`$$\n${trimmed}\n$$`);
+    const normalized = normalizeTrigFunctions(normalizeExponents(trimmed));
+    displayBlocks.push(`$$\n${normalized}\n$$`);
     return token;
   });
 
   cleaned = repairRawLatexOutsideDisplay(cleaned);
   cleaned = wrapBareInlineMath(cleaned);
+  cleaned = normalizeInlineMathExpressions(cleaned);
+  cleaned = normalizeInlineMathSpacing(cleaned);
 
   cleaned = cleaned.replace(/^([^\n]*\\(?:frac|sqrt|int|sum|lim|begin|left|right|ln|log|sin|cos|tan|sec|csc|cot|cdot|vec|bar|hat|overline|underline|alpha|beta|theta|pi|infty|leq|geq|neq|text|operatorname)[^\n]*)$/gm, (line) => {
     const trimmed = line.trim();
     if (!trimmed || trimmed.includes("@@CODE_BLOCK_") || trimmed.includes("@@MATH_BLOCK_")) return line;
+    if (!containsRawLatexCommand(trimmed)) return line;
     if (/^[*-]\s/.test(trimmed)) return line;
     if (/\b(?:Formula used|Rule used|Method used|Step|Final Answer)\b/i.test(trimmed)) return line;
     const split = splitRawLatexLine(line);
@@ -603,6 +742,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = repairSplitInequalityBlocks(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = normalizeInlineDollarMath(cleaned);
+  cleaned = normalizeInlineMathSpacing(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
 
@@ -616,6 +756,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   }
 
   return cleaned
+    .replace(/\$([^\n$]+)\$/g, (_match, expr: string) => `$${expr.trim()}$`)
     .replace(/^\s*\$\$\$\$\s*$/gm, "$$$$\n\n$$$$")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

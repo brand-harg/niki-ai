@@ -83,7 +83,7 @@ export default function SignupPage() {
         email: trimmedEmail,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/auth/confirmed`,
         },
       });
 
@@ -98,10 +98,7 @@ export default function SignupPage() {
         return;
       }
 
-      setNotice("Account created. Check your email if confirmation is required.");
-      window.setTimeout(() => {
-        router.replace("/login");
-      }, 900);
+      setNotice("Check your email to confirm your account.");
     } finally {
       setLoading(false);
     }

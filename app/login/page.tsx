@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [themeAccent, setThemeAccent] = useState<'cyan' | 'green' | 'amber'>('cyan');
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [forgotSent, setForgotSent] = useState(false);
@@ -85,6 +86,21 @@ export default function LoginPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reset') === 'success') {
+      setSuccess('Password updated successfully. Log in with your new password.');
+      return;
+    }
+
+    if (params.get('confirmed') === 'success') {
+      setSuccess('Email confirmed successfully. You can now log in.');
+      return;
+    }
+
+    setSuccess(null);
+  }, []);
+
   // --- GOOGLE LOGIN ---
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -120,9 +136,10 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: `${window.location.origin}/update-password`,
     });
 
     if (resetError) {
@@ -190,6 +207,12 @@ export default function LoginPage() {
                 {error && (
                   <p className="text-red-500 text-[10px] font-black uppercase text-center">
                     {error}
+                  </p>
+                )}
+
+                {success && (
+                  <p className={`${accentText} text-[10px] font-black uppercase text-center`}>
+                    {success}
                   </p>
                 )}
 
@@ -268,6 +291,12 @@ export default function LoginPage() {
                 {error && (
                   <p className="text-red-500 text-[10px] font-black uppercase text-center">
                     {error}
+                  </p>
+                )}
+
+                {success && (
+                  <p className={`${accentText} text-[10px] font-black uppercase text-center`}>
+                    {success}
                   </p>
                 )}
 

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { resolveAvatarUrl } from "@/lib/avatarUrl";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 
@@ -45,6 +46,7 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [session, setSession] = useState<{ user?: { id: string; email?: string } } | null>(null);
   const [vaultStatus, setVaultStatus] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<"saved" | "draft" | "saving" | "error">("saved");
 
   const [profile, setProfile] = useState<ProfileData>({
     first_name: "",
@@ -58,6 +60,19 @@ export default function ProfilePage() {
     logic_feedback_opt_in: true,
     theme_accent: "cyan",
   });
+  const [persistedProfile, setPersistedProfile] = useState<ProfileData>({
+    first_name: "",
+    username: "",
+    avatar_url: "",
+    two_factor_enabled: false,
+    is_searchable: true,
+    share_usage_data: true,
+    train_on_data: false,
+    current_unit: "",
+    logic_feedback_opt_in: true,
+    theme_accent: "cyan",
+  });
+  const avatarUrl = resolveAvatarUrl(profile.avatar_url);
 
 
   const isGreen = profile.theme_accent === "green";
@@ -140,6 +155,11 @@ export default function ProfilePage() {
     setTimeout(() => setVaultStatus(null), 3000);
   };
 
+  const updateProfileDraft = (patch: Partial<ProfileData>) => {
+    setProfile((prev) => ({ ...prev, ...patch }));
+    setSyncState("draft");
+  };
+
   const fetchVaultData = useCallback(async () => {
         try {
       setLoading(true);
@@ -167,7 +187,7 @@ export default function ProfilePage() {
       }
 
       if (profileData) {
-        setProfile({
+        const nextProfile = {
           first_name: profileData.first_name || "",
           username: profileData.username || "",
           avatar_url: profileData.avatar_url || "",
@@ -178,11 +198,15 @@ export default function ProfilePage() {
           current_unit: profileData.current_unit || "",
           logic_feedback_opt_in: profileData.logic_feedback_opt_in ?? true,
           theme_accent: profileData.theme_accent || "cyan",
-        });
+        };
+        setProfile(nextProfile);
+        setPersistedProfile(nextProfile);
+        setSyncState("saved");
       }
     } catch (error) {
       console.error("Fetch vault data error:", error);
       showStatus("Load Failed");
+      setSyncState("error");
     } finally {
       setLoading(false);
     }
@@ -228,13 +252,16 @@ export default function ProfilePage() {
           ...prev,
           avatar_url: data.publicUrl,
         }));
+        setSyncState("draft");
         showStatus("Avatar Synced");
       } else {
         showStatus("Upload Failed");
+        setSyncState("error");
       }
     } catch (error) {
       console.error("Avatar upload error:", error);
       showStatus("Upload Failed");
+      setSyncState("error");
     } finally {
       setUploading(false);
     }
@@ -242,6 +269,7 @@ export default function ProfilePage() {
 
   const handleSync = async () => {
     try {
+      setSyncState("saving");
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -269,13 +297,17 @@ export default function ProfilePage() {
       if (error) {
         console.error("Sync error:", error);
         showStatus("Sync Error");
+        setSyncState("error");
       } else {
-        showStatus("Vault Synced Successfully");
+        setPersistedProfile(profile);
+        setSyncState("saved");
+        showStatus("Saved");
         fetchVaultData();
       }
     } catch (error) {
       console.error("Handle sync error:", error);
       showStatus("Sync Error");
+      setSyncState("error");
     }
   };
 
@@ -288,7 +320,9 @@ export default function ProfilePage() {
         return;
       }
 
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/update-password`,
+      });
 
       if (error) {
         console.error("Password reset error:", error);
@@ -318,6 +352,26 @@ export default function ProfilePage() {
     );
   }
 
+  const hasUnsavedChanges =
+    JSON.stringify(profile) !== JSON.stringify(persistedProfile);
+
+  const syncBadgeText =
+    syncState === "saving"
+      ? "Saving..."
+      : syncState === "error"
+        ? "Save issue"
+        : hasUnsavedChanges || syncState === "draft"
+          ? "Unsynced changes"
+          : "Cloud synced";
+  const syncBadgeClass =
+    syncState === "saving"
+      ? `border ${accentBorderSoft} ${accentBgSoft} ${accentText}`
+      : syncState === "error"
+        ? "border border-rose-500/20 bg-rose-500/10 text-rose-300"
+        : hasUnsavedChanges || syncState === "draft"
+          ? "border border-amber-500/20 bg-amber-500/10 text-amber-300"
+          : "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
+
   return (
     <main className={`min-h-screen bg-black text-white p-6 font-sans antialiased ${selectionClass} relative`}>
       {vaultStatus && (
@@ -343,18 +397,33 @@ export default function ProfilePage() {
           ))}
         </div>
 
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 px-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${syncBadgeClass}`}>
+              {syncBadgeText}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
+              Cloud
+            </span>
+          </div>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-600">
+            {hasUnsavedChanges ? "Changes are waiting for sync" : "Profile state matches saved data"}
+          </p>
+        </div>
+
         <div className="bg-[#080808] border border-white/5 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden">
           {activeTab === "profile" && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="flex flex-col items-center gap-6">
                 <div className="relative group w-28 h-28">
                   <div className="w-full h-full rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-2xl">
-                    {profile.avatar_url ? (
+                    {avatarUrl ? (
                       <Image
-                        src={profile.avatar_url}
+                        src={avatarUrl}
                         alt="Profile avatar"
                         fill
                         className="object-cover"
+                        unoptimized
                       />
                     ) : (
                       <span className="text-3xl font-black text-slate-800">
@@ -393,9 +462,7 @@ export default function ProfilePage() {
                   </label>
                   <input
                     value={profile.first_name}
-                    onChange={(e) =>
-                      setProfile({ ...profile, first_name: e.target.value })
-                    }
+                    onChange={(e) => updateProfileDraft({ first_name: e.target.value })}
                     placeholder="Enter your name"
                     className={`w-full bg-white/[0.03] border border-white/5 rounded-2xl py-4 px-6 text-sm ${accentFocusBorder} transition-all outline-none text-white`}
                   />
@@ -412,11 +479,8 @@ export default function ProfilePage() {
                     <input
                       value={profile.username}
                       onChange={(e) =>
-                        setProfile({
-                          ...profile,
-                          username: e.target.value
-                            .toLowerCase()
-                            .replace(/\s/g, ""),
+                        updateProfileDraft({
+                          username: e.target.value.toLowerCase().replace(/\s/g, ""),
                         })
                       }
                       placeholder="username"
@@ -442,8 +506,7 @@ export default function ProfilePage() {
 
                 <button
                   onClick={() =>
-                    setProfile({
-                      ...profile,
+                    updateProfileDraft({
                       two_factor_enabled: !profile.two_factor_enabled,
                     })
                   }
@@ -507,8 +570,7 @@ export default function ProfilePage() {
 
                   <button
                     onClick={() =>
-                      setProfile({
-                        ...profile,
+                      updateProfileDraft({
                         train_on_data: !profile.train_on_data,
                       })
                     }
@@ -540,8 +602,7 @@ export default function ProfilePage() {
                     <input
                       value={profile.current_unit}
                       onChange={(e) =>
-                        setProfile({
-                          ...profile,
+                        updateProfileDraft({
                           current_unit: e.target.value,
                         })
                       }
@@ -561,10 +622,10 @@ export default function ProfilePage() {
                   <div className="flex items-center justify-between p-4 hover:bg-white/[0.02] transition-all rounded-2xl group border border-transparent hover:border-white/5">
                     <div>
                       <span className="text-xs font-bold text-slate-300 group-hover:text-white">
-                        Public Discovery
+                        Default Artifact Visibility
                       </span>
                       <p className="text-[8px] text-slate-600 uppercase mt-1">
-                        Classmates can find your vault
+                        New study artifacts are public by default. You can change this anytime.
                       </p>
                     </div>
 
@@ -572,8 +633,7 @@ export default function ProfilePage() {
                       type="checkbox"
                       checked={profile.is_searchable}
                       onChange={() =>
-                        setProfile({
-                          ...profile,
+                        updateProfileDraft({
                           is_searchable: !profile.is_searchable,
                         })
                       }
@@ -595,8 +655,7 @@ export default function ProfilePage() {
                       type="checkbox"
                       checked={profile.share_usage_data}
                       onChange={() =>
-                        setProfile({
-                          ...profile,
+                        updateProfileDraft({
                           share_usage_data: !profile.share_usage_data,
                         })
                       }
@@ -637,9 +696,10 @@ export default function ProfilePage() {
 
             <button
               onClick={handleSync}
+              disabled={!hasUnsavedChanges && syncState !== "error"}
               className={`flex-[2] bg-white ${accentHoverBg} text-black py-4 rounded-2xl font-black uppercase text-[9px] tracking-[0.2em] transition-all shadow-xl outline-none`}
             >
-              Sync Vault Changes
+              {syncState === "saving" ? "Saving..." : hasUnsavedChanges ? "Sync Vault Changes" : "Already Synced"}
             </button>
           </div>
         </div>

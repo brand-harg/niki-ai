@@ -1,6 +1,11 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  DEFAULT_PERSONALIZATION_SETTINGS,
+  readLocalPersonalizationSettings,
+  writeLocalPersonalizationSettings,
+} from "@/lib/personalization";
 import { useRouter } from "next/navigation";
 
 export default function PersonalizationPage() {
@@ -8,18 +13,30 @@ export default function PersonalizationPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [isGuestMode, setIsGuestMode] = useState(false);
   const [themeAccent, setThemeAccent] = useState("cyan");
 
-  const [data, setData] = useState({
-    about_user: "",
-    response_style: "",
-    default_niki_mode: false,
-  });
+  const [data, setData] = useState(DEFAULT_PERSONALIZATION_SETTINGS);
+  const [persistedData, setPersistedData] = useState(DEFAULT_PERSONALIZATION_SETTINGS);
+  const [syncState, setSyncState] = useState<"saved" | "draft" | "saving" | "error">("saved");
 
   useEffect(() => {
     const run = async () => {
+      const savedAccent = localStorage.getItem("theme_accent");
+      if (savedAccent === "cyan" || savedAccent === "green" || savedAccent === "amber") {
+        setThemeAccent(savedAccent);
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return router.push("/login");
+      if (!session) {
+        const nextLocal = readLocalPersonalizationSettings();
+        setData(nextLocal);
+        setPersistedData(nextLocal);
+        setSyncState("saved");
+        setIsGuestMode(true);
+        setLoading(false);
+        return;
+      }
 
       const { data: profile, error } = await supabase
         .from("profiles")
@@ -30,11 +47,15 @@ export default function PersonalizationPage() {
       if (error) console.log("Personalization fetch error:", error);
 
       if (profile) {
-        setData({
+        const nextData = {
           about_user: profile.about_user || "",
           response_style: profile.response_style || "",
           default_niki_mode: profile.default_niki_mode ?? false,
-        });
+        };
+        setData(nextData);
+        setPersistedData(nextData);
+        setSyncState("saved");
+        writeLocalPersonalizationSettings(nextData);
         if (
           profile.theme_accent === "cyan" ||
           profile.theme_accent === "green" ||
@@ -50,8 +71,18 @@ export default function PersonalizationPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSyncState("saving");
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setStatus("Auth Session Lost"); setSaving(false); return; }
+    if (!session) {
+      writeLocalPersonalizationSettings(data);
+      setPersistedData(data);
+      setStatus("Saved On This Device");
+      setTimeout(() => setStatus(null), 3000);
+      setSaving(false);
+      setIsGuestMode(true);
+      setSyncState("saved");
+      return;
+    }
 
     const { error } = await supabase
       .from("profiles")
@@ -63,11 +94,15 @@ export default function PersonalizationPage() {
       .eq("id", session.user.id);
 
     if (!error) {
+      writeLocalPersonalizationSettings(data);
+      setPersistedData(data);
+      setSyncState("saved");
       setStatus("Instructions Updated");
       setTimeout(() => setStatus(null), 3000);
     } else {
       setStatus("Sync Failed");
       setTimeout(() => setStatus(null), 3000);
+      setSyncState("error");
       console.log("Personalization save error:", error);
     }
     setSaving(false);
@@ -92,6 +127,27 @@ export default function PersonalizationPage() {
     : isAmber
     ? "selection:bg-amber-500/30"
     : "selection:bg-cyan-500/30";
+  const hasUnsavedChanges = JSON.stringify(data) !== JSON.stringify(persistedData);
+  const syncBadgeText =
+    syncState === "saving"
+      ? "Saving..."
+      : syncState === "error"
+        ? "Save issue"
+        : hasUnsavedChanges || syncState === "draft"
+          ? isGuestMode
+            ? "Unsaved locally"
+            : "Unsynced changes"
+          : isGuestMode
+            ? "Saved on device"
+            : "Cloud synced";
+  const syncBadgeClass =
+    syncState === "saving"
+      ? `${accentBg} text-black`
+      : syncState === "error"
+        ? "border border-rose-500/20 bg-rose-500/10 text-rose-300"
+        : hasUnsavedChanges || syncState === "draft"
+          ? "border border-amber-500/20 bg-amber-500/10 text-amber-300"
+          : "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
 
   if (loading) {
     return (
@@ -123,6 +179,19 @@ export default function PersonalizationPage() {
           <p className="text-slate-600 text-[10px] font-mono uppercase tracking-[0.2em] mt-2">
             Fine-tune the Nemanja logic engine
           </p>
+          {isGuestMode && (
+            <p className="text-slate-500 text-[10px] font-mono uppercase tracking-[0.16em] mt-3">
+              Guest mode: saved locally on this device until you log in
+            </p>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${syncBadgeClass}`}>
+              {syncBadgeText}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
+              {isGuestMode ? "Local" : "Cloud"}
+            </span>
+          </div>
         </header>
 
         <div className="bg-[#080808] border border-white/5 rounded-[3rem] p-10 space-y-10 shadow-2xl">
@@ -132,7 +201,10 @@ export default function PersonalizationPage() {
             </h3>
             <textarea
               value={data.about_user || ""}
-              onChange={(e) => setData({ ...data, about_user: e.target.value })}
+              onChange={(e) => {
+                setData({ ...data, about_user: e.target.value });
+                setSyncState("draft");
+              }}
               placeholder="e.g. I am a student at RVCC transferring to Rowan for Data Science. Focus on Calculus III and Python logic."
               className={`w-full h-32 bg-white/[0.02] border border-white/10 rounded-3xl p-6 text-sm text-slate-300 ${accentFocusBorder} outline-none transition-all resize-none ring-0`}
             />
@@ -144,7 +216,10 @@ export default function PersonalizationPage() {
             </h3>
             <textarea
               value={data.response_style || ""}
-              onChange={(e) => setData({ ...data, response_style: e.target.value })}
+              onChange={(e) => {
+                setData({ ...data, response_style: e.target.value });
+                setSyncState("draft");
+              }}
               placeholder="e.g. Be direct, use mathematical notation, and always provide a 'Nemanja-style' logic summary at the end."
               className={`w-full h-32 bg-white/[0.02] border border-white/10 rounded-3xl p-6 text-sm text-slate-300 ${accentFocusBorder} outline-none transition-all resize-none ring-0`}
             />
@@ -158,7 +233,10 @@ export default function PersonalizationPage() {
               </p>
             </div>
             <button
-              onClick={() => setData({ ...data, default_niki_mode: !data.default_niki_mode })}
+              onClick={() => {
+                setData({ ...data, default_niki_mode: !data.default_niki_mode });
+                setSyncState("draft");
+              }}
               className={`w-12 h-6 rounded-full relative transition-all ${
                 data.default_niki_mode ? accentBg : "bg-zinc-800"
               }`}
@@ -180,10 +258,10 @@ export default function PersonalizationPage() {
             </button>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || (!hasUnsavedChanges && syncState !== "error")}
               className={`flex-[2] bg-white ${accentHoverBg} text-black py-4 rounded-2xl font-black uppercase text-[9px] tracking-widest transition-all disabled:opacity-50`}
             >
-              {saving ? "Syncing..." : "Save Instructions"}
+              {saving ? "Syncing..." : hasUnsavedChanges ? "Save Instructions" : "Already Saved"}
             </button>
           </div>
         </div>
