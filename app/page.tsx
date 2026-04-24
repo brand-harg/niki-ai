@@ -1507,9 +1507,9 @@ export default function Home() {
     (!trainingPromptSnoozedUntil || trainingPromptSnoozedUntil <= Date.now());
 
   const shouldShowOnboarding =
-    chatHistory.length === 0 &&
-    !currentChatId &&
+    !artifactPanel &&
     !isLoading &&
+    substantiveMessageCount === 0 &&
     isGreetingOnly(messages);
 
   const effectivePersonalization = useMemo(
@@ -1530,8 +1530,8 @@ export default function Home() {
 
   const focusModeHeaderClass =
     focusModeExpanded === true
-      ? "rounded-2xl border border-white/10 bg-[#0b0b0b]/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
-      : "rounded-full border border-white/10 bg-[#0b0b0b]/92 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:rounded-2xl sm:px-3 sm:py-3";
+      ? "rounded-2xl border border-white/8 bg-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]"
+      : "rounded-full border border-white/8 bg-white/[0.02] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:rounded-2xl sm:px-3 sm:py-3";
 
   const artifactPreviewContent = useMemo(() => {
     return artifactPanel ? sanitizeMathContent(artifactPanel.content) : "";
@@ -4330,38 +4330,12 @@ export default function Home() {
           className={`flex-1 min-h-0 overflow-y-auto ${effectiveCompactMode ? "pt-3 pb-36 sm:pb-8 text-[15px]" : "pt-4 sm:pt-10 pb-40 sm:pb-8 text-[17px] sm:text-[18px]"
             } px-3 sm:px-6 scroll-smooth`}
         >
-          <div className="mx-auto max-w-5xl space-y-5 sm:space-y-10">
+          <div className="mx-auto max-w-5xl space-y-4 sm:space-y-8">
             {sessionStudyLabel && (
               <div className="px-1">
                 <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
                   {sessionStudyLabel}
                 </p>
-              </div>
-            )}
-
-            {!artifactPanel && recentArtifactResume && (
-              <div className="px-1">
-                <div className={`rounded-2xl border ${accentBorder} bg-white/[0.025] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]`}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-100">
-                        Continue your last study artifact
-                      </p>
-                      <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                        {recentArtifactResume.title}
-                        {recentArtifactResume.courseTag ? ` · ${recentArtifactResume.courseTag}` : ""}
-                        {recentArtifactResume.topicTag ? ` · ${recentArtifactResume.topicTag}` : ""}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleResumeRecentArtifact}
-                      className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.04] ${accentColor} hover:bg-white/[0.08]`}
-                    >
-                      Open workspace
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -4589,6 +4563,35 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {!!session?.user?.id &&
+              !artifactPanel &&
+              recentArtifactResume?.savedArtifactId &&
+              savedArtifacts.length > 0 && (
+                <div className="mx-auto max-w-3xl px-1">
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.018] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-4 sm:py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-slate-300">
+                          Continue your last study artifact
+                        </p>
+                        <p className="mt-0.5 text-[10px] leading-5 text-slate-500">
+                          {recentArtifactResume.title}
+                          {recentArtifactResume.courseTag ? ` · ${recentArtifactResume.courseTag}` : ""}
+                          {recentArtifactResume.topicTag ? ` · ${recentArtifactResume.topicTag}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleResumeRecentArtifact}
+                        className="rounded-full border border-white/10 bg-white/[0.025] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all outline-none hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+                      >
+                        Open workspace
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
           </div>
         </div>
 
@@ -4668,6 +4671,9 @@ export default function Home() {
                   </p>
                   <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:mt-1">
                     {focusSummary}
+                  </p>
+                  <p className="mt-1 text-[10px] text-slate-600">
+                    Control how chat interprets your question
                   </p>
                 </div>
                 <svg

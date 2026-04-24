@@ -38,6 +38,19 @@ type SessionSnapshot = {
   mode?: string;
 };
 
+type ArtifactKind = "notes" | "worked example" | "practice set" | "lecture summary";
+
+type SavedArtifactRow = {
+  id: string;
+  title: string;
+  content: string;
+  source_prompt?: string | null;
+  kind?: ArtifactKind | null;
+  course_tag?: string | null;
+  topic_tag?: string | null;
+  is_public?: boolean | null;
+};
+
 // --- ICONS ---
 const SparkleIcon = ({ accentGroupHoverText }: { accentGroupHoverText: string }) => (
   <svg className={`h-5 w-5 text-slate-400 ${accentGroupHoverText} transition-colors`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -81,7 +94,7 @@ export default function SettingsPage() {
   );
   const [sessionSnapshot, setSessionSnapshot] = useState<SessionSnapshot | null>(null);
   const [currentModeLabel, setCurrentModeLabel] = useState("Pure Logic");
-  const [hasSavedArtifact, setHasSavedArtifact] = useState(false);
+  const [latestArtifactTitle, setLatestArtifactTitle] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<"saved" | "saving" | "local" | "error">("saved");
   const avatarUrl = resolveAvatarUrl(profile?.avatar_url);
@@ -107,7 +120,6 @@ export default function SettingsPage() {
     } catch {
       setSessionSnapshot(null);
     }
-    setHasSavedArtifact(!!window.localStorage.getItem(LAST_ARTIFACT_PANEL_STORAGE_KEY));
   }, []);
 
   const fetchProfile = useCallback(async (id: string) => {
@@ -127,6 +139,23 @@ export default function SettingsPage() {
     if (data) setProfile(data);
   }, []);
 
+  const fetchLatestSavedArtifact = useCallback(async (userId: string) => {
+    const { data, error } = await supabase
+      .from("study_artifacts")
+      .select("id, title, content, source_prompt, kind, course_tag, topic_tag, is_public")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Settings artifact fetch failed:", error);
+      return null;
+    }
+
+    return (data as SavedArtifactRow | null) ?? null;
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -141,12 +170,17 @@ export default function SettingsPage() {
       if (!session) {
         setHasSession(false);
         setSyncState("local");
+        setLatestArtifactTitle(null);
         setLoading(false);
         return;
       }
 
       setHasSession(true);
       await fetchProfile(session.user.id);
+      const latestArtifact = await fetchLatestSavedArtifact(session.user.id);
+      if (mounted) {
+        setLatestArtifactTitle(latestArtifact?.title ?? null);
+      }
       if (mounted) setSyncState("saved");
       if (mounted) setLoading(false);
     };
@@ -159,7 +193,7 @@ export default function SettingsPage() {
       mounted = false;
       window.removeEventListener("focus", handleFocus);
     };
-  }, [fetchProfile, loadLocalState]);
+  }, [fetchLatestSavedArtifact, fetchProfile, loadLocalState]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -199,6 +233,26 @@ export default function SettingsPage() {
     : isAmber
       ? "selection:bg-amber-500/30"
       : "selection:bg-cyan-500/30";
+
+  const accentBorderClass = isGreen
+    ? "border-green-500/14"
+    : isAmber
+      ? "border-amber-500/14"
+      : "border-cyan-500/14";
+
+  const accentGlowClass = isGreen
+    ? "shadow-[0_30px_80px_rgba(16,185,129,0.12),inset_0_1px_0_rgba(255,255,255,0.05)]"
+    : isAmber
+      ? "shadow-[0_30px_80px_rgba(245,158,11,0.12),inset_0_1px_0_rgba(255,255,255,0.05)]"
+      : "shadow-[0_30px_80px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.05)]";
+
+  const sectionShellClass =
+    "mx-3 rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-4 sm:px-5 sm:py-5";
+
+  const sectionTitleClass = "text-[10px] font-black uppercase tracking-[0.18em] text-slate-500";
+
+  const quickActionClass =
+    "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all duration-200 hover:scale-[1.01] hover:border-white/20 hover:bg-white/[0.07] active:scale-[0.995]";
 
   const personalizationActive = useMemo(() => {
     const aboutUser = profile?.about_user ?? localPersonalization.about_user;
@@ -298,11 +352,60 @@ export default function SettingsPage() {
     );
   };
 
-  const handleQuickHomeAction = (action: "new-chat" | "open-artifact", notice: string) => {
+  const handleQuickHomeAction = useCallback((action: "new-chat" | "open-artifact", notice: string) => {
     window.localStorage.setItem(PENDING_HOME_ACTION_STORAGE_KEY, action);
     showStatus(notice);
     router.push("/");
-  };
+  }, [router, showStatus]);
+
+  const handleOpenArtifactPanel = useCallback(async () => {
+    if (!hasSession) {
+      showStatus("Log in to access your artifacts");
+      return;
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setHasSession(false);
+      setSyncState("local");
+      showStatus("Log in to access your artifacts");
+      return;
+    }
+
+    const artifact = await fetchLatestSavedArtifact(session.user.id);
+
+    if (!artifact) {
+      setLatestArtifactTitle(null);
+      showStatus("No saved artifact yet");
+      return;
+    }
+
+    setLatestArtifactTitle(artifact.title);
+
+    const artifactPanelState = {
+      messageIndex: null,
+      kind: artifact.kind ?? "notes",
+      title: artifact.title,
+      sourcePrompt: artifact.source_prompt ?? "",
+      content: artifact.content,
+      savedArtifactId: artifact.id,
+      courseTag: artifact.course_tag ?? null,
+      topicTag: artifact.topic_tag ?? null,
+      isPublic: artifact.is_public ?? null,
+      sourceCourse: null,
+      sourceConfidence: null,
+      sourceAttached: false,
+    };
+
+    window.localStorage.setItem(
+      LAST_ARTIFACT_PANEL_STORAGE_KEY,
+      JSON.stringify(artifactPanelState)
+    );
+    handleQuickHomeAction("open-artifact", "Opening artifact");
+  }, [fetchLatestSavedArtifact, handleQuickHomeAction, hasSession, showStatus]);
 
   const handleResetSettings = async () => {
     if (
@@ -371,10 +474,10 @@ export default function SettingsPage() {
     : "No active topic";
 
   const navButtonClass = (isActive: boolean) =>
-    `group flex w-full items-center gap-3 rounded-xl p-3 text-sm text-slate-200 outline-none transition-all duration-200 ${
+    `group flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-sm text-slate-200 outline-none transition-all duration-200 ${
       isActive
-        ? "border border-white/10 bg-white/6 text-white shadow-[0_0_18px_rgba(255,255,255,0.04)]"
-        : "border border-transparent hover:scale-[1.01] hover:bg-white/5"
+        ? `border ${accentBorderClass} bg-white/[0.06] text-white shadow-[0_0_22px_rgba(255,255,255,0.05)]`
+        : "border border-transparent hover:scale-[1.01] hover:bg-white/[0.05]"
     }`;
 
   if (loading) {
@@ -393,8 +496,16 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="w-full max-w-[320px] overflow-hidden rounded-3xl border border-white/5 bg-[#171717] p-2 shadow-2xl flex flex-col gap-1">
-        <div className="flex items-center gap-3 p-3 mb-1">
+      <div className="relative w-full max-w-[560px] overflow-hidden rounded-[28px] border border-white/8 bg-[#171717]/96 p-3 sm:p-4 shadow-2xl flex flex-col gap-2 backdrop-blur-sm">
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 rounded-[28px] border ${accentBorderClass} opacity-80`}
+        />
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-x-10 top-0 h-24 rounded-full blur-3xl ${accentBg} opacity-[0.10]`}
+        />
+        <div className={`relative flex items-center gap-4 px-3 py-3 sm:px-4 sm:py-4 ${accentGlowClass}`}>
           <div className={`relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-full ${accentBg} flex items-center justify-center border border-white/10 text-xs font-black text-white shadow-lg`}>
             {avatarUrl ? (
               <Image src={avatarUrl} alt="User" fill className="object-cover" unoptimized />
@@ -403,7 +514,7 @@ export default function SettingsPage() {
             )}
           </div>
           <div className="min-w-0 flex flex-col">
-            <span className="truncate text-sm font-bold text-white">
+            <span className="truncate text-base font-bold text-white">
               {profile?.first_name || "Local Settings"}
             </span>
             <span className={`truncate text-[9px] font-black uppercase tracking-[0.2em] ${accentText}`}>
@@ -412,7 +523,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="mx-2 flex flex-wrap items-center gap-2 px-1">
+        <div className="mx-3 flex flex-wrap items-center gap-2 px-1 sm:mx-4">
           <span className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${syncBadgeClass}`}>
             {syncBadgeText}
           </span>
@@ -421,7 +532,7 @@ export default function SettingsPage() {
           </span>
         </div>
 
-        <div className="mx-2 rounded-2xl bg-white/[0.03] px-3 py-3 text-[10px] leading-5 text-slate-500">
+        <div className={sectionShellClass}>
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
             <span className="text-slate-600">Mode</span>
             <span className="text-slate-300">{currentModeLabel}</span>
@@ -434,24 +545,24 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="mx-2 mt-2 space-y-2 rounded-2xl bg-white/[0.02] px-3 py-3">
+        <div className={`${sectionShellClass} mt-2 space-y-3`}>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">
+            <p className={sectionTitleClass}>
               Quick Toggles
             </p>
           </div>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold text-slate-100">Default Mode</p>
+              <p className="text-[12px] font-bold text-slate-100">Default Mode</p>
               <p className="text-[9px] uppercase tracking-wide text-slate-600">
                 New chats start here
               </p>
             </div>
-            <div className="flex items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1">
+            <div className="flex items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
               <button
                 type="button"
                 onClick={() => void handleDefaultModeToggle(false)}
-                className={`rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all duration-200 ${
+                className={`rounded-full px-3.5 py-2 text-[8px] font-black uppercase tracking-widest transition-all duration-200 ${
                   !defaultModeEnabled ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
                 }`}
               >
@@ -460,7 +571,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => void handleDefaultModeToggle(true)}
-                className={`rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all duration-200 ${
+                className={`rounded-full px-3.5 py-2 text-[8px] font-black uppercase tracking-widest transition-all duration-200 ${
                   defaultModeEnabled ? `bg-white/[0.06] ${accentText}` : "text-slate-600 hover:text-white"
                 }`}
               >
@@ -470,7 +581,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold text-slate-100">Improve Model</p>
+              <p className="text-[12px] font-bold text-slate-100">Improve Model</p>
               <p className="text-[9px] uppercase tracking-wide text-slate-600">
                 Consent-gated training log
               </p>
@@ -491,17 +602,17 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="mx-2 mt-2 rounded-2xl bg-white/[0.02] px-3 py-3">
-          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">
+        <div className={`${sectionShellClass} mt-2`}>
+          <p className={sectionTitleClass}>
             Current Session
           </p>
-          <p className="mt-2 text-[11px] font-bold text-slate-100">{sessionSummary}</p>
+          <p className="mt-2 text-[12px] font-bold text-slate-100">{sessionSummary}</p>
           <p className={`mt-1 text-[10px] ${accentText}`}>
             {sessionSnapshot?.mode || currentModeLabel}
           </p>
         </div>
 
-        <div className="h-px bg-white/5 mx-2 my-2" />
+        <div className="mx-3 my-3 h-px bg-white/6 sm:mx-4" />
 
         <button
           onClick={() => router.push("/personalization")}
@@ -527,40 +638,44 @@ export default function SettingsPage() {
           <span className="transition-colors group-hover:text-white">General Settings</span>
         </button>
 
-        <div className="mx-2 mt-2 rounded-2xl bg-white/[0.02] px-3 py-3 space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">
+        <div className={`${sectionShellClass} mt-2 space-y-3`}>
+          <p className={sectionTitleClass}>
             Quick Actions
           </p>
           <button
             type="button"
             onClick={() => handleQuickHomeAction("new-chat", "New chat started")}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all duration-200 hover:scale-[1.01] hover:border-white/20 hover:bg-white/[0.05]"
+            className={` ${quickActionClass} ${accentBorderClass} ${accentText} shadow-[0_10px_30px_rgba(0,0,0,0.16)]`}
           >
             New Chat
           </button>
           <button
             type="button"
-            disabled={!hasSavedArtifact}
-            onClick={() => handleQuickHomeAction("open-artifact", "Opening artifact")}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all duration-200 hover:scale-[1.01] hover:border-white/20 hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => void handleOpenArtifactPanel()}
+            className={`${quickActionClass} border-white/12 bg-white/[0.045]`}
           >
             Open Artifact Panel
           </button>
+          {latestArtifactTitle && (
+            <p className="px-1 text-[10px] text-slate-500">
+              Latest artifact: <span className="text-slate-300">{latestArtifactTitle}</span>
+            </p>
+          )}
           <button
             type="button"
             onClick={() => void handleResetSettings()}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all duration-200 hover:scale-[1.01] hover:border-white/20 hover:bg-white/[0.05]"
+            className={quickActionClass}
           >
             Reset Settings
           </button>
         </div>
 
-        <div className="h-px bg-white/5 mx-2 my-1" />
+        <div className="mx-3 my-2 h-px bg-white/6 sm:mx-4" />
 
         {hasSession && (
           <button
             onClick={handleLogout}
-            className="group flex w-full items-center gap-3 rounded-xl p-3 text-sm text-slate-400 outline-none transition-all duration-200 hover:scale-[1.01] hover:bg-red-500/10 hover:text-red-400"
+            className="group flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-sm text-slate-400 outline-none transition-all duration-200 hover:scale-[1.01] hover:bg-red-500/10 hover:text-red-400"
           >
             <LogoutIcon />
             <span>Log out</span>
@@ -569,7 +684,7 @@ export default function SettingsPage() {
 
         <button
           onClick={() => router.push("/")}
-          className={`mt-4 py-2 text-center text-[9px] font-black uppercase tracking-widest text-slate-700 transition-colors outline-none ${accentHoverText}`}
+          className={`mt-5 py-3 text-center text-[9px] font-black uppercase tracking-widest text-slate-700 transition-colors outline-none ${accentHoverText}`}
         >
           Exit System
         </button>

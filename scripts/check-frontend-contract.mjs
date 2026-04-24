@@ -21,11 +21,13 @@ const calendarSqlSource = readFileSync("scripts/sql/calendar-events.sql", "utf8"
 const studyArtifactsSqlSource = readFileSync("scripts/sql/study-artifacts.sql", "utf8");
 const trainingSqlSource = readFileSync("scripts/sql/training-interactions.sql", "utf8");
 const usageSqlSource = readFileSync("scripts/sql/usage-interactions.sql", "utf8");
+const ragFoundationSqlSource = readFileSync("scripts/sql/rag-foundation.sql", "utf8");
 const personalizationLibSource = readFileSync("lib/personalization.ts", "utf8");
 const generalSettingsLibSource = readFileSync("lib/generalSettings.ts", "utf8");
 const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
 const nextConfigSource = readFileSync("next.config.ts", "utf8");
+const ragHelpersSource = readFileSync("lib/ragHelpers.ts", "utf8");
 
 const fixtures = [
   {
@@ -176,7 +178,7 @@ const fixtures = [
   {
     name: "home-shows-first-time-onboarding-prompts",
     source: pageSource,
-    pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Quick Start)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*handleOnboardingPrompt)/,
+    pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Quick Start)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*!artifactPanel)(?=[\s\S]*substantiveMessageCount === 0)(?=[\s\S]*handleOnboardingPrompt)/,
   },
   {
     name: "knowledge-base-sidebar-supports-all-core-courses",
@@ -209,6 +211,11 @@ const fixtures = [
     pattern: /fetchKnowledgeBaseStatus[\s\S]*indexedLectureCount[\s\S]*courseCounts[\s\S]*status/,
   },
   {
+    name: "knowledge-base-lecture-counts-stay-auth-independent",
+    source: `${knowledgeBaseStatusRouteSource}\n${ragHelpersSource}\n${ragFoundationSqlSource}`,
+    pattern: /getLectureCourseCounts[\s\S]*from\("lecture_sources"\)[\s\S]*public\.lecture_sources[\s\S]*enable row level security[\s\S]*lecture sources are publicly readable[\s\S]*using \(true\)/i,
+  },
+  {
     name: "knowledge-base-source-health-expands-with-course-breakdown",
     source: pageSource,
     pattern: /sourceHealthExpanded[\s\S]*Using lecture data for responses[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
@@ -226,7 +233,7 @@ const fixtures = [
   {
     name: "chat-focus-mode-is-collapsible-and-mobile-friendly",
     source: pageSource,
-    pattern: /focusModeExpanded[\s\S]*toggleFocusMode[\s\S]*Focus Mode[\s\S]*focusSummary[\s\S]*sm:rotate-180[\s\S]*hidden sm:block/,
+    pattern: /focusModeExpanded[\s\S]*toggleFocusMode[\s\S]*Focus Mode[\s\S]*focusSummary[\s\S]*Control how chat interprets your question[\s\S]*sm:rotate-180[\s\S]*hidden sm:block/,
   },
   {
     name: "chat-focus-mode-syncs-with-knowledge-base-and-allows-no-subject",
@@ -436,7 +443,7 @@ const fixtures = [
   {
     name: "chat-offers-to-continue-last-study-artifact",
     source: pageSource,
-    pattern: /(?=[\s\S]*recentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)/,
+    pattern: /(?=[\s\S]*recentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*recentArtifactResume\?\.savedArtifactId)(?=[\s\S]*savedArtifacts\.length > 0)/,
   },
   {
     name: "artifact-panel-supports-saveable-study-library",
@@ -487,6 +494,11 @@ const fixtures = [
     name: "settings-menu-has-inline-toggles-and-quick-actions",
     source: settingsSource,
     pattern: /Quick Toggles[\s\S]*Default Mode[\s\S]*Improve Model[\s\S]*Quick Actions[\s\S]*New Chat[\s\S]*Open Artifact Panel[\s\S]*Reset Settings/,
+  },
+  {
+    name: "settings-menu-opens-artifacts-from-saved-library-data",
+    source: settingsSource,
+    pattern: /fetchLatestSavedArtifact[\s\S]*from\("study_artifacts"\)[\s\S]*order\("updated_at", \{ ascending: false \}\)[\s\S]*maybeSingle\(\)[\s\S]*handleOpenArtifactPanel[\s\S]*Log in to access your artifacts[\s\S]*No saved artifact yet[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY[\s\S]*handleQuickHomeAction\("open-artifact", "Opening artifact"\)[\s\S]*Latest artifact:/,
   },
   {
     name: "settings-menu-shows-inline-save-feedback",
@@ -614,6 +626,13 @@ for (const fixture of fixtures) {
     failed = true;
     console.error(`❌ ${fixture.name}`);
   }
+}
+
+if (/lecture_sources[\s\S]{0,400}\.eq\(["']user_id["']/.test(ragHelpersSource)) {
+  failed = true;
+  console.error("❌ knowledge-base-lecture-counts-do-not-filter-by-user");
+} else {
+  console.log("✅ knowledge-base-lecture-counts-do-not-filter-by-user");
 }
 
 if (failed) process.exit(1);

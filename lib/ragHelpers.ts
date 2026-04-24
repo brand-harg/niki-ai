@@ -480,6 +480,8 @@ async function getLectureCourseCounts(): Promise<Array<{ course: string; count: 
   let data: unknown[] | null = null;
   let error: { message?: string } | null = null;
   try {
+    // Knowledge base availability is global content, not user-owned content.
+    // Keep this query auth-independent and never scope it by user_id.
     const result = await withTimeout(
       supabaseAdmin
         .from("lecture_sources")

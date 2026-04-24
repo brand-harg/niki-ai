@@ -13,6 +13,14 @@ create table if not exists public.lecture_sources (
   created_at timestamptz not null default now()
 );
 
+alter table public.lecture_sources enable row level security;
+
+drop policy if exists "lecture sources are publicly readable" on public.lecture_sources;
+create policy "lecture sources are publicly readable"
+on public.lecture_sources
+for select
+using (true);
+
 create table if not exists public.lecture_chunks (
   id uuid primary key default gen_random_uuid(),
   source_id uuid not null references public.lecture_sources(id) on delete cascade,
