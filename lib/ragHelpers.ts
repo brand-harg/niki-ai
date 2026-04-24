@@ -1,3 +1,4 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type LectureCitation = {
@@ -15,6 +16,8 @@ type LectureSourceRow = {
   professor: string | null;
   video_url: string | null;
 };
+
+type LectureCourseCount = { course: string; count: number };
 
 const LECTURE_QUERY_TIMEOUT_MS = 2_500;
 const PLAYLIST_FETCH_TIMEOUT_MS = 6_000;
@@ -123,6 +126,7 @@ const FALLBACK_COURSE_PLAYLISTS: PlaylistFallback[] = [
 ];
 
 const playlistFallbackCache = new Map<string, LectureSourceRow[]>();
+let publicLectureSourceClient: SupabaseClient | null | undefined;
 
 const KNOWN_VIDEO_LOOKUPS: Array<{
   pattern: RegExp;
@@ -289,6 +293,29 @@ function fallbackCourseCounts(): Array<{ course: string; count: number }> {
   ];
 }
 
+function getPublicLectureSourceClient(): SupabaseClient | null {
+  if (publicLectureSourceClient !== undefined) {
+    return publicLectureSourceClient;
+  }
+
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
+  if (!supabaseUrl || !anonKey) {
+    publicLectureSourceClient = null;
+    return publicLectureSourceClient;
+  }
+
+  publicLectureSourceClient = createClient(supabaseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+  return publicLectureSourceClient;
+}
+
 function normalizeLectureCourseForCounts(course?: string | null): string {
   const normalized = course?.trim();
   if (!normalized) return "Unknown course";
@@ -298,6 +325,97 @@ function normalizeLectureCourseForCounts(course?: string | null): string {
   if (/^pre\s*calc(?:ulus)?\s*1$/i.test(normalized)) return "PreCalc1";
 
   return normalized;
+}
+
+function reduceLectureCourseCounts(rows: LectureSourceRow[]): LectureCourseCount[] {
+  const seen = new Set<string>();
+  const counts = new Map<string, number>();
+
+  for (const row of rows) {
+    const course = normalizeLectureCourseForCounts(row.course);
+    const key = [
+      row.lecture_title ?? "",
+      course,
+      row.professor ?? "",
+      row.video_url ?? "",
+    ].join("|");
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+    counts.set(course, (counts.get(course) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .map(([course, count]) => ({ course, count }))
+    .sort((a, b) => a.course.localeCompare(b.course));
+}
+
+async function queryLectureCourseCounts(
+  client: Pick<SupabaseClient, "from">,
+  label: string
+): Promise<{ counts: LectureCourseCount[]; error: string | null }> {
+  try {
+    const result = await withTimeout(
+      client
+        .from("lecture_sources")
+        .select("lecture_title, course, professor, video_url")
+        .order("course", { ascending: true }),
+      LECTURE_QUERY_TIMEOUT_MS,
+      `${label} lecture count lookup timed out.`
+    );
+
+    if (result.error) {
+      return { counts: [], error: result.error.message };
+    }
+
+    return {
+      counts: reduceLectureCourseCounts((result.data ?? []) as LectureSourceRow[]),
+      error: null,
+    };
+  } catch (lookupError: unknown) {
+    return {
+      counts: [],
+      error: lookupError instanceof Error ? lookupError.message : String(lookupError),
+    };
+  }
+}
+
+function logLectureCountVerification(
+  adminCounts: LectureCourseCount[],
+  publicCounts: LectureCourseCount[],
+  adminError: string | null,
+  publicError: string | null
+) {
+  if (process.env.NODE_ENV === "production") return;
+
+  const adminTotal = adminCounts.reduce((sum, row) => sum + row.count, 0);
+  const publicTotal = publicCounts.reduce((sum, row) => sum + row.count, 0);
+  const statisticsCount =
+    adminCounts.find((row) => row.course === "Statistics")?.count ??
+    publicCounts.find((row) => row.course === "Statistics")?.count ??
+    0;
+  const preCalcCount =
+    adminCounts.find((row) => row.course === "PreCalc1")?.count ??
+    publicCounts.find((row) => row.course === "PreCalc1")?.count ??
+    0;
+
+  console.info(
+    `[knowledge-base] lecture count verification admin=${adminTotal} public=${publicTotal} statistics=${statisticsCount} precalc1=${preCalcCount}` +
+      (adminError ? ` adminError=${adminError}` : "") +
+      (publicError ? ` publicError=${publicError}` : "")
+  );
+
+  if (
+    adminTotal !== publicTotal ||
+    JSON.stringify(adminCounts) !== JSON.stringify(publicCounts)
+  ) {
+    console.warn("[knowledge-base] lecture count mismatch detected", {
+      adminCounts,
+      publicCounts,
+      adminError,
+      publicError,
+    });
+  }
 }
 
 function knownVideoLookupReply(message: string): string | null {
@@ -477,48 +595,33 @@ async function getAvailableLectureCourses(): Promise<string[]> {
 }
 
 async function getLectureCourseCounts(): Promise<Array<{ course: string; count: number }>> {
-  let data: unknown[] | null = null;
-  let error: { message?: string } | null = null;
-  try {
-    // Knowledge base availability is global content, not user-owned content.
-    // Keep this query auth-independent and never scope it by user_id.
-    const result = await withTimeout(
-      supabaseAdmin
-        .from("lecture_sources")
-        .select("lecture_title, course, professor, video_url")
-        .order("course", { ascending: true }),
-      LECTURE_QUERY_TIMEOUT_MS,
-      "Lecture count lookup timed out."
-    );
-    data = result.data;
-    error = result.error;
-  } catch (lookupError: unknown) {
-    error = { message: lookupError instanceof Error ? lookupError.message : String(lookupError) };
+  // Knowledge base availability is global content, not user-owned content.
+  // Verify that both the service-role path and the public anon path resolve the same counts.
+  const publicClient = getPublicLectureSourceClient();
+  const [adminResult, publicResult] = await Promise.all([
+    queryLectureCourseCounts(supabaseAdmin, "admin"),
+    publicClient
+      ? queryLectureCourseCounts(publicClient, "public")
+      : Promise.resolve({ counts: [] as LectureCourseCount[], error: "Missing anon client env." }),
+  ]);
+
+  logLectureCountVerification(
+    adminResult.counts,
+    publicResult.counts,
+    adminResult.error,
+    publicResult.error
+  );
+
+  if (adminResult.counts.length > 0 && publicResult.counts.length > 0) {
+    return adminResult.counts.length >= publicResult.counts.length
+      ? adminResult.counts
+      : publicResult.counts;
   }
 
-  if (error) return fallbackCourseCounts();
+  if (adminResult.counts.length > 0) return adminResult.counts;
+  if (publicResult.counts.length > 0) return publicResult.counts;
 
-  const seen = new Set<string>();
-  const counts = new Map<string, number>();
-
-  for (const row of (data ?? []) as LectureSourceRow[]) {
-    const course = normalizeLectureCourseForCounts(row.course);
-    const key = [
-      row.lecture_title ?? "",
-      course,
-      row.professor ?? "",
-      row.video_url ?? "",
-    ].join("|");
-
-    if (seen.has(key)) continue;
-    seen.add(key);
-    counts.set(course, (counts.get(course) ?? 0) + 1);
-  }
-
-  const output = Array.from(counts.entries())
-    .map(([course, count]) => ({ course, count }))
-    .sort((a, b) => a.course.localeCompare(b.course));
-  return output.length > 0 ? output : fallbackCourseCounts();
+  return fallbackCourseCounts();
 }
 
 function buildLectureCountReply(counts: Array<{ course: string; count: number }>): string {

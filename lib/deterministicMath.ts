@@ -425,13 +425,14 @@ function normalizeCasExpression(expression: string): string | null {
   if (/[^0-9a-z+\-*/^().,]/.test(normalized)) return null;
 
   normalized = normalized
-    .replace(/\be\^\(([^()]+)\)/g, "exp($1)")
-    .replace(/\be\^x\b/g, "exp(x)")
+    .replace(/e\^\(([^()]+)\)/g, "exp($1)")
+    .replace(/e\^x/g, "exp(x)")
     .replace(/\bln(?=\()/g, "log")
     .replace(/\bln([0-9]*x(?:\^[0-9]+)?)/g, "log($1)")
     .replace(/\blog([0-9]*x(?:\^[0-9]+)?)/g, "log($1)")
     .replace(/(\d)(x)/g, "$1*$2")
     .replace(/(x|\))(\d)/g, "$1*$2")
+    .replace(/(x|\))(?=e\^|exp\()/g, "$1*")
     .replace(/(x|\))(?=(sin|cos|tan|sec|csc|cot|log|sqrt|exp)\()/g, "$1*")
     .replace(/(\d|\))(?=x)/g, "$1*")
     .replace(/pi/g, "PI");
@@ -470,6 +471,174 @@ function cleanCasLatex(latex: string): string {
     .replace(/(\\(?:ln|sin|cos|tan|sec|csc|cot)\([^)]*\))x/g, "x$1")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function splitTopLevelAdditiveTerms(expression: string): string[] {
+  const terms: string[] = [];
+  let depth = 0;
+  let buffer = "";
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index];
+    if (character === "(") depth += 1;
+    if (character === ")") depth = Math.max(0, depth - 1);
+
+    if ((character === "+" || character === "-") && depth === 0 && buffer) {
+      terms.push(buffer);
+      buffer = character;
+      continue;
+    }
+
+    buffer += character;
+  }
+
+  if (buffer) terms.push(buffer);
+  return terms.map((term) => term.trim()).filter(Boolean);
+}
+
+function extractExponentialTokens(expression: string): string[] {
+  const tokens: string[] = [];
+
+  for (let index = 0; index < expression.length; index += 1) {
+    if (expression.startsWith("exp(", index)) {
+      let depth = 0;
+      let endIndex = index;
+      for (; endIndex < expression.length; endIndex += 1) {
+        const character = expression[endIndex];
+        if (character === "(") depth += 1;
+        if (character === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            tokens.push(expression.slice(index, endIndex + 1));
+            index = endIndex;
+            break;
+          }
+        }
+      }
+    } else if (expression.startsWith("e^x", index)) {
+      tokens.push("e^x");
+      index += 2;
+    } else if (expression.startsWith("e^(", index)) {
+      let depth = 0;
+      let endIndex = index + 2;
+      for (; endIndex < expression.length; endIndex += 1) {
+        const character = expression[endIndex];
+        if (character === "(") depth += 1;
+        if (character === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            tokens.push(expression.slice(index, endIndex + 1));
+            index = endIndex;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(new Set(tokens));
+}
+
+function stripSingleFactor(term: string, factor: string): string {
+  const unsigned = term.startsWith("+") || term.startsWith("-") ? term.slice(1) : term;
+  const sign = term.startsWith("-") ? "-" : term.startsWith("+") ? "+" : "";
+
+  let stripped = unsigned;
+  if (stripped === factor) return `${sign}1`;
+  if (stripped.startsWith(`${factor}*`)) stripped = stripped.slice(factor.length + 1);
+  else if (stripped.endsWith(`*${factor}`)) stripped = stripped.slice(0, -1 * (factor.length + 1));
+  else if (stripped.includes(`*${factor}*`)) stripped = stripped.replace(`*${factor}*`, "*");
+  else stripped = stripped.replace(factor, "");
+
+  stripped = stripped.replace(/^\*/, "").replace(/\*$/, "").trim();
+  if (!stripped) stripped = "1";
+  return `${sign}${stripped}`;
+}
+
+function factorSharedExponential(expression: string): string | null {
+  const terms = splitTopLevelAdditiveTerms(expression);
+  if (terms.length < 2) return null;
+
+  const firstTermTokens = extractExponentialTokens(terms[0] ?? "");
+  if (!firstTermTokens.length) return null;
+
+  const sharedFactor = firstTermTokens.find((token) =>
+    terms.every((term) => term.includes(token))
+  );
+  if (!sharedFactor) return null;
+
+  const strippedTerms = terms.map((term) => stripSingleFactor(term, sharedFactor));
+  const combined = strippedTerms
+    .map((term, index) => {
+      if (index === 0) return term.replace(/^\+/, "");
+      return term;
+    })
+    .join("");
+
+  return `${sharedFactor}*(${combined})`;
+}
+
+function reorderSimpleLatexSum(expression: string): string {
+  const trimmed = expression.trim();
+  if (!trimmed.startsWith("-") || !trimmed.includes("+")) return trimmed;
+
+  const terms = splitTopLevelAdditiveTerms(trimmed);
+  if (terms.length !== 2) return trimmed;
+
+  const [first, second] = terms;
+  if (!first?.startsWith("-") || !second || second.startsWith("-")) return trimmed;
+  return `${second.replace(/^\+/, "")}-${first.slice(1)}`;
+}
+
+function preferNegativeExponentialFactorLatex(latex: string): string {
+  const match = latex.match(/^\\frac\{(.+)\}\{e\^\{(.+)\}\}$/);
+  if (!match) return latex;
+
+  const numerator = reorderSimpleLatexSum((match[1] ?? "").trim());
+  const exponent = (match[2] ?? "").trim();
+  return `e^{-${exponent}}\\left(${numerator}\\right)`;
+}
+
+function standardizePresentedCasLatex(resultText: string, fallbackLatex: string): string {
+  let preferredText = resultText;
+
+  try {
+    if (/log\(e\)/.test(preferredText)) {
+      preferredText = nerdamer(`simplify(${preferredText})`).toString();
+    }
+
+    const factoredExponential = factorSharedExponential(preferredText);
+    if (factoredExponential) {
+      preferredText = factoredExponential;
+    }
+
+    return preferNegativeExponentialFactorLatex(cleanCasLatex(nerdamer(preferredText).toTeX()));
+  } catch {
+    return fallbackLatex;
+  }
+}
+
+function splitTopLevelMultiplicativeFactors(expression: string): string[] {
+  const factors: string[] = [];
+  let depth = 0;
+  let buffer = "";
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index];
+    if (character === "(") depth += 1;
+    if (character === ")") depth = Math.max(0, depth - 1);
+
+    if (character === "*" && depth === 0) {
+      if (buffer) factors.push(buffer.trim());
+      buffer = "";
+      continue;
+    }
+
+    buffer += character;
+  }
+
+  if (buffer) factors.push(buffer.trim());
+  return factors.filter(Boolean);
 }
 
 function formatSolveLatex(resultText: string, fallbackLatex: string): string {
@@ -521,9 +690,10 @@ function runCasOperation(intent: SimpleMathIntent, expression: string): string |
 
     const latex = cleanCasLatex(result.toTeX());
     if (!latex || /integrate|diff|undefined|NaN/i.test(latex)) return null;
+    const presentedLatex = standardizePresentedCasLatex(resultText, latex);
 
-    if (intent === "solve") return formatSolveLatex(resultText, latex);
-    return intent === "integral" ? `${latex} + C` : latex;
+    if (intent === "solve") return formatSolveLatex(resultText, presentedLatex);
+    return intent === "integral" ? `${presentedLatex} + C` : presentedLatex;
   } catch {
     return null;
   }
@@ -1086,6 +1256,8 @@ function buildSineOverXLimitReply({
     intro,
     "",
     "**Formula used:**",
+    "Using the standard limit:",
+    "",
     displayMath("\\lim_{u\\to 0}\\frac{\\sin(u)}{u}=1"),
     "",
     "**Step-by-Step Solution**",
@@ -1101,7 +1273,7 @@ function buildSineOverXLimitReply({
 &=${coefficient}\\cdot\\frac{\\sin(${coefficient === 1 ? "" : coefficient}x)}{${coefficient}x}
 \\end{aligned}`),
     "",
-    "**Step 3: Apply the standard limit**",
+    "**Step 3: Use the standard limit**",
     "",
     displayMath(`\\begin{aligned}
 ${input}
@@ -4538,6 +4710,13 @@ function buildGeometricRecurrenceReply({
 
 function derivativeFormulaForExpression(expression: string): string {
   const normalized = normalizeCasExpression(expression) ?? expression.toLowerCase().replace(/\s+/g, "");
+  const productFactors = splitTopLevelMultiplicativeFactors(normalized).filter(
+    (factor) => !/^[+-]?\d+(?:\.\d+)?$/.test(factor)
+  );
+
+  if (productFactors.length === 2) {
+    return "\\frac{d}{dx}\\left[u(x)v(x)\\right]=u'(x)v(x)+u(x)v'(x)";
+  }
 
   if (/sin\(x\)/.test(normalized)) return "\\frac{d}{dx}\\sin(x)=\\cos(x)";
   if (/cos\(x\)/.test(normalized)) return "\\frac{d}{dx}\\cos(x)=-\\sin(x)";
@@ -4597,6 +4776,27 @@ function buildPolynomialDerivativeApplicationLatex(terms: PolynomialTerm[]): str
 function buildTeachingDerivativeApplicationLines(expression: string, casResult: string): string[] {
   const normalized = normalizeCasExpression(expression) ?? expression.toLowerCase().replace(/\s+/g, "");
   const expressionLatex = cleanCasLatex(nerdamer(normalized).toTeX());
+
+  const productFactors = splitTopLevelMultiplicativeFactors(normalized).filter(
+    (factor) => !/^[+-]?\d+(?:\.\d+)?$/.test(factor)
+  );
+  if (productFactors.length === 2) {
+    const [uFactor, vFactor] = productFactors;
+    const uLatex = cleanCasLatex(nerdamer(uFactor).toTeX());
+    const vLatex = cleanCasLatex(nerdamer(vFactor).toTeX());
+    const uPrimeLatex = cleanCasLatex(nerdamer(`diff(${uFactor},x)`).toTeX());
+    const vPrimeLatex = cleanCasLatex(nerdamer(`diff(${vFactor},x)`).toTeX());
+
+    return [
+      "Let the two factors be:",
+      "",
+      displayMath(`\\begin{aligned}u&=${uLatex}\\\\v&=${vLatex}\\\\u'&=${uPrimeLatex}\\\\v'&=${vPrimeLatex}\\end{aligned}`),
+      "",
+      displayMath(`\\frac{d}{dx}\\left(${expressionLatex}\\right)=u'v+uv'=${uPrimeLatex}\\left(${vLatex}\\right)+\\left(${uLatex}\\right)${vPrimeLatex}`),
+      "",
+      "Now simplify that expression into the clean final form.",
+    ];
+  }
 
   const buildCompositeLines = (
     innerRaw: string,
@@ -4678,6 +4878,17 @@ function buildTeachingDerivativeApplicationLines(expression: string, casResult: 
 
 function integralFormulaForExpression(expression: string): string {
   const normalized = normalizeCasExpression(expression) ?? expression.toLowerCase().replace(/\s+/g, "");
+  const productFactors = splitTopLevelMultiplicativeFactors(normalized).filter(
+    (factor) => !/^[+-]?\d+(?:\.\d+)?$/.test(factor)
+  );
+
+  if (
+    productFactors.length === 2 &&
+    productFactors.some((factor) => /exp\(|log\(/.test(factor)) &&
+    productFactors.some((factor) => /x/.test(factor))
+  ) {
+    return "\\int u\\,dv=uv-\\int v\\,du";
+  }
 
   if (/sin\(x\)/.test(normalized)) return "\\int \\sin(x)\\,dx=-\\cos(x)+C";
   if (/cos\(x\)/.test(normalized)) return "\\int \\cos(x)\\,dx=\\sin(x)+C";
@@ -4697,7 +4908,9 @@ function readableMathExpression(expression: string): string {
       .replace(/\\sin\(([^)]*)\)/g, "sin($1)")
       .replace(/\\cos\(([^)]*)\)/g, "cos($1)")
       .replace(/\\tan\(([^)]*)\)/g, "tan($1)")
-      .replace(/\^\{([^}]*)\}/g, "^$1")
+      .replace(/\^\{([^}]*)\}/g, (_match, exponent: string) => (/^[A-Za-z0-9+-]$/.test(exponent) ? `^${exponent}` : `^(${exponent})`))
+      .replace(/(\))(?!\s)(?=e\^|sin\(|cos\(|tan\(|ln\(|log\()/g, "$1 ")
+      .replace(/(e\^\([^)]*\)|e\^[A-Za-z0-9+-]+)(?!\s)(?=[A-Za-z])/g, "$1 ")
       .replace(/\s+/g, " ")
       .trim();
   } catch {
@@ -4805,12 +5018,6 @@ v&=x
     "**Step 4: Evaluate the final integral**",
     "",
     displayMath(`\\int ${input}\\,dx=${casResult}`),
-    "",
-    "**Alternative Form**",
-    "",
-    "You can also factor out the $x$: ",
-    "",
-    displayMath(`x(${input}-1)+C`),
     ...check,
     ...lectureConnection,
     "",
@@ -5619,7 +5826,7 @@ function buildDeterministicMathReply({
     intent === "integral" && isLogIntegralExpression(expression)
       ? [
         "",
-        "**Choose:**",
+        "**Choose u and dv:**",
         displayMath(`\\begin{aligned}u&=${cleanCasLatex(nerdamer(normalizeCasExpression(expression) ?? expression).toTeX())}\\\\ dv&=dx\\\\ du&=\\frac{1}{x}\\,dx\\\\ v&=x\\end{aligned}`),
       ]
       : [];

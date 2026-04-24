@@ -130,8 +130,10 @@ function isLikelyInlineMathExpression(expression: string): boolean {
   if (/\n|@@CODE_BLOCK_|@@MATH_BLOCK_/.test(trimmed)) return false;
 
   const wordCount = (trimmed.match(/[A-Za-z]{2,}/g) ?? []).length;
+  const isProbabilityExpression = /\bP(?:\\left)?\(/.test(trimmed);
   const hasMathShape =
     /[=^_]|'/.test(trimmed) ||
+    /\bP(?:\\left)?\(/.test(trimmed) ||
     /\b(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\(/i.test(trimmed) ||
     /\b\d+[a-z](?:\^\{?-?\d+\}?|\^\d+)?\b/i.test(trimmed) ||
     /\b[a-z](?:\^\{?-?\d+\}?|\^\d+)\b/i.test(trimmed) ||
@@ -143,7 +145,43 @@ function isLikelyInlineMathExpression(expression: string): boolean {
     return false;
   }
 
+  if (isProbabilityExpression) return wordCount <= 8;
+
   return wordCount <= 3;
+}
+
+function normalizeProbabilityEventText(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "\\text{}";
+
+  const normalizedSeparators = trimmed.replace(/\\mid/g, "|");
+  const parts = normalizedSeparators.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+  const renderPart = (part: string) => {
+    if (!part) return "\\text{}";
+    if (/^\\text\{.*\}$/.test(part) || /\\[A-Za-z]+/.test(part)) return part;
+    return `\\text{${part.replace(/[{}]/g, "").trim()}}`;
+  };
+
+  if (parts.length > 1) {
+    return parts.map(renderPart).join(" \\mid ");
+  }
+
+  return renderPart(trimmed);
+}
+
+function normalizeProbabilityNotation(expression: string): string {
+  if (!/\bP(?:\\left)?\(/.test(expression)) return expression;
+
+  const normalizedCalls = expression.replace(
+    /P(?:\\left)?\(([^)\n]+)\)(?:\\right)?/g,
+    (_match, inner: string) => `P(${normalizeProbabilityEventText(inner)})`
+  );
+
+  return normalizedCalls
+    .replace(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g, "\\frac{$1}{$2}")
+    .replace(/×/g, "\\times")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeInlineDollarMath(content: string): string {
@@ -157,9 +195,13 @@ function normalizeInlineDollarMath(content: string): string {
   });
 
   const normalizedInline = protectedContent.replace(/\$([^\n$]+?)\$/g, (match, expr: string) => {
-    if (!isLikelyInlineMathExpression(expr)) return expr.trim();
+    const trimmedExpr = expr.trim();
+    const isInlineLatexExpression =
+      /\\(?:frac|sqrt|ln|log|sin|cos|tan|sec|csc|cot|text|mid|times|left|right)\b/.test(trimmedExpr) &&
+      !/\\begin\b/.test(trimmedExpr);
+    if (!isLikelyInlineMathExpression(trimmedExpr) && !isInlineLatexExpression) return trimmedExpr;
     const token = `@@INLINE_MATH_${inlineTokens.length}@@`;
-    inlineTokens.push(`$${expr.trim()}$`);
+    inlineTokens.push(`$${trimmedExpr}$`);
     return token;
   });
 
@@ -172,6 +214,7 @@ function normalizeInlineDollarMath(content: string): string {
 
 function wrapBareInlineMath(text: string): string {
   const lines = text.split("\n");
+  const probabilityAtom = String.raw`P(?:\\left)?\([^)\n]+\)(?:\\right)?`;
   const inlineMathAtom =
     String.raw`(?:e\^\([^)\n]+\)|e\^\{[^}\n]+\}|(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\([^)\n]+\)|[A-Za-z][A-Za-z0-9']*\([^)\n]+\)|[0-9]+(?:\.[0-9]+)?|[0-9]*[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?|[A-Za-z](?:\^\{?-?\d+\}?|\^\d+)?|[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?)`;
   const richInlineMathAtom =
@@ -200,6 +243,22 @@ function wrapBareInlineMath(text: string): string {
     };
 
     let wrapped = segment.replace(
+      new RegExp(
+        String.raw`(^|[\s(,])((?:${probabilityAtom})(?:\s*(?:=|\\times|×)\s*(?:${probabilityAtom}|[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?))+)(?=[\s).,;:!?]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead}${protectInline(expr)}`
+    );
+
+    wrapped = wrapped.replace(
+      new RegExp(
+        String.raw`(^|[\s(,])(${probabilityAtom})(?=[\s).,;:!?]|$)`,
+        "g"
+      ),
+      (_match, lead: string, expr: string) => `${lead}${protectInline(expr)}`
+    );
+
+    wrapped = wrapped.replace(
       new RegExp(
         String.raw`(^|[\s(,])((?:e\^\([^)\n]+\)|e\^\{[^}\n]+\}|(?:sin|cos|tan|sec|csc|cot|ln|log|sqrt)\s*\([^)\n]+\)))(?=[\s).,;:!?*]|$)`,
         "g"
@@ -621,7 +680,9 @@ function normalizeInlineMathExpressions(content: string): string {
   return content.replace(/\$([^\n$]+?)\$/g, (match, expr: string) => {
     // Don't normalize if it's display math or contains code block tokens
     if (match.includes("@@")) return match;
-    const normalized = normalizeTrigFunctions(normalizeExponents(expr.trim()));
+    const normalized = normalizeProbabilityNotation(
+      normalizeTrigFunctions(normalizeExponents(expr.trim()))
+    );
     return `$${normalized}$`;
   });
 }

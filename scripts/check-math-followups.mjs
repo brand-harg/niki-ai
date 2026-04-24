@@ -194,6 +194,35 @@ const scenarios = [
     expect: [/Step 3: Apply the formula to this problem/i, /Inner function:/i, /Outer function:/i, /\\cos\\left\(x\^\{2\}\\right\)\\cdot2x/i],
     reject: [/Qwen/i],
   },
+  {
+    id: "teaching-product-rule-shows-u-v-and-clean-factored-form",
+    body: {
+      message: "derivative of sin(x)e^(2x)",
+      history: [],
+      isNikiMode: true,
+      lectureMode: true,
+    },
+    expect: [
+      /Step 3: Apply the formula to this problem/i,
+      /u&=\\sin/i,
+      /v&=e\^\{2x\}/i,
+      /u'&=\\cos/i,
+      /v'&=2e\^\{2x\}/i,
+      /e\^\{2x\}\(2\\sin\(x\)\+\\cos\(x\)\)/i,
+    ],
+    reject: [/Qwen/i],
+  },
+  {
+    id: "derivative-of-exp-does-not-keep-ln-e-artifact",
+    body: {
+      message: "derivative of e^x",
+      history: [],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/f'\(x\)\s*=\s*e\^\{x\}/i],
+    reject: [/ln\(e\)/i, /Qwen/i],
+  },
 ];
 
 async function postText(body) {

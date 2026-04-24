@@ -14,6 +14,12 @@ const generalPageSource = readFileSync("app/settings/general/page.tsx", "utf8");
 const chatRouteSource = readFileSync("app/api/chat/route.ts", "utf8");
 const publicArtifactsRouteSource = readFileSync("app/api/artifacts/public/route.ts", "utf8");
 const knowledgeBaseStatusRouteSource = readFileSync("app/api/knowledge-base/status/route.ts", "utf8");
+const chatModeControlsSource = readFileSync("components/ChatModeControls.tsx", "utf8");
+const knowledgeBasePanelSource = readFileSync("components/KnowledgeBasePanel.tsx", "utf8");
+const artifactWorkspacePanelSource = readFileSync("components/ArtifactWorkspacePanel.tsx", "utf8");
+const artifactWorkspaceHookSource = readFileSync("hooks/useArtifactWorkspace.ts", "utf8");
+const knowledgeBaseHookSource = readFileSync("hooks/useKnowledgeBasePanel.ts", "utf8");
+const artifactWorkspaceLibSource = readFileSync("lib/artifactWorkspace.ts", "utf8");
 const avatarUrlSource = readFileSync("lib/avatarUrl.ts", "utf8");
 const authProfileSource = readFileSync("lib/authProfile.ts", "utf8");
 const authRecoverySource = readFileSync("lib/authRecovery.ts", "utf8");
@@ -28,6 +34,19 @@ const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
 const nextConfigSource = readFileSync("next.config.ts", "utf8");
 const ragHelpersSource = readFileSync("lib/ragHelpers.ts", "utf8");
+const artifactWorkspaceSource = [
+  pageSource,
+  artifactWorkspacePanelSource,
+  artifactWorkspaceHookSource,
+  artifactWorkspaceLibSource,
+].join("\n");
+const chatControlsSource = [pageSource, chatModeControlsSource].join("\n");
+const knowledgeBaseSource = [
+  pageSource,
+  knowledgeBasePanelSource,
+  knowledgeBaseHookSource,
+  knowledgeBaseStatusRouteSource,
+].join("\n");
 
 const fixtures = [
   {
@@ -197,23 +216,28 @@ const fixtures = [
   },
   {
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
-    source: pageSource,
+    source: knowledgeBaseSource,
     pattern: /Source Health[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,
   },
   {
     name: "knowledge-base-panel-is-an-interactive-control-surface",
-    source: pageSource,
+    source: knowledgeBaseSource,
     pattern: /Start New Session[\s\S]*Active Lecture Set[\s\S]*Set Active[\s\S]*Clear[\s\S]*Upload \/ Attach File[\s\S]*Recent Context/,
   },
   {
     name: "knowledge-base-course-chips-drive-focus-mode",
-    source: pageSource,
-    pattern: /handleSelectKnowledgeCourse[\s\S]*chatFocus\.course === courseContext \? "" : courseContext[\s\S]*topic:\s*""[\s\S]*course\.courseContext === activeKnowledgeCourse \|\|[\s\S]*course\.courseContext === chatFocus\.course/,
+    source: knowledgeBaseSource,
+    pattern: /(?=[\s\S]*handleSelectKnowledgeCourse)(?=[\s\S]*chatFocus\.course === courseContext \? "" : courseContext)(?=[\s\S]*topic:\s*"")(?=[\s\S]*course\.courseContext === activeKnowledgeCourse)(?=[\s\S]*course\.courseContext === chatFocusCourse)/,
   },
   {
     name: "knowledge-base-auth-gates-syllabus-and-library-actions",
-    source: pageSource,
+    source: knowledgeBaseSource,
     pattern: /(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*Log in to save your study progress)(?=[\s\S]*router\.push\(["']\/login["']\))(?=[\s\S]*Save later when you log in)/,
+  },
+  {
+    name: "knowledge-base-pinned-syllabus-is-session-scoped",
+    source: knowledgeBaseHookSource,
+    pattern: /(?=[\s\S]*getPinnedSyllabusStorageKey)(?=[\s\S]*setPinnedSyllabus\(null\))(?=[\s\S]*setIsSyllabusPreviewOpen\(false\))(?=[\s\S]*removeItem\(PINNED_SYLLABUS_STORAGE_KEY\))(?=[\s\S]*readStoredPinnedSyllabus\(nextStorageKey\))/,
   },
   {
     name: "settings-menu-reacts-to-auth-state-changes",
@@ -227,7 +251,7 @@ const fixtures = [
   },
   {
     name: "knowledge-base-panel-loads-real-health-metrics",
-    source: `${pageSource}\n${knowledgeBaseStatusRouteSource}`,
+    source: knowledgeBaseSource,
     pattern: /fetchKnowledgeBaseStatus[\s\S]*indexedLectureCount[\s\S]*courseCounts[\s\S]*status/,
   },
   {
@@ -237,32 +261,32 @@ const fixtures = [
   },
   {
     name: "knowledge-base-source-health-expands-with-course-breakdown",
-    source: pageSource,
+    source: knowledgeBaseSource,
     pattern: /sourceHealthExpanded[\s\S]*Using lecture data for responses[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
   },
   {
     name: "chat-focus-mode-supports-all-core-courses-and-persists",
-    source: pageSource,
+    source: chatControlsSource,
     pattern: /CHAT_FOCUS_STORAGE_KEY[\s\S]*window\.localStorage\.setItem\(CHAT_FOCUS_STORAGE_KEY[\s\S]*Focus Mode[\s\S]*Current topic or section/,
   },
   {
     name: "chat-focus-mode-shows-topic-suggestions",
-    source: pageSource,
+    source: chatControlsSource,
     pattern: /const FOCUS_TOPIC_SUGGESTIONS[\s\S]*getFocusSuggestion[\s\S]*Suggested:[\s\S]*focusSuggestion/,
   },
   {
     name: "chat-focus-mode-is-collapsible-and-mobile-friendly",
-    source: pageSource,
+    source: chatControlsSource,
     pattern: /(?=[\s\S]*MOBILE_CHAT_CONTROLS_EXPANDED_KEY)(?=[\s\S]*mobileControlsExpanded)(?=[\s\S]*toggleMobileControls)(?=[\s\S]*focusModeExpanded)(?=[\s\S]*toggleFocusMode)(?=[\s\S]*Focus Mode)(?=[\s\S]*focusSummary)(?=[\s\S]*Control how chat interprets your question)(?=[\s\S]*hidden sm:block)/,
   },
   {
     name: "mobile-chat-controls-collapse-into-summary-bar",
-    source: pageSource,
+    source: chatControlsSource,
     pattern: /mobileControlsSummary[\s\S]*No course[\s\S]*toggleMobileControls[\s\S]*rounded-\[0\.95rem\][\s\S]*Pure Logic[\s\S]*Nemanja Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
   },
   {
     name: "chat-focus-mode-syncs-with-knowledge-base-and-allows-no-subject",
-    source: pageSource,
+    source: knowledgeBaseSource,
     pattern: /(?=[\s\S]*No subject selected)(?=[\s\S]*setActiveKnowledgeCourse\(normalizedFocusCourse\))(?=[\s\S]*setRecentKnowledgeContexts\(\[nextContext\]\))(?=[\s\S]*setRecentKnowledgeContexts\(\[\]\))/,
   },
   {
@@ -277,7 +301,7 @@ const fixtures = [
   },
   {
     name: "chat-shows-lightweight-study-progress-feedback",
-    source: pageSource,
+    source: artifactWorkspaceSource,
     pattern: /studyProgressNotice[\s\S]*You're working through \${focusCourseLabel} topics\.[\s\S]*You're building reusable study material\./,
   },
   {
@@ -442,7 +466,7 @@ const fixtures = [
   },
   {
     name: "nemanja-mode-shows-teaching-toggle-only",
-    source: pageSource,
+    source: chatControlsSource,
     pattern: /Pure Logic[\s\S]*Nemanja Mode[\s\S]*isNikiMode \? \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF[\s\S]*opacity-0/,
   },
   {
@@ -452,28 +476,33 @@ const fixtures = [
   },
   {
     name: "artifact-panel-opens-with-live-preview-and-export",
-    source: pageSource,
+    source: artifactWorkspaceSource,
     pattern: /handleOpenArtifact[\s\S]*OPEN ARTIFACT[\s\S]*📘 Study Artifact[\s\S]*Structured notes generated from your request[\s\S]*Export PDF[\s\S]*data-artifact-export/,
   },
   {
     name: "artifact-pdf-export-downloads-without-popup-window",
-    source: pageSource,
-    pattern: /buildSinglePagePdfFromJpeg[\s\S]*URL\.createObjectURL[\s\S]*link\.download[\s\S]*link\.click\(\)[\s\S]*\.pdf/,
+    source: artifactWorkspaceSource,
+    pattern: /(?=[\s\S]*buildSinglePagePdfFromJpeg)(?=[\s\S]*URL\.createObjectURL)(?=[\s\S]*link\.download)(?=[\s\S]*link\.click\(\))(?=[\s\S]*\.pdf)/,
   },
   {
     name: "artifact-creation-shows-workspace-feedback",
-    source: pageSource,
-    pattern: /artifactCreationNotice[\s\S]*Study artifact created[\s\S]*setArtifactPanel\(artifactCreationNotice\)[\s\S]*Open workspace/,
+    source: artifactWorkspaceSource,
+    pattern: /artifactCreationNotice[\s\S]*Study artifact created[\s\S]*reopenCreationNoticeArtifact[\s\S]*Open workspace/,
   },
   {
     name: "chat-offers-to-continue-last-study-artifact",
-    source: pageSource,
-    pattern: /(?=[\s\S]*recentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*recentArtifactResume\?\.savedArtifactId)(?=[\s\S]*savedArtifacts\.length > 0)/,
+    source: artifactWorkspaceSource,
+    pattern: /(?=[\s\S]*recentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*recentArtifactResume\?\.savedArtifactId)(?=[\s\S]*savedArtifacts\.length > 0)(?=[\s\S]*savedArtifacts\.some\(\(artifact\) => artifact\.id === recentArtifactResumeState\.savedArtifactId\))/,
+  },
+  {
+    name: "artifact-resume-state-is-session-scoped",
+    source: artifactWorkspaceHookSource,
+    pattern: /(?=[\s\S]*getArtifactResumeStorageKey)(?=[\s\S]*setRecentArtifactResumeState\(null\))(?=[\s\S]*removeItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))(?=[\s\S]*window\.localStorage\.getItem\(scopedStorageKey\))(?=[\s\S]*window\.localStorage\.getItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))/,
   },
   {
     name: "artifact-panel-supports-saveable-study-library",
-    source: pageSource,
-    pattern: /handleOpenSavedArtifact[\s\S]*handleSaveArtifact[\s\S]*showLoginGatePrompt[\s\S]*study_artifacts[\s\S]*Save to Study Library/,
+    source: artifactWorkspaceSource,
+    pattern: /(?=[\s\S]*handleOpenSavedArtifact)(?=[\s\S]*handleSaveArtifact)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*study_artifacts)(?=[\s\S]*Save to Study Library)/,
   },
   {
     name: "logged-out-restricted-actions-show-soft-login-prompt",
@@ -482,12 +511,12 @@ const fixtures = [
   },
   {
     name: "artifact-panel-behaves-like-a-study-workspace",
-    source: pageSource,
+    source: artifactWorkspaceSource,
     pattern: /(?=[\s\S]*artifactKindLabel)(?=[\s\S]*No lecture source attached)(?=[\s\S]*Unsaved changes)(?=[\s\S]*Save Changes)(?=[\s\S]*Recent Artifacts)(?=[\s\S]*(Make Private|Make Public))/,
   },
   {
     name: "artifact-panel-protects-unsaved-work",
-    source: pageSource,
+    source: artifactWorkspaceSource,
     pattern: /serializeArtifactWorkspace[\s\S]*artifactBaselineSnapshot[\s\S]*You have unsaved changes[\s\S]*beforeunload[\s\S]*closeArtifactWorkspace/,
   },
   {
@@ -502,7 +531,7 @@ const fixtures = [
   },
   {
     name: "artifact-library-badges-reflect-public-and-private-state",
-    source: pageSource,
+    source: knowledgeBaseSource,
     pattern: /🌐 Public[\s\S]*🔒 Private[\s\S]*Only artifacts explicitly marked public are discoverable here\./,
   },
   {
@@ -532,8 +561,8 @@ const fixtures = [
   },
   {
     name: "home-syncs-menu-session-snapshot-and-pending-actions",
-    source: pageSource,
-    pattern: /CURRENT_CHAT_MODE_STORAGE_KEY[\s\S]*CURRENT_SESSION_SNAPSHOT_STORAGE_KEY[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY[\s\S]*PENDING_HOME_ACTION_STORAGE_KEY[\s\S]*setMessages\(createGreeting\(isNikiMode\)\)[\s\S]*setArtifactPanel\(storedArtifact\)/,
+    source: artifactWorkspaceSource,
+    pattern: /(?=[\s\S]*CURRENT_CHAT_MODE_STORAGE_KEY)(?=[\s\S]*CURRENT_SESSION_SNAPSHOT_STORAGE_KEY)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*PENDING_HOME_ACTION_STORAGE_KEY)(?=[\s\S]*setMessages\(createGreeting\(isNikiMode\)\))(?=[\s\S]*openStoredArtifactFromStorage\(\{ promptOnReplace: false \}\))/, 
   },
   {
     name: "tools-menu-contains-screenshot-action",

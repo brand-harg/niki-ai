@@ -36,6 +36,14 @@ create table if not exists public.lecture_chunks (
   unique (source_id, chunk_index)
 );
 
+alter table public.lecture_chunks enable row level security;
+
+drop policy if exists "lecture chunks are publicly readable" on public.lecture_chunks;
+create policy "lecture chunks are publicly readable"
+on public.lecture_chunks
+for select
+using (true);
+
 create table if not exists public.persona_snippets (
   id uuid primary key default gen_random_uuid(),
   source_id uuid not null references public.lecture_sources(id) on delete cascade,
