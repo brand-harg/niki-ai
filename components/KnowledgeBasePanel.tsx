@@ -43,6 +43,7 @@ type KnowledgeBasePanelProps = {
   onCloseSyllabusPreview: () => void;
   onUnpinSyllabus: () => void;
   onOpenSavedArtifact: (artifact: SavedArtifact) => void;
+  onDeleteSavedArtifact: (artifact: SavedArtifact) => void;
   onOpenPublicArtifact: (artifact: SavedArtifact) => void;
   onLogin: () => void;
   onRestoreRecentContext: (context: RecentKnowledgeContext) => void;
@@ -83,6 +84,7 @@ export default function KnowledgeBasePanel({
   onCloseSyllabusPreview,
   onUnpinSyllabus,
   onOpenSavedArtifact,
+  onDeleteSavedArtifact,
   onOpenPublicArtifact,
   onLogin,
   onRestoreRecentContext,
@@ -404,14 +406,16 @@ export default function KnowledgeBasePanel({
             savedArtifacts.length > 0 ? (
               <div className="mt-3 space-y-2">
                 {savedArtifacts.slice(0, 8).map((artifact) => (
-                  <button
+                  <div
                     key={artifact.id}
-                    type="button"
-                    onClick={() => onOpenSavedArtifact(artifact)}
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
+                    className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 transition hover:border-white/20 hover:bg-white/[0.05]"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => onOpenSavedArtifact(artifact)}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <p className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-100">
                           {artifact.title}
                         </p>
@@ -430,12 +434,21 @@ export default function KnowledgeBasePanel({
                             {artifact.topic_tag ? ` · ${artifact.topic_tag}` : ""}
                           </span>
                         </div>
+                      </button>
+                      <div className="flex shrink-0 items-start gap-2">
+                        <span className="pt-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {formatPinnedTimestamp(artifact.updated_at ?? artifact.created_at)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteSavedArtifact(artifact)}
+                          className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500 transition hover:border-rose-500/30 hover:text-rose-300"
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                        {formatPinnedTimestamp(artifact.updated_at ?? artifact.created_at)}
-                      </span>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             ) : (

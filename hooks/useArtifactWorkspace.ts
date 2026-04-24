@@ -73,6 +73,7 @@ export function useArtifactWorkspace({
   const [savedArtifacts, setSavedArtifacts] = useState<SavedArtifact[]>([]);
   const [publicArtifacts, setPublicArtifacts] = useState<SavedArtifact[]>([]);
   const [artifactSaveNotice, setArtifactSaveNotice] = useState<string | null>(null);
+  const [dismissedRecentArtifactId, setDismissedRecentArtifactId] = useState<string | null>(null);
   const artifactPreviewRef = useRef<HTMLDivElement>(null);
   const previousSessionUserIdRef = useRef<string | null>(sessionUserId ?? null);
   const activeSavedArtifactId = artifactPanel?.savedArtifactId ?? null;
@@ -103,6 +104,12 @@ export function useArtifactWorkspace({
       ? recentArtifactResumeState
       : null;
   }, [recentArtifactResumeState, savedArtifacts, sessionUserId]);
+
+  const visibleRecentArtifactResume = useMemo(() => {
+    if (!recentArtifactResume?.savedArtifactId) return null;
+    if (recentArtifactResume.savedArtifactId === dismissedRecentArtifactId) return null;
+    return recentArtifactResume;
+  }, [dismissedRecentArtifactId, recentArtifactResume]);
 
   const confirmArtifactLeave = useCallback(() => {
     if (!artifactHasUnsavedChanges) return true;
@@ -164,6 +171,18 @@ export function useArtifactWorkspace({
       setPublicArtifacts(Array.isArray(payload.artifacts) ? payload.artifacts : []);
     } catch (error) {
       console.log("Fetch public artifacts error:", error);
+    }
+  }, []);
+
+  const clearStoredArtifactResume = useCallback((userId?: string | null) => {
+    try {
+      const scopedStorageKey = getArtifactResumeStorageKey(userId);
+      if (scopedStorageKey) {
+        window.localStorage.removeItem(scopedStorageKey);
+      }
+      window.localStorage.removeItem(LAST_ARTIFACT_PANEL_STORAGE_KEY);
+    } catch {
+      // Ignore storage persistence failures.
     }
   }, []);
 
@@ -314,6 +333,10 @@ export function useArtifactWorkspace({
     openArtifactWorkspace(recentArtifactResume);
   }, [openArtifactWorkspace, recentArtifactResume]);
 
+  const dismissRecentArtifactResume = useCallback(() => {
+    setDismissedRecentArtifactId(recentArtifactResume?.savedArtifactId ?? null);
+  }, [recentArtifactResume]);
+
   const handleSaveArtifact = useCallback(async () => {
     if (!artifactPanel) return;
 
@@ -439,6 +462,62 @@ export function useArtifactWorkspace({
     sessionUserId,
   ]);
 
+  const handleDeleteSavedArtifact = useCallback(
+    async (artifact: SavedArtifact) => {
+      if (!sessionUserId) {
+        onRequireLogin("Log in to manage saved artifacts in your Study Library.");
+        return;
+      }
+
+      const confirmed = window.confirm(`Delete "${artifact.title}" from your Study Library?`);
+      if (!confirmed) return;
+
+      const { error } = await supabase
+        .from("study_artifacts")
+        .delete()
+        .eq("id", artifact.id)
+        .eq("user_id", sessionUserId);
+
+      if (error) {
+        console.log("Delete artifact error:", error);
+        setArtifactSaveNotice("I couldn't delete that artifact right now.");
+        return;
+      }
+
+      setSavedArtifacts((prev) => prev.filter((entry) => entry.id !== artifact.id));
+      setPublicArtifacts((prev) => prev.filter((entry) => entry.id !== artifact.id));
+      setDismissedRecentArtifactId((prev) => (prev === artifact.id ? null : prev));
+
+      if (recentArtifactResumeState?.savedArtifactId === artifact.id) {
+        setRecentArtifactResumeState(null);
+        clearStoredArtifactResume(sessionUserId);
+      }
+
+      setArtifactPanel((prev) => {
+        if (!prev || prev.savedArtifactId !== artifact.id) return prev;
+        const nextPanel = {
+          ...prev,
+          savedArtifactId: null,
+        };
+        setArtifactBaselineSnapshot(serializeArtifactWorkspace(nextPanel));
+        return nextPanel;
+      });
+
+      setArtifactSaveNotice(
+        artifactPanel?.savedArtifactId === artifact.id
+          ? "Artifact deleted. This workspace is now a draft."
+          : "Artifact deleted."
+      );
+    },
+    [
+      artifactPanel?.savedArtifactId,
+      clearStoredArtifactResume,
+      onRequireLogin,
+      recentArtifactResumeState?.savedArtifactId,
+      sessionUserId,
+    ]
+  );
+
   const handleArtifactExportPdf = useCallback(async () => {
     const target = artifactPreviewRef.current;
     if (!target || !artifactPanel) {
@@ -525,6 +604,7 @@ export function useArtifactWorkspace({
       window.setTimeout(() => {
         if (cancelled) return;
         setRecentArtifactResumeState(null);
+        setDismissedRecentArtifactId(null);
       }, 0);
       previousSessionUserIdRef.current = null;
       return () => {
@@ -540,6 +620,7 @@ export function useArtifactWorkspace({
       window.setTimeout(() => {
         if (cancelled) return;
         setRecentArtifactResumeState(nextResumeState);
+        setDismissedRecentArtifactId(null);
       }, 0);
       if (nextStorageKey) {
         window.localStorage.removeItem(LAST_ARTIFACT_PANEL_STORAGE_KEY);
@@ -548,6 +629,7 @@ export function useArtifactWorkspace({
       window.setTimeout(() => {
         if (cancelled) return;
         setRecentArtifactResumeState(null);
+        setDismissedRecentArtifactId(null);
       }, 0);
     }
 
@@ -600,6 +682,7 @@ export function useArtifactWorkspace({
   return {
     artifactPanel,
     recentArtifactResume,
+    visibleRecentArtifactResume,
     artifactCreationNotice,
     artifactSaveNotice,
     savedArtifacts,
@@ -619,7 +702,9 @@ export function useArtifactWorkspace({
     handleOpenSavedArtifact,
     handleOpenPublicArtifact,
     handleResumeRecentArtifact,
+    dismissRecentArtifactResume,
     handleSaveArtifact,
+    handleDeleteSavedArtifact,
     handleArtifactExportPdf,
     reopenCreationNoticeArtifact,
     artifactKindLabel,

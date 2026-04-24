@@ -375,6 +375,11 @@ const fixtures = [
     pattern: /knowledgeCourseContext: activeKnowledgeCourse \|\| undefined[\s\S]*pinnedSyllabusContent: pinnedSyllabus\?\.content[\s\S]*pinnedSyllabusName: pinnedSyllabus\?\.name/,
   },
   {
+    name: "lecture-mode-prefetches-rag-citations-for-source-cards",
+    source: pageSource,
+    pattern: /const teachingMode = options\?\.teachingMode \?\? lectureMode;[\s\S]*!isExplicitKnowledgeBaseRequest\(question\) && !teachingMode[\s\S]*\/api\/rag\/query/,
+  },
+  {
     name: "chat-request-includes-focus-mode-context",
     source: pageSource,
     pattern: /focusCourseContext: chatFocus\.course \|\| undefined[\s\S]*focusTopicContext: chatFocus\.topic\.trim\(\) \|\| undefined/,
@@ -492,7 +497,7 @@ const fixtures = [
   {
     name: "chat-offers-to-continue-last-study-artifact",
     source: artifactWorkspaceSource,
-    pattern: /(?=[\s\S]*recentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*recentArtifactResume\?\.savedArtifactId)(?=[\s\S]*savedArtifacts\.length > 0)(?=[\s\S]*savedArtifacts\.some\(\(artifact\) => artifact\.id === recentArtifactResumeState\.savedArtifactId\))/,
+    pattern: /(?=[\s\S]*visibleRecentArtifactResume)(?=[\s\S]*Continue your last study artifact)(?=[\s\S]*handleResumeRecentArtifact)(?=[\s\S]*dismissRecentArtifactResume)(?=[\s\S]*Not now)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*savedArtifacts\.length > 0)(?=[\s\S]*savedArtifacts\.some\(\(artifact\) => artifact\.id === recentArtifactResumeState\.savedArtifactId\))/,
   },
   {
     name: "artifact-resume-state-is-session-scoped",
@@ -503,6 +508,11 @@ const fixtures = [
     name: "artifact-panel-supports-saveable-study-library",
     source: artifactWorkspaceSource,
     pattern: /(?=[\s\S]*handleOpenSavedArtifact)(?=[\s\S]*handleSaveArtifact)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*study_artifacts)(?=[\s\S]*Save to Study Library)/,
+  },
+  {
+    name: "artifact-library-supports-delete-with-owner-check",
+    source: artifactWorkspaceSource,
+    pattern: /(?=[\s\S]*handleDeleteSavedArtifact)(?=[\s\S]*window\.confirm\(`Delete "\$\{artifact\.title\}" from your Study Library\?`\))(?=[\s\S]*from\("study_artifacts"\)\s*\.delete\(\)\s*\.eq\("id", artifact\.id\)\s*\.eq\("user_id", sessionUserId\))(?=[\s\S]*Artifact deleted)(?=[\s\S]*Delete)/,
   },
   {
     name: "logged-out-restricted-actions-show-soft-login-prompt",

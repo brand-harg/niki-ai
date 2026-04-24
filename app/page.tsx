@@ -1028,7 +1028,7 @@ function parseThoughtTrace(content: string): {
   clean: string;
 } {
   const match = content.match(/<think>([\s\S]*?)<\/think>/);
-  if (!match) return { steps: [], clean: content };
+  if (!match) return { steps: [], clean: stripPartialThink(content).trim() };
 
   const rawLines = match[1].trim().split(/\n+/).filter(Boolean);
   const steps = rawLines
@@ -1044,7 +1044,7 @@ function parseThoughtTrace(content: string): {
 
   return {
     steps,
-    clean: content.replace(/<think>[\s\S]*?<\/think>/, "").trim(),
+    clean: stripPartialThink(content.replace(/<think>[\s\S]*?<\/think>/, "")).trim(),
   };
 }
 
@@ -1230,7 +1230,7 @@ export default function Home() {
 
   const {
     artifactPanel,
-    recentArtifactResume,
+    visibleRecentArtifactResume,
     artifactCreationNotice,
     artifactSaveNotice,
     savedArtifacts,
@@ -1248,7 +1248,9 @@ export default function Home() {
     handleOpenSavedArtifact,
     handleOpenPublicArtifact,
     handleResumeRecentArtifact,
+    dismissRecentArtifactResume,
     handleSaveArtifact,
+    handleDeleteSavedArtifact,
     handleArtifactExportPdf,
     reopenCreationNoticeArtifact,
     artifactKindLabel,
@@ -1869,13 +1871,38 @@ export default function Home() {
     if (data && data.length > 0) {
       const formatted: Message[] = data
         .filter((msg) => msg.role === "ai" || msg.role === "user")
-        .map((msg) => ({
-          role: msg.role as Message["role"],
-          content: msg.text || "",
-          citations: msg.role === "ai" ? dedupeCitations(msg.citations ?? []) : undefined,
-          retrievalConfidence:
-            msg.role === "ai" ? confidenceFromCitations(msg.citations ?? []) : undefined,
-        }));
+        .map((msg) => {
+          const aiCitations = msg.role === "ai" ? dedupeCitations(msg.citations ?? []) : [];
+          return {
+            role: msg.role as Message["role"],
+            content: msg.text || "",
+            citations: msg.role === "ai" ? aiCitations : undefined,
+            retrievalConfidence:
+              msg.role === "ai" ? confidenceFromCitations(aiCitations) : undefined,
+            mode:
+              msg.role === "ai" && (msg.mode === "pure" || msg.mode === "nemanja")
+                ? msg.mode
+                : undefined,
+            teachingEnabled:
+              msg.role === "ai" && typeof msg.teaching_enabled === "boolean"
+                ? msg.teaching_enabled
+                : undefined,
+            knowledgeBaseCourse:
+              msg.role === "ai"
+                ? typeof msg.knowledge_base_course === "string"
+                  ? msg.knowledge_base_course
+                  : aiCitations[0]?.course
+                : undefined,
+            requestedCourse:
+              msg.role === "ai" && typeof msg.requested_course === "string"
+                ? msg.requested_course
+                : undefined,
+            knowledgeBaseMismatch:
+              msg.role === "ai" && typeof msg.knowledge_base_mismatch === "boolean"
+                ? msg.knowledge_base_mismatch
+                : undefined,
+          };
+        });
 
       setMessages(formatted);
     } else {
@@ -2211,8 +2238,9 @@ export default function Home() {
     options?: { teachingMode?: boolean; nikiMode?: boolean }
   ): Promise<RagResponse | null> => {
     const nikiMode = options?.nikiMode ?? isNikiMode;
+    const teachingMode = options?.teachingMode ?? lectureMode;
     if (!question.trim()) return null;
-    if (!isExplicitKnowledgeBaseRequest(question)) return null;
+    if (!isExplicitKnowledgeBaseRequest(question) && !teachingMode) return null;
     if (isLectureInventoryRequest(question)) return null;
 
     try {
@@ -2946,6 +2974,7 @@ export default function Home() {
               onCloseSyllabusPreview={() => setIsSyllabusPreviewOpen(false)}
               onUnpinSyllabus={() => setPinnedSyllabus(null)}
               onOpenSavedArtifact={handleOpenSavedArtifact}
+              onDeleteSavedArtifact={handleDeleteSavedArtifact}
               onOpenPublicArtifact={handleOpenPublicArtifact}
               onLogin={() => router.push("/login")}
               onRestoreRecentContext={handleRestoreRecentContext}
@@ -3276,28 +3305,37 @@ export default function Home() {
 
             {!!session?.user?.id &&
               !artifactPanel &&
-              recentArtifactResume?.savedArtifactId &&
+              visibleRecentArtifactResume?.savedArtifactId &&
               savedArtifacts.length > 0 && (
                 <div className="mx-auto max-w-3xl px-1">
-                  <div className="rounded-2xl border border-white/8 bg-white/[0.018] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-4 sm:py-3">
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.016] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-4 sm:py-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2.5">
                       <div className="min-w-0">
                         <p className="text-[11px] font-bold text-slate-300">
                           Continue your last study artifact
                         </p>
                         <p className="mt-0.5 text-[10px] leading-5 text-slate-500">
-                          {recentArtifactResume.title}
-                          {recentArtifactResume.courseTag ? ` · ${recentArtifactResume.courseTag}` : ""}
-                          {recentArtifactResume.topicTag ? ` · ${recentArtifactResume.topicTag}` : ""}
+                          {visibleRecentArtifactResume.title}
+                          {visibleRecentArtifactResume.courseTag ? ` · ${visibleRecentArtifactResume.courseTag}` : ""}
+                          {visibleRecentArtifactResume.topicTag ? ` · ${visibleRecentArtifactResume.topicTag}` : ""}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleResumeRecentArtifact}
-                        className="rounded-full border border-white/10 bg-white/[0.025] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all outline-none hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
-                      >
-                        Open workspace
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={dismissRecentArtifactResume}
+                          className="rounded-full border border-white/10 bg-white/[0.02] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500 transition-all outline-none hover:border-white/20 hover:text-slate-300"
+                        >
+                          Not now
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleResumeRecentArtifact}
+                          className="rounded-full border border-white/10 bg-white/[0.025] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all outline-none hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+                        >
+                          Open workspace
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3532,6 +3570,7 @@ export default function Home() {
         onRefresh={handleArtifactRefresh}
         onExportPdf={handleArtifactExportPdf}
         onOpenSavedArtifact={handleOpenSavedArtifact}
+        onDeleteSavedArtifact={handleDeleteSavedArtifact}
         onContentChange={handleArtifactContentChange}
       />
 
