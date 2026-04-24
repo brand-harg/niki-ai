@@ -104,6 +104,14 @@ export default function SettingsPage() {
     window.setTimeout(() => setStatus(null), 2200);
   }, []);
 
+  const applySignedOutState = useCallback(() => {
+    setHasSession(false);
+    setProfile(null);
+    setLatestArtifactTitle(null);
+    setSyncState("local");
+    setLoading(false);
+  }, []);
+
   const loadLocalState = useCallback(() => {
     const nextLocalGeneralSettings = readLocalGeneralSettings();
     const nextLocalPersonalization = readLocalPersonalizationSettings();
@@ -133,10 +141,10 @@ export default function SettingsPage() {
 
     if (error) {
       console.log("Settings menu profile fetch error:", error);
-      return;
+      return null;
     }
 
-    if (data) setProfile(data);
+    return (data as ProfileState | null) ?? null;
   }, []);
 
   const fetchLatestSavedArtifact = useCallback(async (userId: string) => {
@@ -159,45 +167,61 @@ export default function SettingsPage() {
   useEffect(() => {
     let mounted = true;
 
-    const run = async () => {
+    const syncAuthState = async (sessionOverride?: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null) => {
       loadLocalState();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+
+      const session =
+        sessionOverride ??
+        (
+          await supabase.auth.getSession()
+        ).data.session;
 
       if (!mounted) return;
 
       if (!session) {
-        setHasSession(false);
-        setSyncState("local");
-        setLatestArtifactTitle(null);
-        setLoading(false);
+        applySignedOutState();
         return;
       }
 
       setHasSession(true);
-      await fetchProfile(session.user.id);
-      const latestArtifact = await fetchLatestSavedArtifact(session.user.id);
-      if (mounted) {
-        setLatestArtifactTitle(latestArtifact?.title ?? null);
-      }
-      if (mounted) setSyncState("saved");
-      if (mounted) setLoading(false);
+      const [nextProfile, latestArtifact] = await Promise.all([
+        fetchProfile(session.user.id),
+        fetchLatestSavedArtifact(session.user.id),
+      ]);
+
+      if (!mounted) return;
+
+      setProfile(nextProfile);
+      setLatestArtifactTitle(latestArtifact?.title ?? null);
+      setSyncState("saved");
+      setLoading(false);
     };
 
-    run();
+    void syncAuthState();
 
-    const handleFocus = () => loadLocalState();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      void syncAuthState(nextSession);
+    });
+
+    const handleFocus = () => {
+      if (mounted) {
+        void syncAuthState();
+      }
+    };
     window.addEventListener("focus", handleFocus);
     return () => {
       mounted = false;
+      subscription.unsubscribe();
       window.removeEventListener("focus", handleFocus);
     };
-  }, [fetchLatestSavedArtifact, fetchProfile, loadLocalState]);
+  }, [applySignedOutState, fetchLatestSavedArtifact, fetchProfile, loadLocalState]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/login");
+    router.replace("/login");
   };
 
   const effectiveTheme = profile?.theme_accent ?? localGeneralSettings.theme_accent;

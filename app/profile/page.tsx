@@ -38,6 +38,19 @@ type ProfileData = {
   theme_accent?: string;
 };
 
+const PROFILE_DEFAULTS: ProfileData = {
+  first_name: "",
+  username: "",
+  avatar_url: "",
+  two_factor_enabled: false,
+  is_searchable: true,
+  share_usage_data: true,
+  train_on_data: false,
+  current_unit: "",
+  logic_feedback_opt_in: true,
+  theme_accent: "cyan",
+};
+
 export default function ProfilePage() {
   const router = useRouter();
 
@@ -48,30 +61,8 @@ export default function ProfilePage() {
   const [vaultStatus, setVaultStatus] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<"saved" | "draft" | "saving" | "error">("saved");
 
-  const [profile, setProfile] = useState<ProfileData>({
-    first_name: "",
-    username: "",
-    avatar_url: "",
-    two_factor_enabled: false,
-    is_searchable: true,
-    share_usage_data: true,
-    train_on_data: false,
-    current_unit: "",
-    logic_feedback_opt_in: true,
-    theme_accent: "cyan",
-  });
-  const [persistedProfile, setPersistedProfile] = useState<ProfileData>({
-    first_name: "",
-    username: "",
-    avatar_url: "",
-    two_factor_enabled: false,
-    is_searchable: true,
-    share_usage_data: true,
-    train_on_data: false,
-    current_unit: "",
-    logic_feedback_opt_in: true,
-    theme_accent: "cyan",
-  });
+  const [profile, setProfile] = useState<ProfileData>(PROFILE_DEFAULTS);
+  const [persistedProfile, setPersistedProfile] = useState<ProfileData>(PROFILE_DEFAULTS);
   const avatarUrl = resolveAvatarUrl(profile.avatar_url);
 
 
@@ -160,25 +151,43 @@ export default function ProfilePage() {
     setSyncState("draft");
   };
 
-  const fetchVaultData = useCallback(async () => {
-        try {
+  const applyLoggedOutState = useCallback(() => {
+    setSession(null);
+    setProfile(PROFILE_DEFAULTS);
+    setPersistedProfile(PROFILE_DEFAULTS);
+    setSyncState("saved");
+    setLoading(false);
+  }, []);
+
+  const fetchVaultData = useCallback(async (sessionOverride?: { user?: { id: string; email?: string } } | null) => {
+    try {
       setLoading(true);
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const session =
+        sessionOverride ??
+        (
+          await supabase.auth.getSession()
+        ).data.session;
 
       setSession(session);
 
       if (!session) {
-        router.push("/login");
+        applyLoggedOutState();
+        router.replace("/login");
+        return;
+      }
+
+      const sessionUserId = session.user?.id;
+      if (!sessionUserId) {
+        applyLoggedOutState();
+        router.replace("/login");
         return;
       }
 
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", session.user.id)
+        .eq("id", sessionUserId)
         .maybeSingle();
 
       if (profileError) {
@@ -210,10 +219,32 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [applyLoggedOutState, router]);
 
   useEffect(() => {
-    fetchVaultData();
+    let mounted = true;
+
+    void fetchVaultData();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      void fetchVaultData(nextSession);
+    });
+
+    const handleFocus = () => {
+      if (!mounted) return;
+      void fetchVaultData();
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [fetchVaultData]);
 
   const uploadAvatar = async (

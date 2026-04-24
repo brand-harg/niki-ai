@@ -86,6 +86,11 @@ const fixtures = [
     pattern: /signInWithOAuth\([\s\S]*provider:\s*['"]google['"][\s\S]*\/auth\/callback\?next=\//,
   },
   {
+    name: "google-login-surfaces-oauth-startup-errors",
+    source: loginSource,
+    pattern: /signInWithOAuth\([\s\S]*oauthError[\s\S]*setError\([\s\S]*Google sign in could not start\./,
+  },
+  {
     name: "auth-callback-exchanges-code-and-bootstraps-profile",
     source: authCallbackSource,
     pattern: /recoverSessionFromUrl\(\)[\s\S]*ensureProfileForSession[\s\S]*router\.replace\(next\)/,
@@ -134,6 +139,11 @@ const fixtures = [
     name: "personalization-supports-local-storage-fallback",
     source: `${personalizationLibSource}\n${personalizationSource}`,
     pattern: /PERSONALIZATION_STORAGE_KEY[\s\S]*readLocalPersonalizationSettings[\s\S]*writeLocalPersonalizationSettings[\s\S]*Saved On This Device/,
+  },
+  {
+    name: "personalization-reacts-to-auth-state-changes",
+    source: personalizationSource,
+    pattern: /(?=[\s\S]*hydratePersonalizationState)(?=[\s\S]*onAuthStateChange)(?=[\s\S]*hydratePersonalizationState\(nextSession\))(?=[\s\S]*setIsGuestMode\(true\))(?=[\s\S]*setIsGuestMode\(false\))/,
   },
   {
     name: "personalization-shows-inline-sync-feedback",
@@ -203,7 +213,17 @@ const fixtures = [
   {
     name: "knowledge-base-auth-gates-syllabus-and-library-actions",
     source: pageSource,
-    pattern: /knowledgeBaseNotice[\s\S]*showLoginGatePrompt[\s\S]*Log in to save your study progress\.[\s\S]*router\.push\(["']\/login["']\)[\s\S]*Save later when you log in/,
+    pattern: /(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*Log in to save your study progress)(?=[\s\S]*router\.push\(["']\/login["']\))(?=[\s\S]*Save later when you log in)/,
+  },
+  {
+    name: "settings-menu-reacts-to-auth-state-changes",
+    source: settingsSource,
+    pattern: /(?=[\s\S]*applySignedOutState)(?=[\s\S]*onAuthStateChange)(?=[\s\S]*syncAuthState\(nextSession\))(?=[\s\S]*setProfile\(nextProfile\))/,
+  },
+  {
+    name: "profile-page-reacts-to-auth-state-changes",
+    source: profileSource,
+    pattern: /applyLoggedOutState[\s\S]*router\.replace\(["']\/login["']\)[\s\S]*onAuthStateChange[\s\S]*fetchVaultData\(nextSession\)/,
   },
   {
     name: "knowledge-base-panel-loads-real-health-metrics",
@@ -238,7 +258,7 @@ const fixtures = [
   {
     name: "mobile-chat-controls-collapse-into-summary-bar",
     source: pageSource,
-    pattern: /mobileControlsSummary[\s\S]*No course selected[\s\S]*toggleMobileControls[\s\S]*Controls[\s\S]*Pure Logic[\s\S]*Nemanja Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
+    pattern: /mobileControlsSummary[\s\S]*No course[\s\S]*toggleMobileControls[\s\S]*rounded-\[0\.95rem\][\s\S]*Pure Logic[\s\S]*Nemanja Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
   },
   {
     name: "chat-focus-mode-syncs-with-knowledge-base-and-allows-no-subject",
@@ -453,7 +473,7 @@ const fixtures = [
   {
     name: "artifact-panel-supports-saveable-study-library",
     source: pageSource,
-    pattern: /handleOpenSavedArtifact[\s\S]*handleSaveArtifact[\s\S]*Log in to save your study progress\.[\s\S]*study_artifacts[\s\S]*Save to Study Library/,
+    pattern: /handleOpenSavedArtifact[\s\S]*handleSaveArtifact[\s\S]*showLoginGatePrompt[\s\S]*study_artifacts[\s\S]*Save to Study Library/,
   },
   {
     name: "logged-out-restricted-actions-show-soft-login-prompt",

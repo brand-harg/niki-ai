@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   DEFAULT_PERSONALIZATION_SETTINGS,
@@ -20,14 +20,18 @@ export default function PersonalizationPage() {
   const [persistedData, setPersistedData] = useState(DEFAULT_PERSONALIZATION_SETTINGS);
   const [syncState, setSyncState] = useState<"saved" | "draft" | "saving" | "error">("saved");
 
-  useEffect(() => {
-    const run = async () => {
+  const hydratePersonalizationState = useCallback(async (sessionOverride?: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null) => {
       const savedAccent = localStorage.getItem("theme_accent");
       if (savedAccent === "cyan" || savedAccent === "green" || savedAccent === "amber") {
         setThemeAccent(savedAccent);
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const session =
+        sessionOverride ??
+        (
+          await supabase.auth.getSession()
+        ).data.session;
+
       if (!session) {
         const nextLocal = readLocalPersonalizationSettings();
         setData(nextLocal);
@@ -35,7 +39,7 @@ export default function PersonalizationPage() {
         setSyncState("saved");
         setIsGuestMode(true);
         setLoading(false);
-        return;
+        return nextLocal;
       }
 
       const { data: profile, error } = await supabase
@@ -64,10 +68,39 @@ export default function PersonalizationPage() {
           setThemeAccent(profile.theme_accent);
         }
       }
+      setIsGuestMode(false);
       setLoading(false);
+      return profile;
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const initialHydrateTimer = window.setTimeout(() => {
+      if (!mounted) return;
+      void hydratePersonalizationState();
+    }, 0);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      void hydratePersonalizationState(nextSession);
+    });
+
+    const handleFocus = () => {
+      if (!mounted) return;
+      void hydratePersonalizationState();
     };
-    run();
-  }, [router]);
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      mounted = false;
+      window.clearTimeout(initialHydrateTimer);
+      subscription.unsubscribe();
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [hydratePersonalizationState, router]);
 
   const handleSave = async () => {
     setSaving(true);

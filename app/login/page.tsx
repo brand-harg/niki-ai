@@ -105,10 +105,20 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=/` }
-    });
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=/` }
+      });
+
+      if (oauthError) {
+        setError(oauthError.message);
+        setLoading(false);
+      }
+    } catch (oauthError) {
+      setError(oauthError instanceof Error ? oauthError.message : 'Google sign in could not start.');
+      setLoading(false);
+    }
   };
 
   // --- EMAIL LOGIN ---

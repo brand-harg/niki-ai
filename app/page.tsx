@@ -1337,7 +1337,6 @@ export default function Home() {
   });
   const [isSyllabusPreviewOpen, setIsSyllabusPreviewOpen] = useState(false);
   const [artifactSaveNotice, setArtifactSaveNotice] = useState<string | null>(null);
-  const [knowledgeBaseNotice, setKnowledgeBaseNotice] = useState<string | null>(null);
   const [sourceHealthExpanded, setSourceHealthExpanded] = useState(false);
   const [loginGatePrompt, setLoginGatePrompt] = useState<LoginGatePrompt | null>(null);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -1482,10 +1481,13 @@ export default function Home() {
   }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
 
   const mobileControlsSummary = useMemo(() => {
+    const trimmedTopic = chatFocus.topic.trim();
     const focusPart = !chatFocus.course
-      ? "No course selected"
-      : chatFocus.topic.trim()
-        ? `${focusCourseLabel} • ${chatFocus.topic.trim()}`
+      ? trimmedTopic
+        ? `No course • ${trimmedTopic}`
+        : "No course"
+      : trimmedTopic
+        ? `${focusCourseLabel} • ${trimmedTopic}`
         : focusCourseLabel;
 
     return [
@@ -1604,12 +1606,6 @@ export default function Home() {
 
     return () => query.removeEventListener("change", syncSidebarToViewport);
   }, []);
-
-  useEffect(() => {
-    if (!knowledgeBaseNotice) return;
-    const timeout = window.setTimeout(() => setKnowledgeBaseNotice(null), 2600);
-    return () => window.clearTimeout(timeout);
-  }, [knowledgeBaseNotice]);
 
   useEffect(() => {
     if (!artifactCreationNotice) return;
@@ -1916,6 +1912,12 @@ export default function Home() {
     setMessages((prev) =>
       isGreetingOnly(prev) && !currentChatIdRef.current ? createGreeting(mode) : prev
     );
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 639px)").matches
+    ) {
+      setMobileControlsExpanded(false);
+    }
   };
 
   const mathMarkdownComponents: Components = {
@@ -2478,10 +2480,6 @@ export default function Home() {
     setAttachedFile(null);
   };
 
-  const showKnowledgeBaseNotice = (message: string) => {
-    setKnowledgeBaseNotice(message);
-  };
-
   const showLoginGatePrompt = (detail: string) => {
     setLoginGatePrompt({
       title: "Log in to save your study progress",
@@ -2492,7 +2490,6 @@ export default function Home() {
   const handlePinAttachedSyllabus = async () => {
     if (attachedFile?.type !== "text") return;
     if (!session?.user?.id) {
-      showKnowledgeBaseNotice("Log in to save your study progress.");
       showLoginGatePrompt(
         "Pinning a syllabus keeps your course context available the next time you come back."
       );
@@ -2515,7 +2512,6 @@ export default function Home() {
 
   const handleUploadPinnedSyllabus = async (file: File) => {
     if (!session?.user?.id) {
-      showKnowledgeBaseNotice("Log in to save your study progress.");
       showLoginGatePrompt(
         "Upload a syllabus after you log in and Niki will be able to keep it attached to your study context."
       );
@@ -3247,6 +3243,13 @@ export default function Home() {
   };
 
   const handleSend = async () => {
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 639px)").matches
+    ) {
+      setMobileControlsExpanded(false);
+    }
+
     await sendChatMessage({
       userText: inputValue,
       attached: attachedFile,
@@ -3410,7 +3413,6 @@ export default function Home() {
     if (!artifactPanel) return;
 
     if (!session?.user?.id) {
-      setArtifactSaveNotice("Log in to save your study progress.");
       showLoginGatePrompt(
         "You can keep editing and exporting this artifact right now. Log in when you're ready to save it to your Study Library."
       );
@@ -3792,21 +3794,6 @@ export default function Home() {
                 className="hidden"
               />
 
-              {knowledgeBaseNotice && (
-                <div className={`rounded-2xl border ${accentBorder} bg-white/[0.03] px-4 py-3`}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-[11px] leading-5 text-slate-300">{knowledgeBaseNotice}</p>
-                    <button
-                      type="button"
-                      onClick={() => router.push("/login")}
-                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
-                    >
-                      Log In
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <div
                 role={knowledgeBaseActivationCourse ? "button" : undefined}
                 tabIndex={knowledgeBaseActivationCourse ? 0 : -1}
@@ -4054,7 +4041,6 @@ export default function Home() {
                     type="button"
                     onClick={() => {
                       if (!session?.user?.id) {
-                        showKnowledgeBaseNotice("Log in to save your study progress.");
                         showLoginGatePrompt(
                           "Upload a syllabus after you log in and Niki will be able to keep it attached to your study context."
                         );
@@ -4633,176 +4619,8 @@ export default function Home() {
         </div>
 
         {/* FOOTER INPUT */}
-        <footer className="sticky bottom-0 z-20 shrink-0 border-t border-white/8 bg-[#030303]/98 px-3 pt-1 sm:static sm:px-6 sm:pt-4 lg:px-8 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-6 backdrop-blur">
+        <footer className="sticky bottom-0 z-20 shrink-0 border-t border-white/8 bg-[#030303]/98 px-2 pt-0.5 sm:static sm:px-6 sm:pt-4 lg:px-8 pb-[calc(0.6rem+env(safe-area-inset-bottom))] sm:pb-6 backdrop-blur">
           <div className="mx-auto max-w-[880px] space-y-0.5 sm:space-y-1">
-            <div className="sm:hidden">
-              <button
-                type="button"
-                onClick={toggleMobileControls}
-                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] outline-none transition-all hover:bg-white/[0.05]"
-                aria-expanded={mobileControlsExpanded}
-              >
-                <div className="min-w-0">
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-                    Controls
-                  </p>
-                  <p className="mt-1 truncate text-[11px] font-bold text-slate-300">
-                    {mobileControlsSummary}
-                  </p>
-                </div>
-                <svg
-                  className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${
-                    mobileControlsExpanded ? "rotate-180" : ""
-                  }`}
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m5 7 5 5 5-5" />
-                </svg>
-              </button>
-
-              {mobileControlsExpanded && (
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur">
-                    <button
-                      onClick={() => switchNikiMode(false)}
-                      className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
-                        !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
-                      }`}
-                    >
-                      Pure Logic
-                    </button>
-                    <button
-                      onClick={() => switchNikiMode(true)}
-                      className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
-                        isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
-                      }`}
-                    >
-                      Nemanja Mode
-                    </button>
-                  </div>
-
-                  {isNikiMode && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setLectureMode((prev) => !prev)}
-                        className={`rounded-full border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
-                          lectureMode
-                            ? `${accentBorder} bg-white/[0.06] ${accentColor}`
-                            : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"
-                        }`}
-                      >
-                        {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="flex min-h-[12px] items-center justify-start">
-                    <p
-                      className={`text-[10px] font-bold tracking-wide transition-opacity ${
-                        isNikiMode && lectureMode ? `${accentColor} opacity-90` : "opacity-0"
-                      }`}
-                      aria-live="polite"
-                    >
-                      {isNikiMode && lectureMode
-                        ? `Teaching Mode Active${chatFocus.topic.trim() ? ` · Focus: ${focusCourseLabel} — ${chatFocus.topic.trim()}` : ""}`
-                        : "Teaching Mode Inactive"}
-                    </p>
-                  </div>
-
-                  <div className={`${focusModeHeaderClass} rounded-2xl`}>
-                    <div className="min-w-0">
-                      <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-                        Focus Mode
-                      </p>
-                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                        {focusSummary}
-                      </p>
-                      <p className="mt-1 text-[10px] text-slate-600">
-                        Control how chat interprets your question
-                      </p>
-                    </div>
-
-                    <div className="mt-3 block">
-                      <div className="flex flex-col gap-3">
-                        <div>
-                          <p className="text-[11px] text-slate-500">
-                            Short follow-ups can inherit this topic when the prompt stays vague.
-                          </p>
-                        </div>
-                        <div className="grid gap-2">
-                          <label className="sr-only" htmlFor="chat-focus-course-mobile">
-                            Current focus course
-                          </label>
-                          <select
-                            id="chat-focus-course-mobile"
-                            value={chatFocus.course}
-                            onChange={(e) =>
-                              setChatFocus((prev) => ({ ...prev, course: e.target.value }))
-                            }
-                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
-                          >
-                            <option value="" className="bg-[#0d0d0d] text-slate-200">
-                              No subject selected
-                            </option>
-                            {KNOWLEDGE_BASE_COURSES.map((course) => (
-                              <option
-                                key={course.courseContext}
-                                value={course.courseContext}
-                                className="bg-[#0d0d0d] text-slate-200"
-                              >
-                                {course.label}
-                              </option>
-                            ))}
-                          </select>
-                          <label className="sr-only" htmlFor="chat-focus-topic-mobile">
-                            Current topic or section
-                          </label>
-                          <input
-                            id="chat-focus-topic-mobile"
-                            type="text"
-                            value={chatFocus.topic}
-                            onChange={(e) =>
-                              setChatFocus((prev) => ({ ...prev, topic: e.target.value }))
-                            }
-                            placeholder="Current topic or section, like 7.3 or integration by parts"
-                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
-                            className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      </div>
-                      {focusSuggestion && (
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                          <span>Suggested:</span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setChatFocus((prev) => ({
-                                ...prev,
-                                topic: focusSuggestion,
-                              }))
-                            }
-                            className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
-                          >
-                            {focusCourseLabel} — {focusSuggestion}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
             <div className="hidden sm:block">
               <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
                 <div className="justify-self-end">
@@ -5036,7 +4854,158 @@ export default function Home() {
               </div>
             )}
 
-            <div className="bg-[#101010]/95 border border-white/10 rounded-[1.35rem] sm:rounded-[2rem] p-2.5 sm:p-3 shadow-[0_22px_70px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-white/25 transition-all backdrop-blur">
+            <div className="bg-[#101010]/95 border border-white/10 rounded-[1.25rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-[0_22px_70px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-white/25 transition-all backdrop-blur">
+              <div className="sm:hidden">
+                <button
+                  type="button"
+                  onClick={toggleMobileControls}
+                  className="flex w-full items-center justify-between gap-3 rounded-[0.95rem] border border-white/10 bg-white/[0.03] px-3 py-2 text-left outline-none transition-all hover:bg-white/[0.05]"
+                  aria-expanded={mobileControlsExpanded}
+                >
+                  <p className="min-w-0 truncate text-[11px] font-bold text-slate-300">
+                    {mobileControlsSummary}
+                  </p>
+                  <svg
+                    className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${
+                      mobileControlsExpanded ? "rotate-180" : ""
+                    }`}
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m5 7 5 5 5-5" />
+                  </svg>
+                </button>
+
+                {mobileControlsExpanded && (
+                  <div className="mt-2 space-y-2 border-b border-white/8 pb-2">
+                    <div className="flex items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur">
+                      <button
+                        onClick={() => switchNikiMode(false)}
+                        className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
+                          !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                        }`}
+                      >
+                        Pure Logic
+                      </button>
+                      <button
+                        onClick={() => switchNikiMode(true)}
+                        className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
+                          isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                        }`}
+                      >
+                        Nemanja Mode
+                      </button>
+                    </div>
+
+                    {isNikiMode && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLectureMode((prev) => !prev);
+                            setMobileControlsExpanded(false);
+                          }}
+                          className={`rounded-full border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
+                            lectureMode
+                              ? `${accentBorder} bg-white/[0.06] ${accentColor}`
+                              : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"
+                          }`}
+                        >
+                          {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className={`${focusModeHeaderClass} rounded-2xl border-white/8 px-3 py-3`}>
+                      <div className="min-w-0">
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                          Focus Mode
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                          {focusSummary}
+                        </p>
+                        <p className="mt-1 text-[10px] text-slate-600">
+                          Control how chat interprets your question
+                        </p>
+                      </div>
+
+                      <div className="mt-3 block">
+                        <div className="grid gap-2">
+                          <label className="sr-only" htmlFor="chat-focus-course-mobile">
+                            Current focus course
+                          </label>
+                          <select
+                            id="chat-focus-course-mobile"
+                            value={chatFocus.course}
+                            onChange={(e) => {
+                              setChatFocus((prev) => ({ ...prev, course: e.target.value }));
+                              setMobileControlsExpanded(false);
+                            }}
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
+                          >
+                            <option value="" className="bg-[#0d0d0d] text-slate-200">
+                              No subject selected
+                            </option>
+                            {KNOWLEDGE_BASE_COURSES.map((course) => (
+                              <option
+                                key={course.courseContext}
+                                value={course.courseContext}
+                                className="bg-[#0d0d0d] text-slate-200"
+                              >
+                                {course.label}
+                              </option>
+                            ))}
+                          </select>
+                          <label className="sr-only" htmlFor="chat-focus-topic-mobile">
+                            Current topic or section
+                          </label>
+                          <input
+                            id="chat-focus-topic-mobile"
+                            type="text"
+                            value={chatFocus.topic}
+                            onChange={(e) =>
+                              setChatFocus((prev) => ({ ...prev, topic: e.target.value }))
+                            }
+                            placeholder="Current topic or section"
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setChatFocus((prev) => ({ ...prev, topic: "" }));
+                              setMobileControlsExpanded(false);
+                            }}
+                            className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        {focusSuggestion && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            <span>Suggested:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setChatFocus((prev) => ({
+                                  ...prev,
+                                  topic: focusSuggestion,
+                                }));
+                                setMobileControlsExpanded(false);
+                              }}
+                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
+                            >
+                              {focusCourseLabel} — {focusSuggestion}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-wrap items-end gap-2 sm:flex-nowrap sm:gap-3">
                 <FileUploadButton
                   onFileSelect={handleFileSelect}
@@ -5064,7 +5033,7 @@ export default function Home() {
                             ? "Ask in Nemanja Mode..."
                             : "Ask a math, code, or technical question..."
                     }
-                    className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-3 sm:px-5 ${effectiveCompactMode ? "text-base py-3.5" : "text-base sm:text-lg py-3.5 sm:py-4"
+                    className={`w-full min-w-0 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-slate-100 px-2.5 sm:px-5 ${effectiveCompactMode ? "text-base py-3" : "text-base sm:text-lg py-3 sm:py-4"
                       } placeholder:text-slate-500 shadow-none`}
                   />
                 </div>
@@ -5082,7 +5051,7 @@ export default function Home() {
                         : "Push to talk"
                       : "Voice input is not supported in this browser"
                   }
-                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-[1rem] border text-slate-300 transition ${isListening
+                  className={`grid h-10 w-10 shrink-0 place-items-center rounded-[0.95rem] border text-slate-300 transition sm:h-11 sm:w-11 sm:rounded-[1rem] ${isListening
                     ? `${accentBorder} bg-cyan-500/10 text-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.16)]`
                     : "border-white/10 bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
                     }`}
@@ -5096,7 +5065,7 @@ export default function Home() {
                 <button
                   onClick={handleSend}
                   disabled={isLoading || (!inputValue.trim() && !attachedFile)}
-                  className={`shrink-0 bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-5 sm:px-8 py-3 sm:py-4 rounded-[1.15rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]`}
+                  className={`shrink-0 bg-white ${accentHoverBg} disabled:bg-zinc-800 disabled:text-zinc-600 hover:text-white text-black px-4 sm:px-8 py-2.5 sm:py-4 rounded-[1rem] sm:rounded-[1.8rem] text-sm font-black transition-all uppercase tracking-tighter outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]`}
                 >
                   {isLoading ? "Thinking" : "Send"}
                 </button>
