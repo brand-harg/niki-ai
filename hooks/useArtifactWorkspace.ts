@@ -508,6 +508,7 @@ export function useArtifactWorkspace({
     const previousUserId = previousSessionUserIdRef.current;
     const previousStorageKey = getArtifactResumeStorageKey(previousUserId);
     const nextStorageKey = getArtifactResumeStorageKey(sessionUserId);
+    let cancelled = false;
 
     try {
       if (previousStorageKey && previousUserId !== sessionUserId) {
@@ -521,26 +522,39 @@ export function useArtifactWorkspace({
     }
 
     if (!sessionUserId) {
-      setRecentArtifactResumeState(null);
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setRecentArtifactResumeState(null);
+      }, 0);
       previousSessionUserIdRef.current = null;
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     try {
-      setRecentArtifactResumeState(
-        parseStoredArtifactPanel(
-          (nextStorageKey && window.localStorage.getItem(nextStorageKey)) ||
-            window.localStorage.getItem(LAST_ARTIFACT_PANEL_STORAGE_KEY)
-        )
+      const nextResumeState = parseStoredArtifactPanel(
+        (nextStorageKey && window.localStorage.getItem(nextStorageKey)) ||
+          window.localStorage.getItem(LAST_ARTIFACT_PANEL_STORAGE_KEY)
       );
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setRecentArtifactResumeState(nextResumeState);
+      }, 0);
       if (nextStorageKey) {
         window.localStorage.removeItem(LAST_ARTIFACT_PANEL_STORAGE_KEY);
       }
     } catch {
-      setRecentArtifactResumeState(null);
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setRecentArtifactResumeState(null);
+      }, 0);
     }
 
     previousSessionUserIdRef.current = sessionUserId;
+    return () => {
+      cancelled = true;
+    };
   }, [sessionUserId]);
 
   useEffect(() => {

@@ -1,118 +1,212 @@
-# NikiAi: Decentralized Inference & Academic Assistant
+# NikiAI
 
-![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js)
-![Supabase](https://img.shields.io/badge/Supabase-Database_&_Auth-3ECF8E?style=for-the-badge&logo=supabase)
-![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white?style=for-the-badge&logo=ollama)
-![Vercel](https://img.shields.io/badge/Vercel-Deployed-black?style=for-the-badge&logo=vercel)
+![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)
+![Supabase](https://img.shields.io/badge/Supabase-Auth_&_Postgres-3ECF8E?style=for-the-badge&logo=supabase)
+![Ollama](https://img.shields.io/badge/Ollama-Local_Chat_Model-white?style=for-the-badge&logo=ollama)
+![OpenAI](https://img.shields.io/badge/OpenAI-Embeddings-412991?style=for-the-badge&logo=openai)
 
-NikiAi is a full-stack, context-aware AI orchestrator designed to assist with advanced mathematics and Data Science coursework. It bridges the gap between a highly available serverless frontend and a decentralized, privacy-first inference engine running on local consumer hardware.
+NikiAI is a study-focused AI workspace for math-heavy courses. It combines chat, lecture-aware retrieval, structured study artifacts, and personalized study context in one app.
 
-## 🚀 Architecture overview
+The project is built around one core constraint: **Pure Logic and Nemanja Mode can differ in teaching style, but not in final mathematical correctness**.
 
-This project demonstrates a hybrid cloud/local infrastructure model:
-1. **The Edge (Frontend):** A Next.js application hosted on Vercel, providing a highly responsive, persistent UI.
-2. **The Auth & Storage:** Supabase handles secure user authentication (OAuth) and persistent chat history via PostgreSQL.
-3. **The Tunnel:** An Ngrok secure tunnel exposes a localized API endpoint to the public web.
-4. **The Inference Engine:** All natural language and mathematical processing is handled entirely offline by a local **RTX 5070 Ti** running `qwen2.5:7b` via Ollama.
+## What NikiAI does
 
-This architecture ensures zero API costs for token generation, total data privacy for academic materials, and extremely low-latency inference.
+- **Pure Logic mode** for clean, direct math and technical answers
+- **Nemanja Mode** for more guided, lecture-style teaching
+- **Teaching Mode** for explicit formulas, substitutions, and worked steps
+- **Knowledge Base controls** for course focus, lecture retrieval, source health, recent context, and pinned syllabus support
+- **Study Artifacts** for notes, worked examples, summaries, and practice sets with save, reopen, edit, visibility control, and PDF export
+- **Source transparency** with lecture/course labels, confidence, source cards, clip previews, and a source inspector
+- **Session personalization** with saved response style, user context, default mode, and general settings
+- **Auth-backed persistence** for chats, profile settings, artifacts, calendar events, and consent-gated logging
 
-## ✨ Core Features
+## Current product areas
 
-* **Decentralized Hardware Inference:** Bypasses commercial APIs (OpenAI, Anthropic) in favor of local GPU processing, demonstrating fundamental infrastructure routing.
-* **Persistent Session Management:** Implements robust Supabase Auth with state hydration to maintain user sessions and chat histories across browser refreshes and tab switching.
-* **Advanced Mathematical Rendering:** Integrates `react-markdown`, `remark-math`, and `rehype-katex` with a sanitizer/audit layer so complex LaTeX formulas, deterministic math templates, and Qwen fallback responses render consistently in the UI.
-* **Dynamic Persona Toggling:** Allows the user to switch between Pure Logic, Nemanja Mode, and Lecture Mode while preserving the same math correctness target.
-* **Lecture-Grounded Source Cards:** RAG answers surface clickable YouTube timestamp cards with thumbnails, confidence labels, and an in-app clip preview modal, so the student can jump back to the exact lecture moment.
-* **Tutor Callouts:** Longer lecture-style answers can highlight Efficiency Tips, Lecture Connections, Common Mistakes, Checkpoints, and Concept Checks as distinct study aids.
-* **Push-to-Talk Input:** Chrome/Edge users can dictate a study question directly into the composer through the browser Speech Recognition API.
+### Chat and study flow
 
-## 🛠️ Tech Stack
+- New-session Quick Start prompts
+- Focus Mode for course/topic context
+- Practice Mode labeling for practice-heavy sessions
+- Voice input
+- Mobile-first collapsed controls
+- Study-session identity and progress feedback in the chat UI
 
-* **Frontend:** Next.js, React, Tailwind CSS
-* **Backend & Auth:** Supabase (PostgreSQL)
-* **Local LLM Server:** Ollama (Qwen 2.5 7B Instruct)
-* **Network Routing:** Ngrok
-* **Deployment:** Vercel
+### Knowledge Base
 
-## 🔮 Future Roadmap: RAG Implementation
+- Active Lecture Set control
+- Source Health with course breakdown
+- Course chips that sync with Focus Mode
+- Pinned Syllabus upload/pin/preview flow
+- Recent Context restore
+- Study Library and public artifact discovery in the sidebar
 
-The next phase of NikiAi focuses on **Retrieval-Augmented Generation (RAG)**. 
-I am currently processing unstructured data (lecture transcripts from YouTube playlists) to generate vector embeddings. These will be stored using Supabase's `pgvector` extension. Once complete, NikiAi will query this vector database prior to local inference, anchoring the LLM's mathematical explanations directly to specific, verified lecture materials to eliminate hallucination.
+### Study Artifacts
 
-### RAG retrieval quality checks
+- Open artifacts directly from chat
+- Edit + live preview in the artifact workspace
+- Save/update to `study_artifacts`
+- Public/private visibility badge and toggle
+- Resume recent artifact
+- PDF export
+- Unsaved changes protection
 
-After ingesting lectures, run retrieval checks locally:
+### Auth and persistence
+
+- Email signup + confirmation flow
+- Login/logout with live session hydration
+- Password reset + update-password flow
+- Logged-out local fallback for settings/personalization where appropriate
+- Soft login prompts for gated actions
+
+## Architecture
+
+NikiAI currently uses a hybrid stack:
+
+- **Frontend:** Next.js App Router, React, Tailwind
+- **Primary data/auth layer:** Supabase
+- **Chat inference:** Ollama via `OLLAMA_API_URL`
+- **RAG embeddings and ingestion utilities:** OpenAI + Supabase
+- **Math rendering:** `react-markdown`, `remark-math`, `rehype-katex`, `katex`
+
+Important distinction:
+
+- **Chat generation** is routed through the Ollama-backed chat path
+- **Lecture retrieval / embeddings** use the OpenAI-backed RAG tooling where required
+
+## Local development
+
+### 1. Install dependencies
 
 ```bash
-npm run test:rag-quality:calc
-npm run test:rag-quality:calc:c1
-npm run test:rag-quality:ml
-npm run test:rag-quality:calc:file
-npm run test:rag-quality:all
-npm run test:rag-quality:core-courses
+npm install
 ```
 
-You can also run the checker directly with filters:
+### 2. Create `.env.local`
+
+At minimum, configure:
 
 ```bash
-node scripts/check-rag-quality.mjs --suite calc --courseFilter "Calc 1" --professorFilter "Prof Nemanja" --maxChunks 10
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+OPENAI_API_KEY=...
+OLLAMA_API_URL=http://127.0.0.1:11434
 ```
 
-### Math stability and response audits
+Notes:
 
-Run the deterministic formatting checks before trusting a math-formatting change:
+- `OPENAI_API_KEY` is required for lecture ingestion / embedding-backed retrieval flows
+- `OLLAMA_API_URL` powers the chat model path
+- for deployments that hit a machine outside the host environment, `OLLAMA_API_URL` must point to a reachable public tunnel rather than localhost
+
+### 3. Run the required Supabase SQL
+
+Apply these scripts in Supabase:
+
+```text
+scripts/sql/rag-foundation.sql
+scripts/sql/calendar-events.sql
+scripts/sql/study-artifacts.sql
+scripts/sql/training-interactions.sql
+scripts/sql/usage-interactions.sql
+```
+
+These cover:
+
+- lecture/RAG tables and policies
+- calendar events
+- saveable study artifacts
+- consent-gated training interactions
+- metadata-only usage interactions
+
+### 4. Start the app
+
+```bash
+npm run dev
+```
+
+### 5. Start Ollama if you are using the local chat model
+
+```bash
+ollama serve
+```
+
+If you need to expose local Ollama to a deployed environment:
+
+```bash
+ngrok http 11434
+npm run check:ollama-tunnel
+```
+
+## Testing and verification
+
+### Core app checks
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run test:frontend-contract
+npm run test:api-route
+npm run test:prompt
+```
+
+### Math stability checks
 
 ```bash
 npm run test:math-sanitizer
 npm run test:math-stability
-npm run test:frontend-contract
+npm run test:math-followups
 npm run test:response-audit
-npm run test:math-live -- --stress --limit=34 --out=scripts/response_logs_clean102.json
-npm run audit:responses -- scripts/response_logs_clean102.json
 ```
 
-For larger stress runs, use:
+### RAG checks
 
 ```bash
-npm run test:math-live -- --stress --out=scripts/response_logs_stress_full900.json
-npm run audit:responses -- scripts/response_logs_stress_full900.json
+npm run test:rag-route
+npm run test:rag-nightmares
+npm run test:rag-quality:calc
+npm run test:rag-quality:calc:c1
+npm run test:rag-quality:ml
+npm run test:rag-quality:all
+npm run test:rag-quality:core-courses
 ```
 
-The response auditor categorizes failures as `[SAN]` sanitizer leaks, `[UI]` rendering-breaking output, `[DISC]` mode answer discrepancies, and `[RAG]` grounding issues. It also reports the current clean streak and the unique failure patterns in the last 250 responses.
-
-### Vercel + Ollama connectivity
-
-When NikiAi is deployed on Vercel, `localhost` or `127.0.0.1` points at the Vercel server, not your PC. To use your local Ollama backend from the deployed site:
+### Live math stress checks
 
 ```bash
-ollama serve
-ngrok http 11434
+npm run test:math-live -- --stress --limit=34 --out=scripts/response_logs/live-check.json
+npm run audit:responses -- scripts/response_logs/live-check.json
 ```
 
-You can verify that ngrok is exposing the correct port before touching Vercel:
+## Repository guide
 
-```bash
-npm run check:ollama-tunnel
-```
+- `app/page.tsx` - main study/chat screen
+- `app/api/chat/route.ts` - main chat route, consent-gated logging, Ollama integration
+- `app/api/rag/query/route.ts` - retrieval and embedding-backed lecture query path
+- `components/` - extracted UI surfaces like chat controls, artifact workspace, knowledge base panel
+- `hooks/` - extracted stateful UI logic
+- `lib/` - shared helpers, formatting, storage, auth, and RAG helpers
+- `scripts/` - contract checks, RAG tooling, diagnostics, ingestion utilities
+- `scripts/sql/` - required database schema/policy scripts
 
-If this reports that ngrok is pointing at `localhost:3000`, that tunnel is exposing the Next.js app, not Ollama. Vercel needs a tunnel to port `11434`.
+## Product guardrails
 
-Set `OLLAMA_API_URL` in Vercel to the public ngrok HTTPS URL, then redeploy or restart the deployment. Use this diagnostic endpoint to verify the deployed app can see Ollama:
+- Math correctness must stay aligned between Pure Logic and Nemanja Mode
+- Math output must continue flowing through the shared sanitizer/rendering path
+- Lecture-grounded answers must stay honest about retrieval quality and mismatch
+- Consent-gated training/usage logging must remain separate from normal chat persistence
+- Private study artifacts and pinned syllabus data must not leak across sessions
 
-```text
-/api/ollama/health
-```
+## Project status
 
-If chat returns a local model backend error, check that the ngrok tunnel is still running, `OLLAMA_API_URL` matches the current tunnel URL, and the target model is installed in Ollama.
+The app has moved well beyond a simple chat shell. The main active work is now reliability, polish, and keeping the study workflow coherent as features are extracted and stabilized.
 
-Free ngrok URLs change whenever the tunnel restarts. If Vercel still points at an old URL, update `OLLAMA_API_URL`, redeploy, then check `/api/ollama/health` before testing chat again. The API sends the `ngrok-skip-browser-warning` header for both chat and health checks so ngrok's browser warning page does not get mistaken for Ollama.
+For active engineering priorities, see:
 
-### Current polish backlog
-
-These are intentionally tracked as product polish, not correctness blockers:
-
-1. Add optional syllabus/Canvas-style context from a local CSV or uploaded file.
+- [PLANS.md](PLANS.md)
+- [CHECKPOINT.md](CHECKPOINT.md)
+- [AGENTS.md](AGENTS.md)
 
 ---
-*Developed by Brandon Hargadon*
+
+Built by Brandon Hargadon

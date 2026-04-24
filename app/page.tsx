@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import ThoughtTrace from "@/components/ThoughtTrace";
@@ -1126,10 +1126,6 @@ export default function Home() {
       ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
       : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
 
-  const resetGreeting = (mode = isNikiMode) => {
-    setMessages(createGreeting(mode));
-  };
-
   const {
     activeKnowledgeCourse,
     pinnedSyllabus,
@@ -1299,6 +1295,18 @@ export default function Home() {
     ]
   );
 
+  const applyPreferredModeToFreshChat = useCallback(
+    (options?: { resetTeaching?: boolean }) => {
+      const preferredMode = effectivePersonalization.default_niki_mode;
+      setIsNikiMode(preferredMode);
+      if (options?.resetTeaching && !preferredMode) {
+        setLectureMode(false);
+      }
+      setMessages(createGreeting(preferredMode));
+    },
+    [effectivePersonalization.default_niki_mode]
+  );
+
   const focusModeHeaderClass =
     focusModeExpanded === true
       ? "rounded-2xl border border-white/8 bg-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]"
@@ -1455,7 +1463,7 @@ export default function Home() {
         setAttachedFile(null);
         setCurrentChatId(null);
         currentChatIdRef.current = null;
-        setMessages(createGreeting(isNikiMode));
+        applyPreferredModeToFreshChat({ resetTeaching: true });
         setConfirmDeleteId(null);
         setRenamingChatId(null);
       } else if (pendingAction === "open-artifact") {
@@ -1466,7 +1474,7 @@ export default function Home() {
     } catch {
       // Ignore storage access failures.
     }
-  }, [attachedFile?.preview, isNikiMode, openStoredArtifactFromStorage]);
+  }, [applyPreferredModeToFreshChat, attachedFile?.preview, openStoredArtifactFromStorage]);
 
   const switchNikiMode = (mode: boolean) => {
     setIsNikiMode(mode);
@@ -1769,17 +1777,12 @@ export default function Home() {
     return () => window.removeEventListener("click", handleWindowClick);
   }, []);
 
-  const messageCount = messages.length;
-
   useEffect(() => {
-    if (messageCount > 0) return;
+    if (substantiveMessageCount > 0) return;
     if (session && !profileLoaded) return;
 
-    const preferredMode = effectivePersonalization.default_niki_mode;
-    setMessages(createGreeting(preferredMode));
-
-    setIsNikiMode(preferredMode);
-  }, [effectivePersonalization.default_niki_mode, messageCount, profileLoaded, session]);
+    applyPreferredModeToFreshChat({ resetTeaching: true });
+  }, [applyPreferredModeToFreshChat, profileLoaded, session, substantiveMessageCount]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1876,7 +1879,7 @@ export default function Home() {
 
       setMessages(formatted);
     } else {
-      resetGreeting(isNikiMode);
+      applyPreferredModeToFreshChat({ resetTeaching: true });
     }
 
     if (session?.user?.id) fetchHistory(session.user.id);
@@ -1912,7 +1915,7 @@ export default function Home() {
     if (currentChatId === chatId) {
       setCurrentChatId(null);
       currentChatIdRef.current = null;
-      resetGreeting(isNikiMode);
+      applyPreferredModeToFreshChat({ resetTeaching: true });
     }
 
     setConfirmDeleteId(null);
@@ -2133,7 +2136,7 @@ export default function Home() {
 
     setCurrentChatId(null);
     currentChatIdRef.current = null;
-      resetGreeting(isNikiMode);
+    applyPreferredModeToFreshChat({ resetTeaching: true });
     setConfirmDeleteId(null);
     setRenamingChatId(null);
   };
@@ -3549,7 +3552,7 @@ export default function Home() {
         onClearChat={() => {
           if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
           setAttachedFile(null);
-          resetGreeting(isNikiMode);
+          applyPreferredModeToFreshChat({ resetTeaching: true });
           setCurrentChatId(null);
           currentChatIdRef.current = null;
         }}

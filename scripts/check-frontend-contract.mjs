@@ -177,7 +177,7 @@ const fixtures = [
   {
     name: "new-chats-respect-default-nemanja-mode",
     source: pageSource,
-    pattern: /const preferredMode = effectivePersonalization\.default_niki_mode[\s\S]*setMessages\(createGreeting\(preferredMode\)\)[\s\S]*setIsNikiMode\(preferredMode\)/,
+    pattern: /(?=[\s\S]*applyPreferredModeToFreshChat)(?=[\s\S]*const preferredMode = effectivePersonalization\.default_niki_mode)(?=[\s\S]*setMessages\(createGreeting\(preferredMode\)\))(?=[\s\S]*setIsNikiMode\(preferredMode\))(?=[\s\S]*startNewSession[\s\S]*applyPreferredModeToFreshChat\(\{ resetTeaching: true \}\))/,
   },
   {
     name: "general-settings-autosave-with-local-fallback",
@@ -562,7 +562,7 @@ const fixtures = [
   {
     name: "home-syncs-menu-session-snapshot-and-pending-actions",
     source: artifactWorkspaceSource,
-    pattern: /(?=[\s\S]*CURRENT_CHAT_MODE_STORAGE_KEY)(?=[\s\S]*CURRENT_SESSION_SNAPSHOT_STORAGE_KEY)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*PENDING_HOME_ACTION_STORAGE_KEY)(?=[\s\S]*setMessages\(createGreeting\(isNikiMode\)\))(?=[\s\S]*openStoredArtifactFromStorage\(\{ promptOnReplace: false \}\))/, 
+    pattern: /(?=[\s\S]*CURRENT_CHAT_MODE_STORAGE_KEY)(?=[\s\S]*CURRENT_SESSION_SNAPSHOT_STORAGE_KEY)(?=[\s\S]*LAST_ARTIFACT_PANEL_STORAGE_KEY)(?=[\s\S]*PENDING_HOME_ACTION_STORAGE_KEY)(?=[\s\S]*applyPreferredModeToFreshChat\(\{ resetTeaching: true \}\))(?=[\s\S]*openStoredArtifactFromStorage\(\{ promptOnReplace: false \}\))/, 
   },
   {
     name: "tools-menu-contains-screenshot-action",

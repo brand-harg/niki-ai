@@ -228,6 +228,7 @@ export function useKnowledgeBasePanel({
     const previousUserId = previousSessionUserIdRef.current;
     const previousStorageKey = getPinnedSyllabusStorageKey(previousUserId);
     const nextStorageKey = getPinnedSyllabusStorageKey(sessionUserId);
+    let cancelled = false;
 
     try {
       if (previousStorageKey && previousUserId !== sessionUserId) {
@@ -239,14 +240,25 @@ export function useKnowledgeBasePanel({
     }
 
     if (!sessionUserId) {
-      setPinnedSyllabus(null);
-      setIsSyllabusPreviewOpen(false);
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setPinnedSyllabus(null);
+        setIsSyllabusPreviewOpen(false);
+      }, 0);
       previousSessionUserIdRef.current = null;
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    setPinnedSyllabus(readStoredPinnedSyllabus(nextStorageKey));
+    window.setTimeout(() => {
+      if (cancelled) return;
+      setPinnedSyllabus(readStoredPinnedSyllabus(nextStorageKey));
+    }, 0);
     previousSessionUserIdRef.current = sessionUserId;
+    return () => {
+      cancelled = true;
+    };
   }, [sessionUserId]);
 
   useEffect(() => {
