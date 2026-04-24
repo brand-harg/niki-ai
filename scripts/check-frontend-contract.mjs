@@ -233,7 +233,12 @@ const fixtures = [
   {
     name: "chat-focus-mode-is-collapsible-and-mobile-friendly",
     source: pageSource,
-    pattern: /focusModeExpanded[\s\S]*toggleFocusMode[\s\S]*Focus Mode[\s\S]*focusSummary[\s\S]*Control how chat interprets your question[\s\S]*sm:rotate-180[\s\S]*hidden sm:block/,
+    pattern: /(?=[\s\S]*MOBILE_CHAT_CONTROLS_EXPANDED_KEY)(?=[\s\S]*mobileControlsExpanded)(?=[\s\S]*toggleMobileControls)(?=[\s\S]*focusModeExpanded)(?=[\s\S]*toggleFocusMode)(?=[\s\S]*Focus Mode)(?=[\s\S]*focusSummary)(?=[\s\S]*Control how chat interprets your question)(?=[\s\S]*hidden sm:block)/,
+  },
+  {
+    name: "mobile-chat-controls-collapse-into-summary-bar",
+    source: pageSource,
+    pattern: /mobileControlsSummary[\s\S]*No course selected[\s\S]*toggleMobileControls[\s\S]*Controls[\s\S]*Pure Logic[\s\S]*Nemanja Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
   },
   {
     name: "chat-focus-mode-syncs-with-knowledge-base-and-allows-no-subject",
