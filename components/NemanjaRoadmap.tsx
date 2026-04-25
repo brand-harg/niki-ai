@@ -382,7 +382,7 @@ export default function NemanjaRoadmap({
 }: NemanjaRoadmapProps) {
   const initialCourse = ROADMAP_COURSES[0] ?? null;
   const [selectedCourseId, setSelectedCourseId] = useState<string>(initialCourse?.id ?? "");
-  const [selectedTopicId, setSelectedTopicId] = useState<string>(initialCourse?.topics[0]?.id ?? "");
+  const [selectedTopicId, setSelectedTopicId] = useState<string>("");
   const [expandedCourseId, setExpandedCourseId] = useState<string>(initialCourse?.id ?? "");
   const [relatedLectures, setRelatedLectures] = useState<RelatedLecture[]>([]);
   const [courseCounts, setCourseCounts] = useState<Record<string, number>>({});
@@ -397,6 +397,7 @@ export default function NemanjaRoadmap({
     () => selectedCourse?.topics.find((topic) => topic.id === selectedTopicId) ?? null,
     [selectedCourse, selectedTopicId]
   );
+  const isTopicSelected = !!selectedTopic;
   const activeTopic = selectedTopic ?? {
     id: `${selectedCourse?.id ?? "course"}-overview`,
     label: selectedCourse?.topicLabel ?? "",
@@ -449,18 +450,24 @@ export default function NemanjaRoadmap({
     ? "Strong lecture match found for this node."
     : hasStableCoverage && sameCourseLectureCount >= 1
       ? "Stable course coverage with relevant lecture support."
-      : "No verification badge for this topic yet.";
+      : "This topic isn't verified by NikiAI yet.";
   const lectureContextLabel = hasDirectLectureMatch ? "Lecture Source Context" : "Related Lectures";
   const lectureContextCopy = hasDirectLectureMatch
     ? "Direct lecture matches for this study step."
     : "Related lectures you may find helpful. These are suggestions, not answer sources.";
-  const nextStepPrompt = hasDirectLectureMatch
-    ? `Help me study ${activeTopic.label} in ${selectedCourse.label} using the lecture material.`
-    : `Help me start learning ${activeTopic.label} in ${selectedCourse.label}.`;
-  const nextStepLabel = hasDirectLectureMatch ? "Open this topic in chat" : "Start learning this topic";
-  const nextStepSupportCopy = hasDirectLectureMatch
+  const nextStepPrompt = isTopicSelected
+    ? hasDirectLectureMatch
+      ? `Help me study ${activeTopic.label} in ${selectedCourse.label} using the lecture material.`
+      : `Help me start learning ${activeTopic.label} in ${selectedCourse.label}.`
+    : hasDirectLectureMatch
+      ? `Help me study ${selectedCourse.label} using the lecture material. Start with ${selectedCourse.topicLabel}.`
+      : `Help me start learning ${selectedCourse.label}. Start with ${selectedCourse.topicLabel}.`;
+  const nextStepLabel = isTopicSelected
+    ? `Learn ${activeTopic.label}`
+    : `Start learning ${selectedCourse.label}`;
+  const nextStepSupportCopy = isTopicSelected
     ? "Ask about this topic in chat."
-    : "Ask a question about this topic.";
+    : "Open this course in chat and start with its core ideas.";
 
   useEffect(() => {
     let cancelled = false;
@@ -677,11 +684,11 @@ export default function NemanjaRoadmap({
                     </a>
                   ))}
                 </div>
-              ) : (
-                <p className="mt-0.5 leading-6 text-slate-400">
-                  No lecture coverage found yet for this topic.
-                </p>
-              )}
+                ) : (
+                  <p className="mt-0.5 leading-6 text-slate-400">
+                    No direct lecture coverage for this topic yet. We'll guide you through it step by step.
+                  </p>
+                )}
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -696,13 +703,13 @@ export default function NemanjaRoadmap({
               <p className="mt-0.5 leading-6 text-slate-400">{nextStepSupportCopy}</p>
               <button
                 type="button"
-                onClick={() =>
-                  onOpenTopicInChat?.({
-                    course: selectedCourse.courseContext,
-                    topic: activeTopic.label,
-                    prompt: nextStepPrompt,
-                  })
-                }
+                    onClick={() =>
+                      onOpenTopicInChat?.({
+                        course: selectedCourse.courseContext,
+                        topic: isTopicSelected ? activeTopic.label : "",
+                        prompt: nextStepPrompt,
+                      })
+                    }
                 className="mt-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-cyan-300 transition hover:border-cyan-400/30 hover:bg-cyan-500/14 hover:text-cyan-200"
               >
                 {nextStepLabel}
