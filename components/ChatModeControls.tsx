@@ -68,7 +68,7 @@ export default function ChatModeControls({
     <>
       <div className="hidden sm:block">
         <div className="flex items-center justify-center">
-          <div className="flex max-w-[300px] items-center rounded-full border border-white/8 bg-[#0b0b0b]/88 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.22)] backdrop-blur sm:max-w-[340px] sm:rounded-xl w-auto">
+          <div className="flex max-w-[300px] w-auto items-center rounded-full border border-white/6 bg-[#0b0b0b]/88 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur sm:max-w-[340px] sm:rounded-xl">
             <button
               onClick={() => switchNikiMode(false)}
               className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${
@@ -88,7 +88,7 @@ export default function ChatModeControls({
           </div>
         </div>
 
-        <div className={`mt-2 ${focusModeHeaderClass}`}>
+        <div className={`mt-1.5 ${focusModeHeaderClass}`}>
           <button
             type="button"
             onClick={toggleFocusMode}
@@ -99,7 +99,7 @@ export default function ChatModeControls({
               <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
                 Study Controls
               </p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:mt-1">
+              <p className="mt-0.5 truncate text-[11px] text-slate-500/85 sm:mt-1">
                 {studyControlsSummary}
               </p>
             </div>
@@ -123,20 +123,20 @@ export default function ChatModeControls({
           <div
             className={`${
               focusModeExpanded === true
-                ? "mt-3 block"
+                ? "mt-2.5 block"
                 : focusModeExpanded === false
                   ? "hidden"
                   : "hidden"
             }`}
           >
-            <div className="space-y-3 rounded-2xl border border-white/8 bg-white/[0.015] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+            <div className="space-y-2.5 rounded-2xl border border-white/6 bg-white/[0.012] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.015)]">
               {isNikiMode && (
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.018] px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/[0.015] px-3 py-2">
                   <div className="min-w-0">
                     <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
                       Lecture Mode
                     </p>
-                    <p className="mt-0.5 text-[10px] text-slate-600">
+                    <p className="mt-0.5 text-[10px] text-slate-600/80">
                       Use lecture-aware teaching when it helps.
                     </p>
                   </div>
@@ -155,11 +155,11 @@ export default function ChatModeControls({
               )}
 
               <div>
-                <div className="mb-2 min-w-0">
+                <div className="mb-1.5 min-w-0">
                   <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
                     Focus Mode
                   </p>
-                  <p className="mt-0.5 text-[10px] text-slate-600">
+                  <p className="mt-0.5 text-[10px] text-slate-600/80">
                     Control how chat interprets your question
                   </p>
                 </div>
@@ -206,7 +206,7 @@ export default function ChatModeControls({
                   </button>
               </div>
                 {focusSuggestion && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500/85">
                     <span>Suggested:</span>
                     <button
                       type="button"
@@ -232,7 +232,7 @@ export default function ChatModeControls({
         <button
           type="button"
           onClick={toggleMobileControls}
-          className="flex w-full items-center justify-between gap-3 rounded-[0.95rem] border border-white/8 bg-white/[0.025] px-3 py-2 text-left outline-none transition-all hover:bg-white/[0.045]"
+          className="flex w-full items-center justify-between gap-3 rounded-[0.95rem] border border-white/6 bg-white/[0.02] px-3 py-2 text-left outline-none transition-all hover:bg-white/[0.038]"
           aria-expanded={mobileControlsExpanded}
         >
           <p className="min-w-0 truncate text-[11px] font-bold text-slate-300">
@@ -252,13 +252,13 @@ export default function ChatModeControls({
         </button>
 
         {mobileControlsExpanded && (
-          <div className="mt-2 space-y-2 rounded-2xl border border-white/8 bg-white/[0.015] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="mt-1.5 space-y-1.5 rounded-2xl border border-white/6 bg-white/[0.012] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.015)]">
             <div className="px-1">
               <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
                 Study Controls
               </p>
             </div>
-            <div className="flex items-center rounded-full border border-white/8 bg-[#0b0b0b]/88 p-1 shadow-[0_14px_36px_rgba(0,0,0,0.2)] backdrop-blur">
+            <div className="flex items-center rounded-full border border-white/6 bg-[#0b0b0b]/88 p-1 shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur">
               <button
                 onClick={() => switchNikiMode(false)}
                 className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
@@ -278,12 +278,12 @@ export default function ChatModeControls({
             </div>
 
             {isNikiMode && (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.018] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/[0.015] px-3 py-2">
                 <div className="min-w-0">
                   <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
                     Lecture Mode
                   </p>
-                  <p className="mt-0.5 text-[10px] text-slate-600">
+                  <p className="mt-0.5 text-[10px] text-slate-600/80">
                     Use lecture-aware teaching when it helps.
                   </p>
                 </div>
@@ -304,18 +304,18 @@ export default function ChatModeControls({
               </div>
             )}
 
-            <div className={`${focusModeHeaderClass} rounded-2xl border-white/8 bg-white/[0.01] px-3 py-3`}>
+            <div className={`${focusModeHeaderClass} rounded-2xl border-white/6 bg-white/[0.01] px-3 py-2.5`}>
               <div className="min-w-0">
                 <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
                   Focus Mode
                 </p>
-                <p className="mt-0.5 truncate text-[11px] text-slate-500">{focusSummary}</p>
-                <p className="mt-1 text-[10px] text-slate-600">
+                <p className="mt-0.5 truncate text-[11px] text-slate-500/85">{focusSummary}</p>
+                <p className="mt-1 text-[10px] text-slate-600/80">
                   Control how chat interprets your question
                 </p>
               </div>
 
-              <div className="mt-3 block">
+              <div className="mt-2.5 block">
                 <div className="grid gap-2">
                   <label className="sr-only" htmlFor="chat-focus-course-mobile">
                     Current focus course
@@ -365,7 +365,7 @@ export default function ChatModeControls({
                   </button>
                 </div>
                 {focusSuggestion && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500/85">
                     <span>Suggested:</span>
                     <button
                       type="button"

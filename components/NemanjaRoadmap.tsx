@@ -152,12 +152,13 @@ export default function NemanjaRoadmap({ className = "" }: NemanjaRoadmapProps) 
   }, [relatedLectures, selectedCourse]);
 
   const directLectureMatches = useMemo(
-    () => lectureInsights.filter((lecture) => lecture.isStrongMatch).slice(0, 4),
+    () => lectureInsights.filter((lecture) => lecture.isStrongMatch).slice(0, 3),
     [lectureInsights]
   );
 
   const visibleLectures = useMemo(() => {
-    return (directLectureMatches.length > 0 ? directLectureMatches : lectureInsights).slice(0, 4);
+    const fallbackLectures = lectureInsights.slice(0, 2);
+    return directLectureMatches.length > 0 ? directLectureMatches : fallbackLectures;
   }, [directLectureMatches, lectureInsights]);
 
   const hasDirectLectureMatch = directLectureMatches.length > 0;
@@ -177,7 +178,7 @@ export default function NemanjaRoadmap({ className = "" }: NemanjaRoadmapProps) 
     ? "Strong lecture match found for this node."
     : hasStableCoverage && sameCourseLectureCount >= 1
       ? "Stable course coverage with relevant lecture support."
-      : "Verification appears when lecture support is strong enough to trust.";
+      : "No verification badge for this topic yet.";
   const lectureContextLabel = hasDirectLectureMatch ? "Lecture Source Context" : "Related Lectures";
   const lectureContextCopy = hasDirectLectureMatch
     ? "Direct lecture matches for this study step."
@@ -304,7 +305,7 @@ export default function NemanjaRoadmap({ className = "" }: NemanjaRoadmapProps) 
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3.5">
           <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
             Course Detail
           </p>
@@ -317,33 +318,33 @@ export default function NemanjaRoadmap({ className = "" }: NemanjaRoadmapProps) 
             )}
           </div>
 
-          <div className="mt-4 space-y-3 text-sm text-slate-300">
+          <div className="mt-3 space-y-2.5 text-sm text-slate-300">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Topic Focus
               </p>
-              <p className="mt-1 leading-6 text-slate-300">{selectedCourse.topicLabel}</p>
+              <p className="mt-0.5 leading-6 text-slate-300">{selectedCourse.topicLabel}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Lesson Intent
               </p>
-              <p className="mt-1 leading-6">{selectedCourse.lessonIntent}</p>
+              <p className="mt-0.5 leading-6">{selectedCourse.lessonIntent}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Shortcut
               </p>
-              <p className="mt-1 leading-6">{selectedCourse.shortcut}</p>
+              <p className="mt-0.5 leading-6">{selectedCourse.shortcut}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 {lectureContextLabel}
               </p>
               {isLoadingLectures ? (
-                <p className="mt-1 leading-6 text-slate-400">Loading lecture context...</p>
+                <p className="mt-0.5 leading-6 text-slate-400">Finding related lectures...</p>
               ) : visibleLectures.length > 0 ? (
-                <div className="mt-2 space-y-2">
+                <div className="mt-1.5 space-y-2">
                   <p className="text-[11px] leading-5 text-slate-400">{lectureContextCopy}</p>
                   {visibleLectures.map((lecture) => (
                     <a
@@ -362,8 +363,8 @@ export default function NemanjaRoadmap({ className = "" }: NemanjaRoadmapProps) 
                   ))}
                 </div>
               ) : (
-                <p className="mt-1 leading-6 text-slate-400">
-                  Related Lectures will appear here when coverage is available.
+                <p className="mt-0.5 leading-6 text-slate-400">
+                  No lecture coverage found yet for this topic.
                 </p>
               )}
             </div>
@@ -371,7 +372,7 @@ export default function NemanjaRoadmap({ className = "" }: NemanjaRoadmapProps) 
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Verification Status
               </p>
-              <p className="mt-1 leading-6 text-slate-400">{verificationLabel}</p>
+              <p className="mt-0.5 leading-6 text-slate-400">{verificationLabel}</p>
             </div>
           </div>
         </div>

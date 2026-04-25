@@ -1258,7 +1258,7 @@ function ensureLectureConnectionSection(input: {
   if (!trimmed) return trimmed;
   const supportLevel = getLectureSupportLevel(input.citations);
   const noSourceBlock =
-    "**Lecture Source**\nNo direct lecture source found for this topic.\nAnswered using general math knowledge.";
+    "**Lecture Source**\nNo direct lecture source found for this topic\nAnswered using general math knowledge.";
   const lectureConnectionPattern =
     /(?:^|\n)(\*\*Lecture (?:Connection|Source)\*\*|#{1,6}\s*Lecture (?:Connection|Source)|Lecture (?:Connection|Source):)\s*[\s\S]*?(?=\n(?:\*\*[^*\n]+\*\*|#{1,6}\s+|## Final Answer\b)|$)/i;
 
@@ -1266,7 +1266,7 @@ function ensureLectureConnectionSection(input: {
     if (lectureConnectionPattern.test(trimmed)) {
       return trimmed.replace(lectureConnectionPattern, (_match, heading: string) => {
         if (/lecture (connection|source):/i.test(heading)) {
-          return `\nNo direct lecture source found for this topic.\nAnswered using general math knowledge.`;
+          return `\nNo direct lecture source found for this topic\nAnswered using general math knowledge.`;
         }
         return `\n${noSourceBlock}`;
       }).trim();
@@ -1291,17 +1291,17 @@ function ensureLectureConnectionSection(input: {
       ? [
           "**Lecture Source**",
           "Using lecture sources for this answer.",
-          "This answer is based on lecture material.",
+          "This answer is based on lecture material",
         ]
       : supportLevel === "partial"
         ? [
             "**Lecture Source**",
             "Using lecture sources for this answer.",
-            "Partially supported by lecture material.",
+            "Partially supported by lecture material",
           ]
         : [
             "**Lecture Source**",
-            "No direct lecture source found for this topic.",
+            "No direct lecture source found for this topic",
             "Answered using general math knowledge.",
           ];
 

@@ -628,10 +628,10 @@ const CitationCard = ({
             Lecture Source
           </p>
           <p className="mt-1 text-[10px] leading-4 text-slate-500">
-            {lectureSupportTone === "strong"
-              ? "This answer is based on lecture material."
-              : "Partially supported by lecture material."}
-          </p>
+              {lectureSupportTone === "strong"
+              ? "This answer is based on lecture material"
+              : "Partially supported by lecture material"}
+            </p>
           {activeLectureSet && (
             <p className="mt-1 text-[10px] leading-4 text-slate-500">
               Active lecture set: {activeLectureSet}
@@ -3407,7 +3407,7 @@ export default function Home() {
             ))}
 
             {shouldShowOnboarding && (
-              <div className="mx-auto max-w-3xl rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5 sm:py-5">
+              <div className="mx-auto max-w-3xl rounded-2xl border border-white/8 bg-white/[0.018] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-5 sm:py-4">
                 <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
                   Quick Start
                 </p>
@@ -3424,7 +3424,7 @@ export default function Home() {
                       type="button"
                       onClick={() => void handleOnboardingPrompt(prompt)}
                       disabled={isLoading}
-                      className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-200 outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:scale-[1.02] hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40`}
+                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all duration-200 outline-none ${accentBorder} bg-white/[0.02] ${accentColor} hover:scale-[1.01] hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40`}
                     >
                       {prompt}
                     </button>

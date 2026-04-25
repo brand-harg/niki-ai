@@ -5253,11 +5253,13 @@ function buildNaturalStepHeading(stepNumber: number, label: string): string {
 
   if (stepNumber === 1 && verbMatch) {
     const [, verb, remainder] = verbMatch;
-    if (/^(identify|write|choose|set|list|find|apply|separate|build|factor)$/i.test(verb)) {
-      const action = toPresentParticiple(verb);
-      const target = lowercaseFirst(remainder.trim());
-      return `Start by ${action} ${target}`;
+    const target = lowercaseFirst(remainder.trim());
+
+    if (/^(identify|write|list)$/i.test(verb)) return `Start with ${target}`;
+    if (/^(choose|find|apply|build|factor|separate|substitute|differentiate|integrate|simplify|solve|compute)$/i.test(verb)) {
+      return `Start by ${toPresentParticiple(verb)} ${target}`;
     }
+    if (/^(set)$/i.test(verb)) return `Start by setting up ${target}`;
   }
 
   if (stepNumber === 1) return `Start with ${lowercaseFirst(trimmed)}`;

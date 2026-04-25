@@ -399,7 +399,7 @@ const fixtures = [
   {
     name: "lecture-mode-uses-nuanced-source-support-messaging",
     source: `${pageSource}\n${chatRouteSource}`,
-    pattern: /(?=[\s\S]*This answer is based on lecture material\.)(?=[\s\S]*Partially supported by lecture material\.)(?=[\s\S]*No direct lecture source found for this topic)(?=[\s\S]*Answered using general math knowledge\.)/,
+    pattern: /(?=[\s\S]*This answer is based on lecture material)(?=[\s\S]*Partially supported by lecture material)(?=[\s\S]*No direct lecture source found for this topic)(?=[\s\S]*Answered using general math knowledge\.)/,
   },
   {
     name: "chat-request-includes-focus-mode-context",
