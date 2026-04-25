@@ -56,24 +56,23 @@ export default function ChatModeControls({
   toggleFocusMode,
   toggleMobileControls,
 }: ChatModeControlsProps) {
+  const trimmedTopic = chatFocus.topic.trim();
+  const studyControlsSummary = [
+    isNikiMode ? (lectureMode ? "Lecture Mode On" : "Lecture Mode Off") : null,
+    chatFocus.course ? focusSummary : trimmedTopic ? trimmedTopic : "No course selected",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
   return (
     <>
       <div className="hidden sm:block">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
-          <div className="justify-self-end">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none select-none rounded-full border border-transparent px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest opacity-0 sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px]"
-            >
-              Teaching: OFF
-            </div>
-          </div>
-
-          <div className="flex max-w-[300px] items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur sm:max-w-[340px] sm:rounded-xl w-auto justify-self-center">
+        <div className="flex items-center justify-center">
+          <div className="flex max-w-[300px] items-center rounded-full border border-white/8 bg-[#0b0b0b]/88 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.22)] backdrop-blur sm:max-w-[340px] sm:rounded-xl w-auto">
             <button
               onClick={() => switchNikiMode(false)}
               className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${
-                !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                !isNikiMode ? "bg-white/10 text-white" : "text-slate-500 hover:text-white"
               }`}
             >
               Pure Logic
@@ -81,51 +80,15 @@ export default function ChatModeControls({
             <button
               onClick={() => switchNikiMode(true)}
               className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${
-                isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-500 hover:text-white"
               }`}
             >
               Nemanja Mode
             </button>
           </div>
-
-          <div className="justify-self-start">
-            {isNikiMode ? (
-              <button
-                type="button"
-                onClick={() => setLectureMode((prev) => !prev)}
-                className={`rounded-full border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px] ${
-                  lectureMode
-                    ? `${accentBorder} bg-white/[0.06] ${accentColor}`
-                    : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"
-                }`}
-              >
-                {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
-              </button>
-            ) : (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none select-none rounded-full border border-transparent px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest opacity-0 sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px]"
-              >
-                Teaching: OFF
-              </div>
-            )}
-          </div>
         </div>
 
-        <div className="flex min-h-[12px] items-center justify-start sm:justify-center">
-          <p
-            className={`text-[10px] font-bold tracking-wide transition-opacity ${
-              isNikiMode && lectureMode ? `${accentColor} opacity-90` : "opacity-0"
-            }`}
-            aria-live="polite"
-          >
-            {isNikiMode && lectureMode
-              ? `Teaching Mode Active${chatFocus.topic.trim() ? ` · Focus: ${focusCourseLabel} — ${chatFocus.topic.trim()}` : ""}`
-              : "Teaching Mode Inactive"}
-          </p>
-        </div>
-
-        <div className={focusModeHeaderClass}>
+        <div className={`mt-2 ${focusModeHeaderClass}`}>
           <button
             type="button"
             onClick={toggleFocusMode}
@@ -134,13 +97,10 @@ export default function ChatModeControls({
           >
             <div className="min-w-0">
               <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-                Focus Mode
+                Study Controls
               </p>
               <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:mt-1">
-                {focusSummary}
-              </p>
-              <p className="mt-1 text-[10px] text-slate-600">
-                Control how chat interprets your question
+                {studyControlsSummary}
               </p>
             </div>
             <svg
@@ -166,16 +126,44 @@ export default function ChatModeControls({
                 ? "mt-3 block"
                 : focusModeExpanded === false
                   ? "hidden"
-                  : "mt-3 hidden sm:block"
+                  : "hidden"
             }`}
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="sm:min-w-[8rem]">
-                <p className="text-[11px] text-slate-500">
-                  Short follow-ups can inherit this topic when the prompt stays vague.
-                </p>
-              </div>
-              <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
+            <div className="space-y-3 rounded-2xl border border-white/8 bg-white/[0.015] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+              {isNikiMode && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.018] px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
+                      Lecture Mode
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-slate-600">
+                      Use lecture-aware teaching when it helps.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLectureMode((prev) => !prev)}
+                    className={`rounded-full border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-xl sm:px-3 sm:py-2 sm:text-[9px] ${
+                      lectureMode
+                        ? `${accentBorder} bg-white/[0.06] ${accentColor}`
+                        : "border-white/10 bg-[#0b0b0b]/90 text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                  </button>
+                </div>
+              )}
+
+              <div>
+                <div className="mb-2 min-w-0">
+                  <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
+                    Focus Mode
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-slate-600">
+                    Control how chat interprets your question
+                  </p>
+                </div>
+                <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
                 <label className="sr-only" htmlFor="chat-focus-course">
                   Current focus course
                 </label>
@@ -211,30 +199,31 @@ export default function ChatModeControls({
                 />
                 <button
                   type="button"
-                  onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
-                  className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
-                >
-                  Clear
-                </button>
+                    onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
+                    className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 transition hover:border-white/20 hover:text-slate-300"
+                  >
+                    Clear
+                  </button>
+              </div>
+                {focusSuggestion && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span>Suggested:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setChatFocus((prev) => ({
+                          ...prev,
+                          topic: focusSuggestion,
+                        }))
+                      }
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
+                    >
+                      {focusCourseLabel} — {focusSuggestion}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
-            {focusSuggestion && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                <span>Suggested:</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setChatFocus((prev) => ({
-                      ...prev,
-                      topic: focusSuggestion,
-                    }))
-                  }
-                  className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
-                >
-                  {focusCourseLabel} — {focusSuggestion}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -243,7 +232,7 @@ export default function ChatModeControls({
         <button
           type="button"
           onClick={toggleMobileControls}
-          className="flex w-full items-center justify-between gap-3 rounded-[0.95rem] border border-white/10 bg-white/[0.03] px-3 py-2 text-left outline-none transition-all hover:bg-white/[0.05]"
+          className="flex w-full items-center justify-between gap-3 rounded-[0.95rem] border border-white/8 bg-white/[0.025] px-3 py-2 text-left outline-none transition-all hover:bg-white/[0.045]"
           aria-expanded={mobileControlsExpanded}
         >
           <p className="min-w-0 truncate text-[11px] font-bold text-slate-300">
@@ -263,12 +252,17 @@ export default function ChatModeControls({
         </button>
 
         {mobileControlsExpanded && (
-          <div className="mt-2 space-y-2 border-b border-white/8 pb-2">
-            <div className="flex items-center rounded-full border border-white/10 bg-[#0b0b0b]/95 p-1 shadow-2xl backdrop-blur">
+          <div className="mt-2 space-y-2 rounded-2xl border border-white/8 bg-white/[0.015] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+            <div className="px-1">
+              <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
+                Study Controls
+              </p>
+            </div>
+            <div className="flex items-center rounded-full border border-white/8 bg-[#0b0b0b]/88 p-1 shadow-[0_14px_36px_rgba(0,0,0,0.2)] backdrop-blur">
               <button
                 onClick={() => switchNikiMode(false)}
                 className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
-                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-600 hover:text-white"
+                  !isNikiMode ? "bg-white/10 text-white" : "text-slate-500 hover:text-white"
                 }`}
               >
                 Pure Logic
@@ -276,7 +270,7 @@ export default function ChatModeControls({
               <button
                 onClick={() => switchNikiMode(true)}
                 className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
-                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-600 hover:text-white"
+                  isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-500 hover:text-white"
                 }`}
               >
                 Nemanja Mode
@@ -284,7 +278,15 @@ export default function ChatModeControls({
             </div>
 
             {isNikiMode && (
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.018] px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
+                    Lecture Mode
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-slate-600">
+                    Use lecture-aware teaching when it helps.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -294,7 +296,7 @@ export default function ChatModeControls({
                   className={`rounded-full border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
                     lectureMode
                       ? `${accentBorder} bg-white/[0.06] ${accentColor}`
-                      : "border-white/10 bg-[#0b0b0b]/90 text-slate-600 hover:text-slate-300"
+                      : "border-white/10 bg-[#0b0b0b]/90 text-slate-500 hover:text-slate-300"
                   }`}
                 >
                   {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
@@ -302,9 +304,9 @@ export default function ChatModeControls({
               </div>
             )}
 
-            <div className={`${focusModeHeaderClass} rounded-2xl border-white/8 px-3 py-3`}>
+            <div className={`${focusModeHeaderClass} rounded-2xl border-white/8 bg-white/[0.01] px-3 py-3`}>
               <div className="min-w-0">
-                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
                   Focus Mode
                 </p>
                 <p className="mt-0.5 truncate text-[11px] text-slate-500">{focusSummary}</p>

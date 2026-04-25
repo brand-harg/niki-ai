@@ -84,7 +84,7 @@ const fixtures = [
   {
     name: "long-form-buffered-output-is-sanitized",
     pass:
-      /sanitizeMathContent\(normalizeBufferedModelOutput\(stableContent\)\)/.test(chatRoute) &&
+      /sanitizeMathContent\(normalizeBufferedModelOutput\(lectureSafeStableContent\)\)/.test(chatRoute) &&
       /function sanitizeMathContent/.test(mathFormatting),
   },
   {
@@ -122,7 +122,7 @@ const fixtures = [
     pass: /function buildNaturalLogIntegralReply/.test(deterministicMath) &&
       /Step 1: Choose u and dv/.test(deterministicMath) &&
       /\\begin\{aligned\}[\s\S]*u&=/.test(deterministicMath) &&
-      /Alternative Form/.test(deterministicMath),
+      /Choose u and dv:/.test(deterministicMath),
   },
   {
     name: "natural-log-integral-avoids-fragile-inline-latex",
@@ -230,7 +230,7 @@ const fixtures = [
     pass:
       /For longer answers, use this visible structure: \*\*Goal\*\*, \*\*Steps\*\*/.test(chatPrompts) &&
       /For longer answers, use this visible structure: \*\*Board Setup\*\*/.test(chatPrompts) &&
-      /Lecture Connection/.test(chatPrompts) &&
+      /Lecture Source/.test(chatPrompts) &&
       /Concept Check/.test(chatPrompts),
   },
   {

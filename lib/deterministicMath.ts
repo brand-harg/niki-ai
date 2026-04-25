@@ -754,7 +754,7 @@ function buildPowerSeriesLectureReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "Lecture Mode is on, so use the source cards below as the timestamp trail. The important Calc 2 routine is: identify the series form, compute the ratio limit, then test endpoints separately when the radius is finite.",
       ]
       : [];
@@ -1148,7 +1148,7 @@ x_2&=\\frac{${negativeB}-${sqrtDiscriminant}}{${denominator}}=${formatRationalLa
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This follows the lecture-style algebra pattern: put the equation in standard form, identify the coefficients, then let the formula do the work.",
       ]
       : [];
@@ -1245,7 +1245,7 @@ function buildSineOverXLimitReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This matches the usual lecture move for limits: rewrite the expression until it matches a known limit form, then substitute the limit value.",
       ]
       : [];
@@ -1340,7 +1340,7 @@ function buildDifferenceOfSquaresLimitReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This follows the lecture-style limit routine: check substitution, simplify the algebra, then evaluate the cleaned expression.",
       ]
       : [];
@@ -1450,7 +1450,7 @@ function buildPolynomialDirectLimitReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This follows the lecture pattern for straightforward limits: first check whether direct substitution is allowed, then substitute and simplify.",
       ]
       : [];
@@ -1510,7 +1510,7 @@ function buildExpSquaredLnProductDerivativeReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This follows the lecture-style order: identify the two functions, compute each derivative, plug into the product rule, then simplify.",
       ]
       : [];
@@ -1618,7 +1618,7 @@ function buildArithmeticAssignmentReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This is the same board habit used in algebra-heavy lecture work: simplify one layer at a time and carry the equality through cleanly.",
       ]
       : [];
@@ -1958,7 +1958,7 @@ function buildLongDivisionReply({
 }
 
 function lectureAwareConnection(isLectureStyle: boolean, hasLectureContext: boolean, text: string): string[] {
-  return isLectureStyle && hasLectureContext ? ["", "**Lecture Connection**", text] : [];
+  return isLectureStyle && hasLectureContext ? ["", "**Lecture Source**", text] : [];
 }
 
 function buildOdeGrowthReply({
@@ -4952,13 +4952,13 @@ function buildNaturalLogIntegralReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This matches the lecture pattern: pick the part that simplifies under differentiation, plug into the formula, then clean up the remaining integral.",
       ]
       : isLectureStyle
         ? [
           "",
-          "**Lecture Connection**",
+          "**Lecture Source**",
           "Lecture Mode is on, but no specific lecture context was retrieved for this exact integral, so I am using the standard integration-by-parts pattern.",
         ]
         : [];
@@ -5061,13 +5061,13 @@ function buildSimpleDerivativeReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This matches the lecture idea that the derivative is a function measuring change or slope. For 5x, that slope is always 5, so the derivative does not depend on x.",
       ]
       : isLectureStyle
         ? [
           "",
-          "**Lecture Connection**",
+          "**Lecture Source**",
           "Lecture Mode is on, but no specific lecture context was retrieved for this exact step. The method still follows the standard derivative-as-change idea.",
         ]
         : [];
@@ -5153,13 +5153,13 @@ function buildSimpleIntegralReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         "This follows the lecture pattern: identify the power rule form, perform the algebra cleanly, and remember that indefinite integrals need the constant C.",
       ]
       : isLectureStyle
         ? [
           "",
-          "**Lecture Connection**",
+          "**Lecture Source**",
           "Lecture Mode is on, but no specific lecture context was retrieved for this exact step. The method still follows the standard antiderivative rule.",
         ]
         : [];
@@ -5201,6 +5201,79 @@ function buildSimpleIntegralReply({
     "## Final Answer",
     displayMath(integral),
   ].join("\n");
+}
+
+function lowercaseFirst(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toLowerCase() + value.slice(1);
+}
+
+function toPresentParticiple(verb: string): string {
+  const normalized = verb.toLowerCase();
+  const overrides: Record<string, string> = {
+    write: "writing",
+    use: "using",
+    solve: "solving",
+    choose: "choosing",
+    compute: "computing",
+    substitute: "substituting",
+    split: "splitting",
+    factor: "factoring",
+    cancel: "cancelling",
+    apply: "applying",
+    separate: "separating",
+    integrate: "integrating",
+    differentiate: "differentiating",
+    simplify: "simplifying",
+    convert: "converting",
+    check: "checking",
+    build: "building",
+    list: "listing",
+    find: "finding",
+    evaluate: "evaluating",
+    multiply: "multiplying",
+    combine: "combining",
+    form: "forming",
+    start: "starting",
+    finish: "finishing",
+    include: "including",
+    read: "reading",
+  };
+
+  if (overrides[normalized]) return overrides[normalized];
+  if (normalized.endsWith("e") && !normalized.endsWith("ee")) {
+    return `${normalized.slice(0, -1)}ing`;
+  }
+  return `${normalized}ing`;
+}
+
+function buildNaturalStepHeading(stepNumber: number, label: string): string {
+  const trimmed = label.trim();
+  const verbMatch = trimmed.match(/^([A-Za-z-]+)\s+(.+)$/);
+
+  if (stepNumber === 1 && verbMatch) {
+    const [, verb, remainder] = verbMatch;
+    if (/^(identify|write|choose|set|list|find|apply|separate|build|factor)$/i.test(verb)) {
+      const action = toPresentParticiple(verb);
+      const target = lowercaseFirst(remainder.trim());
+      return `Start by ${action} ${target}`;
+    }
+  }
+
+  if (stepNumber === 1) return `Start with ${lowercaseFirst(trimmed)}`;
+  if (stepNumber === 2) return `Now ${lowercaseFirst(trimmed)}`;
+  if (stepNumber === 3) return `Next, ${lowercaseFirst(trimmed)}`;
+  return `Then ${lowercaseFirst(trimmed)}`;
+}
+
+function polishDeterministicMathPresentation(reply: string): string {
+  return reply
+    .replace(/\*\*Step-by-Step Solution\*\*/g, "**Workthrough**")
+    .replace(/\*\*Step (\d+): ([^*\n]+)\*\*/g, (_match, stepText: string, label: string) => {
+      const stepNumber = Number(stepText);
+      if (!Number.isFinite(stepNumber)) return _match;
+      return `**${buildNaturalStepHeading(stepNumber, label)}**`;
+    });
 }
 
 function buildDeterministicMathReply({
@@ -5730,7 +5803,7 @@ function buildDeterministicMathReply({
       isLectureStyle && hasLectureContext
         ? [
           "",
-          "**Lecture Connection**",
+          "**Lecture Source**",
           "This follows the classroom pattern: identify the algebra structure, choose the method, then simplify without skipping the cleanup.",
         ]
         : [];
@@ -5800,7 +5873,7 @@ function buildDeterministicMathReply({
     isLectureStyle && hasLectureContext
       ? [
         "",
-        "**Lecture Connection**",
+        "**Lecture Source**",
         intent === "derivative"
           ? "This lines up with the lecture emphasis that derivatives change functions into new functions that measure change or slope."
           : "This lines up with the lecture emphasis that integrals reverse derivative rules and accumulate change.",
@@ -5808,7 +5881,7 @@ function buildDeterministicMathReply({
       : isLectureStyle
         ? [
           "",
-          "**Lecture Connection**",
+          "**Lecture Source**",
           "Lecture Mode is on, but no specific lecture context was retrieved for this exact expression, so I am using the standard rule directly.",
         ]
         : [];
@@ -5878,4 +5951,6 @@ export {
   detectSimpleMathIntent,
   incompleteProceduralMathRequest,
   missingExpressionReply,
+  polishDeterministicMathPresentation,
 };
+

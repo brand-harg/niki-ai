@@ -180,7 +180,7 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: true,
     },
-    expect: [/Step 3: Apply the formula to this problem/i, /\\frac\{d\}\{dx\}\\left\(5x\\right\)=5\\cdot\\frac\{d\}\{dx\}\(x\)=5\\cdot 1/i],
+    expect: [/(Next,|Then )apply the formula to this problem/i, /\\frac\{d\}\{dx\}\\left\(5x\\right\)=5\\cdot\\frac\{d\}\{dx\}\(x\)=5\\cdot 1/i],
     reject: [/Qwen/i],
   },
   {
@@ -191,7 +191,7 @@ const scenarios = [
       isNikiMode: true,
       lectureMode: true,
     },
-    expect: [/Step 3: Apply the formula to this problem/i, /Inner function:/i, /Outer function:/i, /\\cos\\left\(x\^\{2\}\\right\)\\cdot2x/i],
+    expect: [/(Next,|Then )apply the formula to this problem/i, /Inner function:/i, /Outer function:/i, /\\cos\\left\(x\^\{2\}\\right\)\\cdot2x/i],
     reject: [/Qwen/i],
   },
   {
@@ -203,7 +203,7 @@ const scenarios = [
       lectureMode: true,
     },
     expect: [
-      /Step 3: Apply the formula to this problem/i,
+      /(?:Next,|Then )apply the formula to this problem/i,
       /u&=\\sin/i,
       /v&=e\^\{2x\}/i,
       /u'&=\\cos/i,

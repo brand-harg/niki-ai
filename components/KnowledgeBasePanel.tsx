@@ -46,6 +46,7 @@ type KnowledgeBasePanelProps = {
   onDeleteSavedArtifact: (artifact: SavedArtifact) => void;
   onOpenPublicArtifact: (artifact: SavedArtifact) => void;
   onLogin: () => void;
+  onOpenRoadmap: () => void;
   onRestoreRecentContext: (context: RecentKnowledgeContext) => void;
   onSelectKnowledgeCourse: (courseContext: string) => void;
 };
@@ -87,6 +88,7 @@ export default function KnowledgeBasePanel({
   onDeleteSavedArtifact,
   onOpenPublicArtifact,
   onLogin,
+  onOpenRoadmap,
   onRestoreRecentContext,
   onSelectKnowledgeCourse,
 }: KnowledgeBasePanelProps) {
@@ -178,7 +180,7 @@ export default function KnowledgeBasePanel({
           role="button"
           tabIndex={0}
           aria-expanded={sourceHealthExpanded}
-          title="Using lecture data for responses"
+          title="Using lecture sources for this answer"
           onClick={onToggleSourceHealth}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -211,7 +213,7 @@ export default function KnowledgeBasePanel({
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">{sourceHealth.detail}</p>
               )}
               <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                Using lecture data for responses
+                Using lecture sources for this answer
               </p>
             </div>
             <div className="mt-1 flex items-start gap-2">
@@ -523,6 +525,30 @@ export default function KnowledgeBasePanel({
               </div>
             </div>
           )}
+        </div>
+
+        <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
+                Roadmap
+              </p>
+              <p className="text-sm font-bold text-slate-100">Nemanja Roadmap</p>
+              <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                Open the course tree to browse lecture-backed study paths without leaving chat.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onOpenRoadmap}
+              className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
+            >
+              Open Roadmap
+            </button>
+          </div>
         </div>
 
         <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] p-4`}>

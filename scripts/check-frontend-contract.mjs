@@ -13,10 +13,12 @@ const settingsSource = readFileSync("app/settings/page.tsx", "utf8");
 const generalPageSource = readFileSync("app/settings/general/page.tsx", "utf8");
 const chatRouteSource = readFileSync("app/api/chat/route.ts", "utf8");
 const publicArtifactsRouteSource = readFileSync("app/api/artifacts/public/route.ts", "utf8");
+const relatedLecturesRouteSource = readFileSync("app/api/lectures/related/route.ts", "utf8");
 const knowledgeBaseStatusRouteSource = readFileSync("app/api/knowledge-base/status/route.ts", "utf8");
 const chatModeControlsSource = readFileSync("components/ChatModeControls.tsx", "utf8");
 const knowledgeBasePanelSource = readFileSync("components/KnowledgeBasePanel.tsx", "utf8");
 const artifactWorkspacePanelSource = readFileSync("components/ArtifactWorkspacePanel.tsx", "utf8");
+const nemanjaRoadmapSource = readFileSync("components/NemanjaRoadmap.tsx", "utf8");
 const artifactWorkspaceHookSource = readFileSync("hooks/useArtifactWorkspace.ts", "utf8");
 const knowledgeBaseHookSource = readFileSync("hooks/useKnowledgeBasePanel.ts", "utf8");
 const artifactWorkspaceLibSource = readFileSync("lib/artifactWorkspace.ts", "utf8");
@@ -215,6 +217,11 @@ const fixtures = [
     pattern: /const KNOWLEDGE_BASE_COURSES[\s\S]*Elementary Algebra[\s\S]*PreCalc 1[\s\S]*Calc 1[\s\S]*Calc 2[\s\S]*Calc 3[\s\S]*Differential Equations[\s\S]*Statistics[\s\S]*Knowledge Base/,
   },
   {
+    name: "nemanja-roadmap-renders-clickable-course-tree-with-details",
+    source: nemanjaRoadmapSource,
+    pattern: /(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Foundations)(?=[\s\S]*Core Calculus)(?=[\s\S]*Advanced \/ Applied)(?=[\s\S]*Elementary Algebra)(?=[\s\S]*PreCalc 1)(?=[\s\S]*Calc 1)(?=[\s\S]*Calc 2)(?=[\s\S]*Calc 3)(?=[\s\S]*Differential Equations)(?=[\s\S]*Statistics)(?=[\s\S]*setSelectedCourseId\(course\.id\))(?=[\s\S]*Course Detail)(?=[\s\S]*Topic Focus)(?=[\s\S]*Lesson Intent)(?=[\s\S]*Shortcut)(?=[\s\S]*(Lecture Source Context|Related Lectures))(?=[\s\S]*Verified by NikiAI)(?=[\s\S]*Verification Status)/,
+  },
+  {
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
     source: knowledgeBaseSource,
     pattern: /Source Health[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,
@@ -223,6 +230,11 @@ const fixtures = [
     name: "knowledge-base-panel-is-an-interactive-control-surface",
     source: knowledgeBaseSource,
     pattern: /Start New Session[\s\S]*Active Lecture Set[\s\S]*Set Active[\s\S]*Clear[\s\S]*Upload \/ Attach File[\s\S]*Recent Context/,
+  },
+  {
+    name: "knowledge-base-can-open-roadmap-panel",
+    source: `${pageSource}\n${knowledgeBasePanelSource}\n${nemanjaRoadmapSource}`,
+    pattern: /(?=[\s\S]*Open Roadmap)(?=[\s\S]*onOpenRoadmap)(?=[\s\S]*isRoadmapOpen)(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Close roadmap)/,
   },
   {
     name: "knowledge-base-course-chips-drive-focus-mode",
@@ -262,7 +274,7 @@ const fixtures = [
   {
     name: "knowledge-base-source-health-expands-with-course-breakdown",
     source: knowledgeBaseSource,
-    pattern: /sourceHealthExpanded[\s\S]*Using lecture data for responses[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
+    pattern: /sourceHealthExpanded[\s\S]*Using lecture sources for this answer[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
   },
   {
     name: "chat-focus-mode-supports-all-core-courses-and-persists",
@@ -380,6 +392,16 @@ const fixtures = [
     pattern: /const teachingMode = options\?\.teachingMode \?\? lectureMode;[\s\S]*!isExplicitKnowledgeBaseRequest\(question\) && !teachingMode[\s\S]*\/api\/rag\/query/,
   },
   {
+    name: "ungrounded-lecture-answers-offer-related-lectures",
+    source: `${pageSource}\n${relatedLecturesRouteSource}`,
+    pattern: /(?=[\s\S]*Related Lectures you may find helpful)(?=[\s\S]*These lectures cover similar topics\.)(?=[\s\S]*lectures\.slice\(0, 3\))(?=[\s\S]*formatRelatedLectureTitle)(?=[\s\S]*\/api\/lectures\/related)(?=[\s\S]*teachingMode && \(!rag\?\.citations \|\| rag\.citations\.length === 0\))(?=[\s\S]*lecture_sources)/,
+  },
+  {
+    name: "lecture-mode-uses-nuanced-source-support-messaging",
+    source: `${pageSource}\n${chatRouteSource}`,
+    pattern: /(?=[\s\S]*This answer is based on lecture material\.)(?=[\s\S]*Partially supported by lecture material\.)(?=[\s\S]*No direct lecture source found for this topic)(?=[\s\S]*Answered using general math knowledge\.)/,
+  },
+  {
     name: "chat-request-includes-focus-mode-context",
     source: pageSource,
     pattern: /focusCourseContext: chatFocus\.course \|\| undefined[\s\S]*focusTopicContext: chatFocus\.topic\.trim\(\) \|\| undefined/,
@@ -472,7 +494,7 @@ const fixtures = [
   {
     name: "nemanja-mode-shows-teaching-toggle-only",
     source: chatControlsSource,
-    pattern: /Pure Logic[\s\S]*Nemanja Mode[\s\S]*isNikiMode \? \([\s\S]*Teaching: ON[\s\S]*Teaching: OFF[\s\S]*opacity-0/,
+    pattern: /Pure Logic[\s\S]*Nemanja Mode[\s\S]*\{isNikiMode && \([\s\S]*Lecture Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
   },
   {
     name: "pure-logic-responses-offer-explain-bridge",
@@ -632,7 +654,7 @@ const fixtures = [
   {
     name: "source-inspector-opens-from-source-cards",
     source: pageSource,
-    pattern: /Peek evidence[\s\S]*aria-label="Source inspector"[\s\S]*Source Inspector/,
+    pattern: /View source[\s\S]*aria-label="Source inspector"[\s\S]*Lecture Source details/,
   },
   {
     name: "source-inspector-honestly-labels-evidence",

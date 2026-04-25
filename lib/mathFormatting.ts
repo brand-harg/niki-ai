@@ -575,7 +575,7 @@ function unwrapNonMathDisplayBlocks(content: string): string {
 
     const isMarkdownStructure =
       /^\s*(#{1,6}\s+|\*\*[^*\n]+\*\*)/m.test(normalized) ||
-      /\b(Step-by-Step Solution|Step\s+\d+:|Final Answer|Formula used|Rule used|Method used|Checkpoint|Lecture Connection)\b/i.test(
+      /\b(Step-by-Step Solution|Step\s+\d+:|Final Answer|Formula used|Rule used|Method used|Checkpoint|Lecture (?:Connection|Source))\b/i.test(
         normalized
       );
     const hasLatexCommand = /\\(?:frac|sqrt|int|sum|lim|ln|log|sin|cos|tan|begin|left|right|cdot|,|;|!)/.test(

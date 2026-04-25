@@ -6,6 +6,7 @@ import ThoughtTrace from "@/components/ThoughtTrace";
 import CommandPalette from "@/components/CommandPalette";
 import ChatModeControls from "@/components/ChatModeControls";
 import KnowledgeBasePanel from "@/components/KnowledgeBasePanel";
+import NemanjaRoadmap from "@/components/NemanjaRoadmap";
 
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkMath from "remark-math";
@@ -61,6 +62,7 @@ type Message = {
   role: "ai" | "user";
   content: string;
   citations?: RagCitation[];
+  relatedLectures?: RelatedLecture[];
   retrievalConfidence?: RagResponse["retrievalConfidence"];
   mode?: "pure" | "nemanja";
   teachingEnabled?: boolean;
@@ -297,6 +299,13 @@ type RagResponse = {
   retrievalConfidence?: "high" | "medium" | "low" | "none";
   error?: string;
 };
+type RelatedLecture = {
+  id: string;
+  lecture_title: string;
+  course: string;
+  professor: string;
+  video_url: string;
+};
 type CalendarEventContextRow = {
   title: string;
   event_date: string;
@@ -405,6 +414,17 @@ function getYouTubeEmbedUrl(url?: string | null, timestampStartSeconds?: number)
       ? Math.max(0, Math.floor(timestampStartSeconds))
       : 0;
   return `https://www.youtube.com/embed/${videoId}?start=${start}&autoplay=1&rel=0`;
+}
+
+function formatRelatedLectureTitle(title?: string) {
+  const normalized = (title ?? "")
+    .replace(/^Nemanja Nikitovic Live Stream\s*/i, "")
+    .replace(/^Nemanja Nikitovic\s*/i, "")
+    .replace(/\b(Precalc1|Calculus1|Calculus2|Calculus3|Stats1|DifEq)\b\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized || title || "Lecture";
 }
 
 function dedupeCitations(citations: RagCitation[] = []) {
@@ -517,7 +537,7 @@ function getCalloutKind(text: string) {
   if (/^Concept Check\b/i.test(text)) return "math-callout-concept";
   if (/^Common Mistake\b/i.test(text)) return "math-callout-warning";
   if (/^Checkpoint\b/i.test(text)) return "math-callout-checkpoint";
-  if (/^Lecture Connection\b/i.test(text)) return "math-callout-lecture";
+  if (/^Lecture (Connection|Source)\b/i.test(text)) return "math-callout-lecture";
   return "";
 }
 
@@ -565,6 +585,27 @@ const CitationCard = ({
   const activeLectureSet = knowledgeBaseCourse?.trim() || "";
   const requestedCourseLabel = requestedCourse?.trim() || "";
   const lowRelevance = !!knowledgeBaseMismatch || shownConfidence === "low";
+  const lectureSupportTone =
+    unique.length > 0 && !knowledgeBaseMismatch && shownConfidence === "high"
+      ? "strong"
+      : "partial";
+  const displayedCitations = useMemo(() => {
+    const narrowed =
+      lectureSupportTone === "partial"
+        ? unique.filter((citation) => {
+            const hasTranscriptEvidence = cleanEvidenceText(citation.excerpt).length > 0;
+            const hasTopicEvidence = cleanEvidenceText(citation.sectionHint).length > 0;
+            return (
+              hasTranscriptEvidence ||
+              hasTopicEvidence ||
+              (typeof citation.similarity === "number" && citation.similarity >= 0.55)
+            );
+          })
+        : unique;
+
+    const base = narrowed.length > 0 ? narrowed : unique;
+    return lectureSupportTone === "partial" ? base.slice(0, 2) : base.slice(0, 4);
+  }, [lectureSupportTone, unique]);
   const confidenceLabel =
     lowRelevance
       ? "Low relevance"
@@ -574,7 +615,7 @@ const CitationCard = ({
         ? "Medium confidence"
           : "No confidence score";
 
-  if (!unique.length) return null;
+  if (!displayedCitations.length) return null;
 
   const activeEmbedUrl = getYouTubeEmbedUrl(activeClip?.timestampUrl, activeClip?.timestampStartSeconds);
 
@@ -584,7 +625,12 @@ const CitationCard = ({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-            Sources
+            Lecture Source
+          </p>
+          <p className="mt-1 text-[10px] leading-4 text-slate-500">
+            {lectureSupportTone === "strong"
+              ? "This answer is based on lecture material."
+              : "Partially supported by lecture material."}
           </p>
           {activeLectureSet && (
             <p className="mt-1 text-[10px] leading-4 text-slate-500">
@@ -596,13 +642,13 @@ const CitationCard = ({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setInspectorOpen(true)}
-            className={`rounded-md border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest transition ${accentBorder} bg-black/25 ${accentText} hover:bg-white/[0.05]`}
-          >
-            Peek evidence
-          </button>
+            <button
+              type="button"
+              onClick={() => setInspectorOpen(true)}
+              className={`rounded-md border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest transition ${accentBorder} bg-black/25 ${accentText} hover:bg-white/[0.05]`}
+            >
+            View source
+            </button>
           {shownConfidence && shownConfidence !== "none" && (
             <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
               {confidenceLabel}
@@ -611,7 +657,7 @@ const CitationCard = ({
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
-        {unique.map((c, i) => {
+        {displayedCitations.map((c, i) => {
           const videoId = getYouTubeVideoId(c.timestampUrl);
           const timestampLabel = formatTimestamp(c.timestampStartSeconds);
           const evidenceMeta = getCitationEvidenceMeta(c);
@@ -701,10 +747,10 @@ const CitationCard = ({
             <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-black text-slate-100">
-                  Source Inspector
+                  Lecture Source details
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Inspect the evidence behind this answer. Exact transcript evidence is shown when available; foundational matches are labeled plainly.
+                  Review the lecture material behind this answer. Exact transcript matches are shown when available, and broader matches are labeled clearly.
                 </p>
                 {activeLectureSet && (
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
@@ -725,7 +771,7 @@ const CitationCard = ({
             </div>
             <div className="max-h-[75vh] overflow-y-auto px-4 py-4">
               <div className="space-y-3">
-                {unique.map((citation, index) => {
+                {displayedCitations.map((citation, index) => {
                   const timestampLabel = formatTimestamp(citation.timestampStartSeconds);
                   const evidenceMeta = getCitationEvidenceMeta(citation);
                   return (
@@ -845,6 +891,71 @@ const CitationCard = ({
         </div>
       )}
     </>
+  );
+};
+
+const RelatedLecturesCard = ({
+  lectures,
+  accentColor,
+  accentBorder,
+}: {
+  lectures: RelatedLecture[];
+  accentColor: string;
+  accentBorder: string;
+}) => {
+  const isGreen = accentColor === "green";
+  const isAmber = accentColor === "amber";
+  const accentText = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
+  const visibleLectures = lectures.slice(0, 3);
+
+  if (!visibleLectures.length) return null;
+
+  return (
+    <div className={`mt-4 rounded-2xl border ${accentBorder} bg-white/[0.02] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_45px_rgba(0,0,0,0.18)]`}>
+      <div className="mb-3">
+        <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
+          Related Lectures you may find helpful
+        </p>
+        <p className="mt-1 text-[11px] leading-5 text-slate-500">
+          These lectures cover similar topics.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {visibleLectures.map((lecture) => {
+          const videoId = getYouTubeVideoId(lecture.video_url);
+          return (
+            <a
+              key={lecture.id}
+              href={lecture.video_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 transition hover:border-white/20 hover:bg-white/[0.035]"
+            >
+              {videoId && (
+                <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/30">
+                  <Image
+                    src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                    alt=""
+                    fill
+                    sizes="80px"
+                    className="object-cover opacity-80 transition group-hover:scale-105 group-hover:opacity-100"
+                  />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="line-clamp-2 text-[11px] font-bold leading-snug text-slate-300">
+                  {formatRelatedLectureTitle(lecture.lecture_title)}
+                </p>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  {lecture.course}
+                  {lecture.professor ? ` · ${lecture.professor}` : ""}
+                </p>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 
@@ -1081,6 +1192,7 @@ export default function Home() {
   const [focusModeExpanded, setFocusModeExpanded] = useState<boolean | null>(null);
   const [mobileControlsExpanded, setMobileControlsExpanded] = useState(false);
   const [studyProgressNotice, setStudyProgressNotice] = useState<string | null>(null);
+  const [isRoadmapOpen, setIsRoadmapOpen] = useState(false);
   const [loginGatePrompt, setLoginGatePrompt] = useState<LoginGatePrompt | null>(null);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -2276,6 +2388,29 @@ export default function Home() {
     }
   };
 
+  const fetchRelatedLectures = async (question: string): Promise<RelatedLecture[]> => {
+    if (!question.trim()) return [];
+
+    try {
+      const response = await fetch("/api/lectures/related", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          focusCourse: chatFocus.course || undefined,
+          activeCourse: activeKnowledgeCourse || profile?.current_unit || undefined,
+          maxResults: 4,
+        }),
+      });
+
+      if (!response.ok) return [];
+      const payload = (await response.json()) as { lectures?: RelatedLecture[] };
+      return Array.isArray(payload.lectures) ? payload.lectures : [];
+    } catch {
+      return [];
+    }
+  };
+
   const fetchUpcomingCalendarContext = async (userId: string): Promise<string> => {
     try {
       const today = new Date().toISOString().slice(0, 10);
@@ -2409,6 +2544,10 @@ export default function Home() {
       let base64Image: string | null = null;
       let textFileContent: string | null = null;
       const rag = await fetchRag(trimmedUserText, { teachingMode, nikiMode });
+      const relatedLectures =
+        teachingMode && (!rag?.citations || rag.citations.length === 0)
+          ? await fetchRelatedLectures(trimmedUserText)
+          : [];
       const activeLectureSet = activeKnowledgeCourse || profile?.current_unit || undefined;
       const requestedCourse = inferCourseFromMathTopic(trimmedUserText);
       const knowledgeBaseMismatch =
@@ -2497,6 +2636,7 @@ export default function Home() {
           role: "ai",
           content: "",
           citations: dedupeCitations(rag?.citations ?? []),
+          relatedLectures,
           retrievalConfidence: rag?.retrievalConfidence,
           mode: nikiMode ? "nemanja" : "pure",
           teachingEnabled: teachingMode,
@@ -2525,6 +2665,7 @@ export default function Home() {
                 role: "ai",
                 content: aiReply,
                 citations: existing?.citations ?? dedupeCitations(rag?.citations ?? []),
+                relatedLectures: existing?.relatedLectures ?? relatedLectures,
                 retrievalConfidence:
                   existing?.retrievalConfidence ?? rag?.retrievalConfidence,
                 mode: existing?.mode ?? (nikiMode ? "nemanja" : "pure"),
@@ -2555,6 +2696,7 @@ export default function Home() {
               role: "ai",
               content: finalReply,
               citations: lectureCitations,
+              relatedLectures,
               retrievalConfidence: rag?.retrievalConfidence,
               mode: nikiMode ? "nemanja" : "pure",
               teachingEnabled: teachingMode,
@@ -2667,10 +2809,7 @@ export default function Home() {
 
   const toggleFocusMode = () => {
     if (focusModeExpanded === null) {
-      const isMobileViewport =
-        typeof window !== "undefined" &&
-        window.matchMedia("(max-width: 639px)").matches;
-      setFocusModeExpanded(isMobileViewport);
+      setFocusModeExpanded(true);
       return;
     }
 
@@ -2977,6 +3116,7 @@ export default function Home() {
               onDeleteSavedArtifact={handleDeleteSavedArtifact}
               onOpenPublicArtifact={handleOpenPublicArtifact}
               onLogin={() => router.push("/login")}
+              onOpenRoadmap={() => setIsRoadmapOpen(true)}
               onRestoreRecentContext={handleRestoreRecentContext}
               onSelectKnowledgeCourse={handleSelectKnowledgeCourse}
             />
@@ -3184,6 +3324,16 @@ export default function Home() {
                             />
                           )}
 
+                          {(!msg.citations || msg.citations.length === 0) &&
+                            msg.relatedLectures &&
+                            msg.relatedLectures.length > 0 && (
+                              <RelatedLecturesCard
+                                lectures={msg.relatedLectures}
+                                accentColor={effectiveThemeAccent}
+                                accentBorder={accentBorder}
+                              />
+                            )}
+
                           {!isStreamingMessage &&
                             i > 0 &&
                             messages[i - 1]?.role === "user" &&
@@ -3308,10 +3458,10 @@ export default function Home() {
               visibleRecentArtifactResume?.savedArtifactId &&
               savedArtifacts.length > 0 && (
                 <div className="mx-auto max-w-3xl px-1">
-                  <div className="rounded-2xl border border-white/8 bg-white/[0.016] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-4 sm:py-2.5">
+                  <div className="rounded-2xl border border-white/6 bg-white/[0.012] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.015)] sm:px-4 sm:py-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2.5">
                       <div className="min-w-0">
-                        <p className="text-[11px] font-bold text-slate-300">
+                        <p className="text-[11px] font-bold text-slate-400">
                           Continue your last study artifact
                         </p>
                         <p className="mt-0.5 text-[10px] leading-5 text-slate-500">
@@ -3331,7 +3481,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={handleResumeRecentArtifact}
-                          className="rounded-full border border-white/10 bg-white/[0.025] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all outline-none hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+                          className="rounded-full border border-white/8 bg-white/[0.02] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all outline-none hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
                         >
                           Open workspace
                         </button>
@@ -3407,10 +3557,10 @@ export default function Home() {
             )}
 
             {artifactCreationNotice && (
-              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.03] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]`}>
+              <div className={`rounded-2xl border ${accentBorder} bg-white/[0.02] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-100">
+                    <p className="text-sm font-bold text-slate-200">
                       Study artifact created
                     </p>
                     <p className="mt-1 text-[11px] leading-5 text-slate-500">
@@ -3426,7 +3576,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={reopenCreationNoticeArtifact}
-                    className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.04] ${accentColor} hover:bg-white/[0.08]`}
+                    className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
                   >
                     Open workspace
                   </button>
@@ -3545,6 +3695,42 @@ export default function Home() {
               >
                 Log In
               </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {isRoadmapOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="Close roadmap"
+            onClick={() => setIsRoadmapOpen(false)}
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
+          />
+          <div className="fixed inset-x-3 top-8 z-50 mx-auto max-w-5xl rounded-3xl border border-white/10 bg-[#090909]/98 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl sm:inset-x-8">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
+              <div className="min-w-0">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
+                  Roadmap
+                </p>
+                <h2 className="mt-2 truncate text-lg font-extrabold tracking-tight text-white">
+                  Nemanja Roadmap
+                </h2>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Browse the course path and open lecture-backed detail without cluttering chat.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRoadmapOpen(false)}
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[75vh] overflow-y-auto px-4 py-4 sm:px-5">
+              <NemanjaRoadmap />
             </div>
           </div>
         </>

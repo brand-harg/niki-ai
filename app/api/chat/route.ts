@@ -32,6 +32,7 @@ import {
   detectSimpleMathIntent,
   incompleteProceduralMathRequest,
   missingExpressionReply,
+  polishDeterministicMathPresentation,
 } from "@/lib/deterministicMath";
 
 type ChatRequest = {
@@ -1231,24 +1232,41 @@ function buildKnowledgeBaseReplyPrefix(input: {
   return `Knowledge Base: Active lecture set is ${input.activeCourse}.`;
 }
 
+function getLectureSupportLevel(
+  citations: Array<{ similarity?: number }>
+): "strong" | "partial" | "none" {
+  if (!citations.length) return "none";
+
+  const bestSimilarity = Math.max(
+    0,
+    ...citations
+      .map((citation) => citation.similarity)
+      .filter((score): score is number => typeof score === "number")
+  );
+
+  return bestSimilarity >= 0.82 ? "strong" : "partial";
+}
+
 function ensureLectureConnectionSection(input: {
   content: string;
   lectureMode: boolean;
-  hasSources: boolean;
+  citations: Array<{ similarity?: number }>;
 }): string {
   if (!input.lectureMode) return input.content;
 
   const trimmed = input.content.trim();
   if (!trimmed) return trimmed;
-  const noSourceBlock = "**Lecture Connection**\nLecture Connection: No matching lecture source was found for this topic.";
+  const supportLevel = getLectureSupportLevel(input.citations);
+  const noSourceBlock =
+    "**Lecture Source**\nNo direct lecture source found for this topic.\nAnswered using general math knowledge.";
   const lectureConnectionPattern =
-    /(?:^|\n)(\*\*Lecture Connection\*\*|#{1,6}\s*Lecture Connection|Lecture Connection:)\s*[\s\S]*?(?=\n(?:\*\*[^*\n]+\*\*|#{1,6}\s+|## Final Answer\b)|$)/i;
+    /(?:^|\n)(\*\*Lecture (?:Connection|Source)\*\*|#{1,6}\s*Lecture (?:Connection|Source)|Lecture (?:Connection|Source):)\s*[\s\S]*?(?=\n(?:\*\*[^*\n]+\*\*|#{1,6}\s+|## Final Answer\b)|$)/i;
 
-  if (!input.hasSources) {
+  if (supportLevel === "none") {
     if (lectureConnectionPattern.test(trimmed)) {
       return trimmed.replace(lectureConnectionPattern, (_match, heading: string) => {
-        if (/lecture connection:/i.test(heading)) {
-          return `\nLecture Connection: No matching lecture source was found for this topic.`;
+        if (/lecture (connection|source):/i.test(heading)) {
+          return `\nNo direct lecture source found for this topic.\nAnswered using general math knowledge.`;
         }
         return `\n${noSourceBlock}`;
       }).trim();
@@ -1264,11 +1282,28 @@ function ensureLectureConnectionSection(input: {
     return `${beforeFinal}\n\n${noSourceBlock}\n\n${finalAnswerAndAfter}`;
   }
 
-  if (/\*\*Lecture Connection\*\*|(^|\n)Lecture Connection:/i.test(trimmed)) return trimmed;
+  if (/\*\*Lecture (Connection|Source)\*\*|(^|\n)Lecture (Connection|Source):/i.test(trimmed)) {
+    return trimmed;
+  }
 
-  const lectureConnectionBlock = input.hasSources
-    ? ["**Lecture Connection**", "Use the matching lecture sources below as the grounded trail for this explanation."]
-    : ["**Lecture Connection**", "Lecture Connection: No matching lecture source was found for this topic."];
+  const lectureConnectionBlock =
+    supportLevel === "strong"
+      ? [
+          "**Lecture Source**",
+          "Using lecture sources for this answer.",
+          "This answer is based on lecture material.",
+        ]
+      : supportLevel === "partial"
+        ? [
+            "**Lecture Source**",
+            "Using lecture sources for this answer.",
+            "Partially supported by lecture material.",
+          ]
+        : [
+            "**Lecture Source**",
+            "No direct lecture source found for this topic.",
+            "Answered using general math knowledge.",
+          ];
 
   const finalAnswerMatch = trimmed.match(/\n## Final Answer\b/i);
   if (!finalAnswerMatch || finalAnswerMatch.index === undefined) {
@@ -1802,6 +1837,9 @@ export async function POST(req: Request) {
       });
 
       if (deterministicMathReply) {
+        const polishedDeterministicMathReply = polishDeterministicMathPresentation(
+          deterministicMathReply
+        );
         const knowledgeBasePrefix = knowledgeBaseActive
           ? buildKnowledgeBaseReplyPrefix({
             activeCourse: knowledgeCourseContext,
@@ -1811,12 +1849,12 @@ export async function POST(req: Request) {
           })
           : "";
         const reply = knowledgeBasePrefix
-          ? `${knowledgeBasePrefix}\n\n${deterministicMathReply}`
-          : deterministicMathReply;
+          ? `${knowledgeBasePrefix}\n\n${polishedDeterministicMathReply}`
+          : polishedDeterministicMathReply;
         const lectureSafeReply = ensureLectureConnectionSection({
           content: reply,
           lectureMode,
-          hasSources: ragCitations.length > 0,
+          citations: ragCitations,
         });
 
         return await buildLoggedTextResponse(normalizeModelMathOutput(lectureSafeReply), {
@@ -1888,10 +1926,13 @@ export async function POST(req: Request) {
           });
 
           if (correctedMathReply) {
+            const polishedCorrectedMathReply = polishDeterministicMathPresentation(
+              correctedMathReply
+            );
             const correctedLectureSafeReply = ensureLectureConnectionSection({
-              content: `${correctionAcknowledgement}\n\n${correctedMathReply}`,
+              content: `${correctionAcknowledgement}\n\n${polishedCorrectedMathReply}`,
               lectureMode,
-              hasSources: ragCitations.length > 0,
+              citations: ragCitations,
             });
             return await buildLoggedTextResponse(
               normalizeModelMathOutput(correctedLectureSafeReply),
@@ -1933,10 +1974,13 @@ export async function POST(req: Request) {
           });
 
           if (contextualMathReply) {
+            const polishedContextualMathReply = polishDeterministicMathPresentation(
+              contextualMathReply
+            );
             const contextualLectureSafeReply = ensureLectureConnectionSection({
-              content: contextualMathReply,
+              content: polishedContextualMathReply,
               lectureMode,
-              hasSources: ragCitations.length > 0,
+              citations: ragCitations,
             });
             return await buildLoggedTextResponse(normalizeModelMathOutput(contextualLectureSafeReply), {
               headers: {
@@ -2158,8 +2202,8 @@ export async function POST(req: Request) {
               role: "system" as const,
               content:
                 knowledgeBaseActive
-                  ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained, include a short Lecture Connection fallback near the end, and do not invent lecture-specific details."
-                  : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained, include a short Lecture Connection fallback near the end, and do not invent lecture-specific details or citations.",
+                  ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details."
+                  : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details or citations.",
             },
           ]
           : []),
@@ -2227,7 +2271,7 @@ export async function POST(req: Request) {
       const lectureSafeStableContent = ensureLectureConnectionSection({
         content: stableContent,
         lectureMode,
-        hasSources: ragCitations.length > 0,
+        citations: ragCitations,
       });
       const stableOutput = forceStructuredMath || lectureMode
         ? normalizeModelMathOutput(lectureSafeStableContent)
