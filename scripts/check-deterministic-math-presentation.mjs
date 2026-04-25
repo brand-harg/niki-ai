@@ -102,6 +102,16 @@ const checks = [
       /\\lim_\{x\\to 0\}\\frac\{\\sin\(x\)\}\{x\}=1/,
     ],
   },
+  {
+    name: "natural-language probability without replacement solves directly",
+    message: "probability of 2 hearts without replacement",
+    expect: [
+      /Probability of Two Hearts Without Replacement/i,
+      /P\(\\text\{first heart\}\)=\\frac\{13\}\{52\}/,
+      /P\(\\text\{second heart\}\\mid \\text\{first heart\}\)=\\frac\{12\}\{51\}/,
+      /P\(\\text\{two hearts\}\)=\\frac\{1\}\{17\}/,
+    ],
+  },
 ];
 
 let failed = false;

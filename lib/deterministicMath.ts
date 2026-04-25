@@ -38,6 +38,14 @@ function detectSimpleMathIntent(message: string): SimpleMathIntent | null {
     return "integral";
   }
   if (/\b(limit|lim|approaches)\b/i.test(message) || /x\s*(?:→|->|\\to)\s*/i.test(message)) return "limit";
+  if (
+    /\bprobability\s+of\b/i.test(message) ||
+    /\bwithout\s+replacement\b/i.test(message) ||
+    /\b(?:two|2)\s+hearts?\b/i.test(message) ||
+    /\bconditional\s+probability\b/i.test(message)
+  ) {
+    return "solve";
+  }
   if (/\b(factor|factorize|factored form)\b/i.test(message)) return "factor";
   if (/\b(expand|expanded form)\b/i.test(message)) return "expand";
   if (/\b(simplify|reduce|combine like terms)\b/i.test(message)) return "simplify";
@@ -57,6 +65,7 @@ function incompleteProceduralMathRequest(message: string, intent: SimpleMathInte
     );
     const hasLimitBody =
       /\bof\s+[^.?!,;:]+/i.test(compact) ||
+      /(?:approaches|->|\\to|to)\s*[+-]?(?:\d|[a-z]|infinity|∞)\s+[^.?!,;:]+/i.test(compact) ||
       /[)\dx]\s+as\s+x\s*(?:approaches|to|->|\\to)/i.test(compact) ||
       /^lim[_\s]/i.test(compact);
     if (!hasLimitTarget || !hasLimitBody) return true;
@@ -3067,6 +3076,66 @@ function buildConditionalProbabilityReply({
   ].join("\n");
 }
 
+function buildTwoHeartsWithoutReplacementReply({
+  message,
+  isProfessorMode,
+  lectureMode,
+  hasLectureContext,
+}: {
+  message: string;
+  isProfessorMode: boolean;
+  lectureMode: boolean;
+  hasLectureContext: boolean;
+}): string | null {
+  const normalized = message.toLowerCase().replace(/[?.!,;:]+$/g, "").trim();
+  const asksProbability =
+    /\bprobability\b/i.test(normalized) ||
+    /\bwhat\s+is\s+the\s+chance\b/i.test(normalized) ||
+    /\bfind\s+the\s+probability\b/i.test(normalized);
+  const mentionsHearts = /\b(?:two|2)\s+hearts?\b/i.test(normalized);
+  const withoutReplacement = /\bwithout\s+replacement\b/i.test(normalized);
+
+  if (!asksProbability || !mentionsHearts || !withoutReplacement) return null;
+
+  const isLectureStyle = isProfessorMode && lectureMode;
+  const intro = isLectureStyle
+    ? "So now we treat this as a dependent probability problem. Without replacement means the second draw depends on what happened on the first draw."
+    : isProfessorMode
+      ? "So now we use dependent probability, because the second draw changes after the first card is removed."
+      : "We will use dependent probability, because the draws happen without replacement.";
+
+  return [
+    "**Probability of Two Hearts Without Replacement**",
+    "",
+    intro,
+    "",
+    "**Formula used:**",
+    displayMath("P(\\text{two hearts})=P(\\text{first heart})\\times P(\\text{second heart}\\mid \\text{first heart})"),
+    "",
+    "**Step-by-Step Solution**",
+    "",
+    "**Step 1: Find the probability of a heart on the first draw**",
+    "",
+    displayMath("P(\\text{first heart})=\\frac{13}{52}"),
+    "",
+    "**Step 2: Find the probability of a second heart given the first was a heart**",
+    "",
+    displayMath("P(\\text{second heart}\\mid \\text{first heart})=\\frac{12}{51}"),
+    "",
+    "**Step 3: Multiply the probabilities**",
+    "",
+    displayMath("\\begin{aligned}P(\\text{two hearts})&=\\frac{13}{52}\\cdot\\frac{12}{51}\\\\&=\\frac{1}{17}\\end{aligned}"),
+    ...lectureAwareConnection(
+      isLectureStyle,
+      hasLectureContext,
+      "This follows the probability setup: first event, conditional second event, then multiply."
+    ),
+    "",
+    "## Final Answer",
+    displayMath("P(\\text{two hearts})=\\frac{1}{17}"),
+  ].join("\n");
+}
+
 function buildRatioTestReply({
   message,
   isProfessorMode,
@@ -5528,6 +5597,14 @@ function buildDeterministicMathReply({
     hasLectureContext,
   });
   if (conditionalProbabilityReply) return conditionalProbabilityReply;
+
+  const twoHeartsWithoutReplacementReply = buildTwoHeartsWithoutReplacementReply({
+    message,
+    isProfessorMode,
+    lectureMode,
+    hasLectureContext,
+  });
+  if (twoHeartsWithoutReplacementReply) return twoHeartsWithoutReplacementReply;
 
   const ratioTestReply = buildRatioTestReply({
     message,

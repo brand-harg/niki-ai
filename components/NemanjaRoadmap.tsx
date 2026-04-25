@@ -450,7 +450,7 @@ export default function NemanjaRoadmap({
     ? "Strong lecture match found for this node."
     : hasStableCoverage && sameCourseLectureCount >= 1
       ? "Stable course coverage with relevant lecture support."
-      : "This topic isn't verified by NikiAI yet.";
+      : "This topic isn’t verified by NikiAI yet.";
   const lectureContextLabel = hasDirectLectureMatch ? "Lecture Source Context" : "Related Lectures";
   const lectureContextCopy = hasDirectLectureMatch
     ? "Direct lecture matches for this study step."
@@ -659,37 +659,35 @@ export default function NemanjaRoadmap({
               </p>
               <p className="mt-0.5 leading-6">{activeTopic.shortcut}</p>
             </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                {lectureContextLabel}
-              </p>
-              {isLoadingLectures ? (
-                <p className="mt-0.5 leading-6 text-slate-400">Finding related lectures...</p>
-              ) : visibleLectures.length > 0 ? (
-                <div className="mt-1.5 space-y-2">
-                  <p className="text-[11px] leading-5 text-slate-400">{lectureContextCopy}</p>
-                  {visibleLectures.map((lecture) => (
-                    <a
-                      key={lecture.id}
-                      href={lecture.video_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 transition hover:border-white/20 hover:bg-white/[0.05]"
-                    >
-                      <p className="text-sm font-bold text-slate-100">{lecture.lecture_title}</p>
-                      <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                        {lecture.course}
-                        {lecture.professor ? ` · ${lecture.professor}` : ""}
-                      </p>
-                    </a>
-                  ))}
-                </div>
+            {(isLoadingLectures || visibleLectures.length > 0) && (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  {lectureContextLabel}
+                </p>
+                {isLoadingLectures ? (
+                  <p className="mt-0.5 leading-6 text-slate-400">Finding related lectures...</p>
                 ) : (
-                  <p className="mt-0.5 leading-6 text-slate-400">
-                    No direct lecture coverage for this topic yet. We'll guide you through it step by step.
-                  </p>
+                  <div className="mt-1.5 space-y-2">
+                    <p className="text-[11px] leading-5 text-slate-400">{lectureContextCopy}</p>
+                    {visibleLectures.map((lecture) => (
+                      <a
+                        key={lecture.id}
+                        href={lecture.video_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 transition hover:border-white/20 hover:bg-white/[0.05]"
+                      >
+                        <p className="text-sm font-bold text-slate-100">{lecture.lecture_title}</p>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                          {lecture.course}
+                          {lecture.professor ? ` · ${lecture.professor}` : ""}
+                        </p>
+                      </a>
+                    ))}
+                  </div>
                 )}
-            </div>
+              </div>
+            )}
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Verification Status
