@@ -60,9 +60,13 @@ export default function ArtifactWorkspacePanel({
         type="button"
         aria-label="Close artifact panel"
         onClick={onClose}
+        data-print-hide
         className="fixed inset-0 z-40 animate-in fade-in duration-200 bg-black/60 backdrop-blur-[2px]"
       />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full animate-in slide-in-from-right-6 fade-in duration-300 sm:min-w-[420px] sm:w-[min(92vw,48rem)] lg:w-[min(56vw,52rem)] lg:max-w-[52rem] flex-col border-l border-white/10 bg-[#090909]/98 shadow-[-24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+      <aside
+        data-artifact-panel-shell
+        className="fixed inset-y-0 right-0 z-50 flex w-full animate-in slide-in-from-right-6 fade-in duration-300 sm:min-w-[420px] sm:w-[min(92vw,48rem)] lg:w-[min(56vw,52rem)] lg:max-w-[52rem] flex-col border-l border-white/10 bg-[#090909]/98 shadow-[-24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+      >
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
           <div className="min-w-0">
             <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
@@ -116,7 +120,7 @@ export default function ArtifactWorkspacePanel({
               ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div data-print-hide className="flex items-center gap-2">
             {sessionUserId && (
               <button
                 type="button"
@@ -162,13 +166,13 @@ export default function ArtifactWorkspacePanel({
           </div>
         </div>
         {artifactSaveNotice && (
-          <div className="border-b border-white/10 px-4 py-2 sm:px-5">
+          <div data-print-hide className="border-b border-white/10 px-4 py-2 sm:px-5">
             <p className="text-[11px] text-slate-400">{artifactSaveNotice}</p>
           </div>
         )}
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-hidden px-4 py-4 sm:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] sm:px-5">
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+          <section data-print-hide className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
             <div className="border-b border-white/10 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Editable Content
@@ -254,12 +258,12 @@ export default function ArtifactWorkspacePanel({
                 Structured sections and LaTeX render here with the same math pipeline as chat.
               </p>
             </div>
-            <div
-              ref={artifactPreviewRef}
-              data-artifact-export
-              className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
-            >
-              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_60px_rgba(0,0,0,0.22)]">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <div
+                ref={artifactPreviewRef}
+                data-artifact-export
+                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_60px_rgba(0,0,0,0.22)]"
+              >
                 <div className="mb-4 flex flex-wrap items-center gap-2">
                   <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${accentBorder} bg-white/[0.04] ${accentColor}`}>
                     {artifactPanel.kind}
@@ -281,6 +285,105 @@ export default function ArtifactWorkspacePanel({
             </div>
           </section>
         </div>
+        <style jsx global>{`
+          @media print {
+            body.niki-artifact-print-mode {
+              background: #ffffff !important;
+            }
+
+            body.niki-artifact-print-mode * {
+              visibility: hidden !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-panel-shell],
+            body.niki-artifact-print-mode [data-artifact-panel-shell] * {
+              visibility: visible !important;
+            }
+
+            body.niki-artifact-print-mode [data-print-hide] {
+              display: none !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-panel-shell] {
+              position: static !important;
+              inset: auto !important;
+              width: 100% !important;
+              max-width: none !important;
+              min-width: 0 !important;
+              height: auto !important;
+              border: none !important;
+              background: #ffffff !important;
+              box-shadow: none !important;
+              backdrop-filter: none !important;
+              color: #0f172a !important;
+              overflow: visible !important;
+              animation: none !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-panel-shell] > div {
+              overflow: visible !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-panel-shell] .grid {
+              display: block !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] {
+              border: none !important;
+              background: #ffffff !important;
+              box-shadow: none !important;
+              color: #0f172a !important;
+              page-break-inside: auto !important;
+              break-inside: auto !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] *,
+            body.niki-artifact-print-mode [data-artifact-export] p,
+            body.niki-artifact-print-mode [data-artifact-export] li,
+            body.niki-artifact-print-mode [data-artifact-export] h1,
+            body.niki-artifact-print-mode [data-artifact-export] h2,
+            body.niki-artifact-print-mode [data-artifact-export] h3,
+            body.niki-artifact-print-mode [data-artifact-export] h4,
+            body.niki-artifact-print-mode [data-artifact-export] strong,
+            body.niki-artifact-print-mode [data-artifact-export] span {
+              color: #0f172a !important;
+              text-shadow: none !important;
+              box-shadow: none !important;
+              filter: none !important;
+              backdrop-filter: none !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] hr {
+              border-color: #cbd5e1 !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] .katex,
+            body.niki-artifact-print-mode [data-artifact-export] .katex * {
+              color: #020617 !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] .katex-display,
+            body.niki-artifact-print-mode [data-artifact-export] pre,
+            body.niki-artifact-print-mode [data-artifact-export] blockquote,
+            body.niki-artifact-print-mode [data-artifact-export] table,
+            body.niki-artifact-print-mode [data-artifact-export] ul,
+            body.niki-artifact-print-mode [data-artifact-export] ol {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] .rounded-full,
+            body.niki-artifact-print-mode [data-artifact-export] .rounded-2xl {
+              border-color: #cbd5e1 !important;
+              background: transparent !important;
+            }
+
+            @page {
+              size: auto;
+              margin: 0.55in;
+            }
+          }
+        `}</style>
       </aside>
     </>
   );

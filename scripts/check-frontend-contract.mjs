@@ -219,7 +219,7 @@ const fixtures = [
   {
     name: "nemanja-roadmap-renders-clickable-course-tree-with-details",
     source: nemanjaRoadmapSource,
-    pattern: /(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Foundations)(?=[\s\S]*Core Calculus)(?=[\s\S]*Advanced \/ Applied)(?=[\s\S]*Elementary Algebra)(?=[\s\S]*PreCalc 1)(?=[\s\S]*Calc 1)(?=[\s\S]*Calc 2)(?=[\s\S]*Calc 3)(?=[\s\S]*Differential Equations)(?=[\s\S]*Statistics)(?=[\s\S]*setSelectedCourseId\(course\.id\))(?=[\s\S]*Course Detail)(?=[\s\S]*Topic Focus)(?=[\s\S]*Lesson Intent)(?=[\s\S]*Shortcut)(?=[\s\S]*(Lecture Source Context|Related Lectures))(?=[\s\S]*Verification Status)(?=[\s\S]*Next Step)(?=[\s\S]*(Start learning this topic|Open this topic in chat))(?=[\s\S]*onOpenTopicInChat)/,
+    pattern: /(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Foundations)(?=[\s\S]*Core Calculus)(?=[\s\S]*Advanced \/ Applied)(?=[\s\S]*Elementary Algebra)(?=[\s\S]*PreCalc 1)(?=[\s\S]*Calc 1)(?=[\s\S]*Calc 2)(?=[\s\S]*Calc 3)(?=[\s\S]*Differential Equations)(?=[\s\S]*Statistics)(?=[\s\S]*Integration by parts)(?=[\s\S]*Partial fractions)(?=[\s\S]*setExpandedCourseId)(?=[\s\S]*setSelectedTopicId)(?=[\s\S]*Topic Detail)(?=[\s\S]*Topic Focus)(?=[\s\S]*Lesson Intent)(?=[\s\S]*Shortcut)(?=[\s\S]*(Lecture Source Context|Related Lectures))(?=[\s\S]*Verification Status)(?=[\s\S]*Next Step)(?=[\s\S]*(Start learning this topic|Open this topic in chat))(?=[\s\S]*onOpenTopicInChat)/,
   },
   {
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
@@ -508,8 +508,8 @@ const fixtures = [
   },
   {
     name: "artifact-pdf-export-downloads-without-popup-window",
-    source: artifactWorkspaceSource,
-    pattern: /(?=[\s\S]*buildSinglePagePdfFromJpeg)(?=[\s\S]*URL\.createObjectURL)(?=[\s\S]*link\.download)(?=[\s\S]*link\.click\(\))(?=[\s\S]*\.pdf)/,
+    source: `${artifactWorkspaceSource}\n${artifactWorkspacePanelSource}`,
+    pattern: /(?=[\s\S]*window\.print\(\))(?=[\s\S]*niki-artifact-print-mode)(?=[\s\S]*afterprint)(?=[\s\S]*@media print)(?=[\s\S]*data-artifact-panel-shell)(?=[\s\S]*data-artifact-export)(?=[\s\S]*data-print-hide)/,
   },
   {
     name: "artifact-creation-shows-workspace-feedback",

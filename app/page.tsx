@@ -1373,7 +1373,6 @@ export default function Home() {
     chatFocus,
     activeKnowledgeCourse,
     parseMessageContent: parseThoughtTrace,
-    captureElementCanvas,
     onRequireLogin: showLoginGatePrompt,
     onStudyProgress: setStudyProgressNotice,
     onOpenLibraryArtifact: () => setActiveTab("projects"),
@@ -2121,7 +2120,12 @@ export default function Home() {
 
   async function captureElementCanvas(
     target: HTMLElement,
-    cloneSelector?: string
+    cloneSelector?: string,
+    options?: {
+      scale?: number;
+      backgroundColor?: string;
+      exportForPdf?: boolean;
+    }
   ) {
     const colorProps = [
       "color",
@@ -2189,26 +2193,51 @@ export default function Home() {
     try {
       makeScreenshotSafe(target);
 
-      return await html2canvas(target, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#030303",
-        onclone: (doc: Document) => {
-          const cloneTarget = cloneSelector
-            ? (doc.querySelector(cloneSelector) as HTMLElement | null)
-            : null;
-          const activeTarget = cloneTarget ?? target;
-          for (const node of [activeTarget, ...Array.from(activeTarget.querySelectorAll("*"))]) {
-            if (!(node instanceof HTMLElement)) continue;
-            node.style.backgroundImage = "none";
-            node.style.boxShadow = "none";
-            node.style.textShadow = "none";
-            node.style.filter = "none";
-            node.style.backdropFilter = "none";
-          }
-        },
-      });
+        return await html2canvas(target, {
+          scale: options?.scale ?? (options?.exportForPdf ? 2.5 : 2),
+          useCORS: true,
+          logging: false,
+          backgroundColor: options?.backgroundColor ?? (options?.exportForPdf ? "#ffffff" : "#030303"),
+          scrollY: options?.exportForPdf ? -window.scrollY : undefined,
+          windowWidth: options?.exportForPdf ? document.body.scrollWidth : undefined,
+          windowHeight: options?.exportForPdf ? document.body.scrollHeight : undefined,
+          onclone: (doc: Document) => {
+            const cloneTarget = cloneSelector
+              ? (doc.querySelector(cloneSelector) as HTMLElement | null)
+              : null;
+            const activeTarget = cloneTarget ?? (doc.body as HTMLElement);
+            if (options?.exportForPdf) {
+              doc.body.style.background = "#ffffff";
+              activeTarget.style.background = "#ffffff";
+              activeTarget.style.color = "#0f172a";
+              activeTarget.style.overflow = "visible";
+              activeTarget.style.maxHeight = "none";
+              activeTarget.style.height = "auto";
+            }
+            for (const node of [activeTarget, ...Array.from(activeTarget.querySelectorAll("*"))]) {
+              if (!(node instanceof HTMLElement)) continue;
+              node.style.backgroundImage = "none";
+              node.style.boxShadow = "none";
+              node.style.textShadow = "none";
+              node.style.filter = "none";
+              node.style.backdropFilter = "none";
+              node.style.setProperty("-webkit-backdrop-filter", "none");
+              if (options?.exportForPdf) {
+                node.style.overflow = "visible";
+                node.style.maxHeight = "none";
+                node.style.color = "#0f172a";
+                if (node.dataset.artifactExport !== undefined) {
+                  node.style.background = "#ffffff";
+                } else if (window.getComputedStyle(node).backgroundColor !== "rgba(0, 0, 0, 0)") {
+                  node.style.backgroundColor = "#ffffff";
+                }
+                if (/^(INPUT|TEXTAREA|BUTTON)$/i.test(node.tagName)) {
+                  node.style.borderColor = "#cbd5e1";
+                }
+              }
+            }
+          },
+        });
     } finally {
       for (const patch of patches) {
         if (patch.prev) {

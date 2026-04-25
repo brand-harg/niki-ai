@@ -13,6 +13,16 @@ type RoadmapCourse = {
   topicTokens: string[];
   lessonIntent: string;
   shortcut: string;
+  topics: RoadmapTopic[];
+};
+
+type RoadmapTopic = {
+  id: string;
+  label: string;
+  topicPrompt: string;
+  topicTokens: string[];
+  lessonIntent: string;
+  shortcut: string;
 };
 
 type RelatedLecture = {
@@ -34,6 +44,32 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["factoring", "equations", "linear"],
     lessonIntent: "Foundations for equations, factoring, and symbolic fluency.",
     shortcut: "Look for the simplest algebra move that keeps structure visible.",
+    topics: [
+      {
+        id: "elementary-algebra-linear-equations",
+        label: "Linear equations",
+        topicPrompt: "solving linear equations",
+        topicTokens: ["linear", "equations", "solve"],
+        lessonIntent: "Build fluency with balancing equations and isolating variables cleanly.",
+        shortcut: "Undo operations in reverse order and keep both sides balanced.",
+      },
+      {
+        id: "elementary-algebra-factoring",
+        label: "Factoring basics",
+        topicPrompt: "factoring expressions and trinomials",
+        topicTokens: ["factoring", "trinomial", "gcf"],
+        lessonIntent: "Learn to break expressions into simpler pieces you can reuse later.",
+        shortcut: "Pull out the greatest common factor before trying anything fancy.",
+      },
+      {
+        id: "elementary-algebra-inequalities",
+        label: "Inequalities",
+        topicPrompt: "solving inequalities",
+        topicTokens: ["inequalities", "solve", "interval"],
+        lessonIntent: "Track solution sets carefully and describe them with intervals when helpful.",
+        shortcut: "If you multiply or divide by a negative, flip the inequality sign.",
+      },
+    ],
   },
   {
     id: "precalc-1",
@@ -45,6 +81,40 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["functions", "graphs", "inverse"],
     lessonIntent: "Functions, graphs, and algebraic patterns that bridge into calculus.",
     shortcut: "Track how the function behaves before chasing computation.",
+    topics: [
+      {
+        id: "precalc-1-functions",
+        label: "Functions",
+        topicPrompt: "function notation and evaluating functions",
+        topicTokens: ["functions", "notation", "evaluate"],
+        lessonIntent: "Treat functions like input-output machines and build comfort reading notation.",
+        shortcut: "Plug the input in carefully before simplifying.",
+      },
+      {
+        id: "precalc-1-graphs",
+        label: "Graphs and transformations",
+        topicPrompt: "graphs and transformations",
+        topicTokens: ["graphs", "transformations", "shift"],
+        lessonIntent: "See how algebra changes the picture of a graph.",
+        shortcut: "Start from the parent graph, then track shifts, flips, and stretches one at a time.",
+      },
+      {
+        id: "precalc-1-inverse",
+        label: "Inverse functions",
+        topicPrompt: "inverse functions",
+        topicTokens: ["inverse", "functions", "one to one"],
+        lessonIntent: "Understand when a function can be reversed and what that means graphically.",
+        shortcut: "Swap x and y, then solve for y.",
+      },
+      {
+        id: "precalc-1-exponentials",
+        label: "Exponential and logarithmic models",
+        topicPrompt: "exponential and logarithmic functions",
+        topicTokens: ["exponential", "logarithmic", "logs"],
+        lessonIntent: "Connect growth, decay, and inverse relationships before calculus starts.",
+        shortcut: "Exponentials grow by repeated multiplication; logs undo that growth.",
+      },
+    ],
   },
   {
     id: "calc-1",
@@ -56,6 +126,40 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["limits", "derivative", "product", "chain"],
     lessonIntent: "Limits and derivatives as the first real change-modeling toolkit.",
     shortcut: "Name the derivative rule first, then simplify cleanly.",
+    topics: [
+      {
+        id: "calc-1-limits",
+        label: "Limits",
+        topicPrompt: "limits and continuity",
+        topicTokens: ["limits", "continuity", "approaches"],
+        lessonIntent: "Use limits to describe what a function is doing near a point.",
+        shortcut: "Check direct substitution first before reaching for algebra tricks.",
+      },
+      {
+        id: "calc-1-derivative-rules",
+        label: "Derivative rules",
+        topicPrompt: "derivative rules",
+        topicTokens: ["derivative", "power", "rules"],
+        lessonIntent: "Build a reliable set of rules for differentiating standard functions.",
+        shortcut: "Call the rule before you use it.",
+      },
+      {
+        id: "calc-1-product-chain",
+        label: "Product and chain rule",
+        topicPrompt: "product rule and chain rule",
+        topicTokens: ["product", "chain", "rule"],
+        lessonIntent: "Handle multiplied or nested functions without losing structure.",
+        shortcut: "Split the function into pieces before differentiating.",
+      },
+      {
+        id: "calc-1-applications",
+        label: "Applications of derivatives",
+        topicPrompt: "applications of derivatives",
+        topicTokens: ["applications", "optimization", "tangent"],
+        lessonIntent: "Turn derivative skills into slope, tangent, and optimization reasoning.",
+        shortcut: "Translate the word problem into a function before optimizing it.",
+      },
+    ],
   },
   {
     id: "calc-2",
@@ -67,6 +171,48 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["integration", "integral", "series", "parts", "usub"],
     lessonIntent: "Integration, accumulation, and infinite processes.",
     shortcut: "Choose the integration method before expanding the algebra.",
+    topics: [
+      {
+        id: "calc-2-integration-techniques",
+        label: "Integration techniques",
+        topicPrompt: "integration techniques",
+        topicTokens: ["integration", "techniques", "usub"],
+        lessonIntent: "Recognize the structure of an integral before choosing a method.",
+        shortcut: "Match the integrand to the method instead of forcing expansion.",
+      },
+      {
+        id: "calc-2-parts",
+        label: "Integration by parts",
+        topicPrompt: "integration by parts",
+        topicTokens: ["integration", "parts", "by parts"],
+        lessonIntent: "Break harder products into a cleaner second integral.",
+        shortcut: "Choose u to simplify when you differentiate it.",
+      },
+      {
+        id: "calc-2-partial-fractions",
+        label: "Partial fractions",
+        topicPrompt: "partial fractions",
+        topicTokens: ["partial", "fractions", "decomposition"],
+        lessonIntent: "Rewrite rational functions into simpler pieces you can integrate.",
+        shortcut: "Factor the denominator completely before decomposing.",
+      },
+      {
+        id: "calc-2-improper-integrals",
+        label: "Improper integrals",
+        topicPrompt: "improper integrals",
+        topicTokens: ["improper", "integrals", "infinite"],
+        lessonIntent: "Handle infinite bounds and discontinuities by rewriting them as limits.",
+        shortcut: "The limit is part of the problem, not an afterthought.",
+      },
+      {
+        id: "calc-2-series",
+        label: "Series",
+        topicPrompt: "series and convergence tests",
+        topicTokens: ["series", "convergence", "test"],
+        lessonIntent: "Decide whether an infinite sum behaves or blows up.",
+        shortcut: "Identify the series type before picking a convergence test.",
+      },
+    ],
   },
   {
     id: "calc-3",
@@ -78,6 +224,40 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["vectors", "partial", "gradient", "double"],
     lessonIntent: "Multivariable geometry, vectors, and higher-dimensional calculus.",
     shortcut: "Keep track of coordinates and geometric meaning together.",
+    topics: [
+      {
+        id: "calc-3-vectors",
+        label: "Vectors",
+        topicPrompt: "vectors and vector operations",
+        topicTokens: ["vectors", "dot", "cross"],
+        lessonIntent: "Build geometric intuition for direction, magnitude, and vector operations.",
+        shortcut: "Interpret the vector geometrically before computing.",
+      },
+      {
+        id: "calc-3-partials",
+        label: "Partial derivatives",
+        topicPrompt: "partial derivatives",
+        topicTokens: ["partial", "derivatives", "multivariable"],
+        lessonIntent: "Differentiate one variable at a time while freezing the others.",
+        shortcut: "Treat the other variables like constants.",
+      },
+      {
+        id: "calc-3-gradient",
+        label: "Gradient and tangent planes",
+        topicPrompt: "gradient and tangent planes",
+        topicTokens: ["gradient", "tangent", "plane"],
+        lessonIntent: "Connect derivatives to direction, slope, and linear approximation in 3D.",
+        shortcut: "The gradient points in the direction of fastest increase.",
+      },
+      {
+        id: "calc-3-multiple-integrals",
+        label: "Multiple integrals",
+        topicPrompt: "double and triple integrals",
+        topicTokens: ["double", "triple", "integrals"],
+        lessonIntent: "Accumulate quantities over regions instead of just intervals.",
+        shortcut: "Sketch the region first so the bounds make sense.",
+      },
+    ],
   },
   {
     id: "differential-equations",
@@ -89,6 +269,40 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["linear", "first", "order", "systems", "laplace"],
     lessonIntent: "Modeling change with equations that describe entire systems.",
     shortcut: "Identify the equation type before committing to a method.",
+    topics: [
+      {
+        id: "diffeq-first-order",
+        label: "First-order linear equations",
+        topicPrompt: "first-order linear differential equations",
+        topicTokens: ["first", "order", "linear"],
+        lessonIntent: "Recognize standard linear form and solve with the right setup.",
+        shortcut: "Put it in standard form before hunting for the integrating factor.",
+      },
+      {
+        id: "diffeq-separable",
+        label: "Separable equations",
+        topicPrompt: "separable differential equations",
+        topicTokens: ["separable", "differential", "equations"],
+        lessonIntent: "Split variables cleanly so integration can do the heavy lifting.",
+        shortcut: "Separate first, integrate second.",
+      },
+      {
+        id: "diffeq-systems",
+        label: "Systems of differential equations",
+        topicPrompt: "systems of differential equations",
+        topicTokens: ["systems", "eigenvalues", "matrix"],
+        lessonIntent: "Track how multiple changing quantities interact at once.",
+        shortcut: "Look for structure in the matrix before computing everything.",
+      },
+      {
+        id: "diffeq-laplace",
+        label: "Laplace transforms",
+        topicPrompt: "Laplace transforms",
+        topicTokens: ["laplace", "transforms", "initial value"],
+        lessonIntent: "Turn differential equations into algebra problems in the transform domain.",
+        shortcut: "Keep the transform rules and initial conditions side by side.",
+      },
+    ],
   },
   {
     id: "statistics",
@@ -100,6 +314,40 @@ const ROADMAP_COURSES: RoadmapCourse[] = [
     topicTokens: ["probability", "conditional", "confidence", "normal"],
     lessonIntent: "Reasoning with uncertainty, data, and inference.",
     shortcut: "State what the probability or statistic means before calculating it.",
+    topics: [
+      {
+        id: "statistics-probability",
+        label: "Probability basics",
+        topicPrompt: "probability basics",
+        topicTokens: ["probability", "sample", "events"],
+        lessonIntent: "Translate situations into outcomes, events, and probabilities.",
+        shortcut: "Define the event in words before plugging into a formula.",
+      },
+      {
+        id: "statistics-conditional",
+        label: "Conditional probability",
+        topicPrompt: "conditional probability",
+        topicTokens: ["conditional", "probability", "given"],
+        lessonIntent: "Update probabilities when new information changes the sample space.",
+        shortcut: "Read the condition after the bar as the new universe.",
+      },
+      {
+        id: "statistics-normal",
+        label: "Normal distributions",
+        topicPrompt: "normal distributions and z scores",
+        topicTokens: ["normal", "distribution", "z"],
+        lessonIntent: "Standardize data and reason about values relative to the mean.",
+        shortcut: "Z-scores tell you how many standard deviations away you are.",
+      },
+      {
+        id: "statistics-confidence",
+        label: "Confidence intervals",
+        topicPrompt: "confidence intervals",
+        topicTokens: ["confidence", "interval", "margin"],
+        lessonIntent: "Estimate unknown quantities with a range and a confidence level.",
+        shortcut: "Center ± margin of error is the clean mental model.",
+      },
+    ],
   },
 ];
 
@@ -132,7 +380,10 @@ export default function NemanjaRoadmap({
   className = "",
   onOpenTopicInChat,
 }: NemanjaRoadmapProps) {
-  const [selectedCourseId, setSelectedCourseId] = useState<string>(ROADMAP_COURSES[0]?.id ?? "");
+  const initialCourse = ROADMAP_COURSES[0] ?? null;
+  const [selectedCourseId, setSelectedCourseId] = useState<string>(initialCourse?.id ?? "");
+  const [selectedTopicId, setSelectedTopicId] = useState<string>(initialCourse?.topics[0]?.id ?? "");
+  const [expandedCourseId, setExpandedCourseId] = useState<string>(initialCourse?.id ?? "");
   const [relatedLectures, setRelatedLectures] = useState<RelatedLecture[]>([]);
   const [courseCounts, setCourseCounts] = useState<Record<string, number>>({});
   const [isLoadingLectures, setIsLoadingLectures] = useState(false);
@@ -142,11 +393,23 @@ export default function NemanjaRoadmap({
       ROADMAP_COURSES.find((course) => course.id === selectedCourseId) ?? ROADMAP_COURSES[0] ?? null,
     [selectedCourseId]
   );
+  const selectedTopic = useMemo(
+    () => selectedCourse?.topics.find((topic) => topic.id === selectedTopicId) ?? null,
+    [selectedCourse, selectedTopicId]
+  );
+  const activeTopic = selectedTopic ?? {
+    id: `${selectedCourse?.id ?? "course"}-overview`,
+    label: selectedCourse?.topicLabel ?? "",
+    topicPrompt: selectedCourse?.topicPrompt ?? "",
+    topicTokens: selectedCourse?.topicTokens ?? [],
+    lessonIntent: selectedCourse?.lessonIntent ?? "",
+    shortcut: selectedCourse?.shortcut ?? "",
+  };
 
   const lectureInsights = useMemo(() => {
     if (!selectedCourse) return [];
     return relatedLectures.map((lecture) => {
-      const tokenHits = countTokenHits(lecture.lecture_title, selectedCourse.topicTokens);
+      const tokenHits = countTokenHits(lecture.lecture_title, activeTopic.topicTokens);
       const sameCourse =
         normalizeText(lecture.course) === normalizeText(selectedCourse.courseContext);
       const isStrongMatch = sameCourse && tokenHits >= 1;
@@ -157,7 +420,7 @@ export default function NemanjaRoadmap({
         isStrongMatch,
       };
     });
-  }, [relatedLectures, selectedCourse]);
+  }, [activeTopic.topicTokens, relatedLectures, selectedCourse]);
 
   const directLectureMatches = useMemo(
     () => lectureInsights.filter((lecture) => lecture.isStrongMatch).slice(0, 3),
@@ -192,8 +455,8 @@ export default function NemanjaRoadmap({
     ? "Direct lecture matches for this study step."
     : "Related lectures you may find helpful. These are suggestions, not answer sources.";
   const nextStepPrompt = hasDirectLectureMatch
-    ? `Help me study ${selectedCourse.topicLabel} in ${selectedCourse.label} using the lecture material.`
-    : `Help me start learning ${selectedCourse.topicLabel} in ${selectedCourse.label}.`;
+    ? `Help me study ${activeTopic.label} in ${selectedCourse.label} using the lecture material.`
+    : `Help me start learning ${activeTopic.label} in ${selectedCourse.label}.`;
   const nextStepLabel = hasDirectLectureMatch ? "Open this topic in chat" : "Start learning this topic";
   const nextStepSupportCopy = hasDirectLectureMatch
     ? "Ask about this topic in chat."
@@ -239,7 +502,7 @@ export default function NemanjaRoadmap({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            question: selectedCourse.topicPrompt,
+            question: activeTopic.topicPrompt,
             focusCourse: selectedCourse.courseContext,
             activeCourse: selectedCourse.courseContext,
             maxResults: 4,
@@ -268,7 +531,7 @@ export default function NemanjaRoadmap({
     return () => {
       cancelled = true;
     };
-  }, [selectedCourse]);
+  }, [activeTopic.topicPrompt, selectedCourse]);
 
   if (!selectedCourse) return null;
 
@@ -284,6 +547,7 @@ export default function NemanjaRoadmap({
           <div className="mt-3 space-y-2">
             {ROADMAP_COURSES.map((course, index) => {
               const isActive = course.id === selectedCourse.id;
+              const isExpanded = course.id === expandedCourseId;
               const previousCourse = ROADMAP_COURSES[index - 1];
               const showGroupLabel = !previousCourse || previousCourse.group !== course.group;
               return (
@@ -295,7 +559,11 @@ export default function NemanjaRoadmap({
                   )}
                   <button
                     type="button"
-                    onClick={() => setSelectedCourseId(course.id)}
+                    onClick={() => {
+                      setExpandedCourseId((prev) => (prev === course.id ? "" : course.id));
+                      setSelectedCourseId(course.id);
+                      setSelectedTopicId("");
+                    }}
                     className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
                       isActive
                         ? "border-cyan-500/20 bg-cyan-500/8 text-white"
@@ -313,7 +581,38 @@ export default function NemanjaRoadmap({
                         {formatCourseCoverageLabel(course.courseContext, courseCounts)}
                       </span>
                     </div>
+                    <span className="ml-auto text-xs text-slate-500">
+                      {isExpanded ? "−" : "+"}
+                    </span>
                   </button>
+                  {isExpanded && (
+                    <div className="mt-1.5 space-y-1 pl-8">
+                      {course.topics.map((topic) => {
+                        const isTopicActive =
+                          selectedCourse.id === course.id && selectedTopicId === topic.id;
+                        return (
+                          <button
+                            key={topic.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedCourseId(course.id);
+                              setSelectedTopicId(topic.id);
+                            }}
+                            className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                              isTopicActive
+                                ? "border-cyan-500/20 bg-cyan-500/10 text-white"
+                                : "border-white/8 bg-white/[0.015] text-slate-400 hover:border-white/15 hover:bg-white/[0.03] hover:text-slate-200"
+                            }`}
+                          >
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                              •
+                            </span>
+                            <span className="min-w-0 truncate">{topic.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -322,10 +621,11 @@ export default function NemanjaRoadmap({
 
         <div className="rounded-2xl border border-white/10 bg-black/20 p-3.5">
           <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
-            Course Detail
+            Topic Detail
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h3 className="text-lg font-extrabold text-white">{selectedCourse.label}</h3>
+            <span className="text-sm font-semibold text-slate-400">{activeTopic.label}</span>
             {isVerified && (
               <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-300">
                 Verified by NikiAI
@@ -338,19 +638,19 @@ export default function NemanjaRoadmap({
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Topic Focus
               </p>
-              <p className="mt-0.5 leading-6 text-slate-300">{selectedCourse.topicLabel}</p>
+              <p className="mt-0.5 leading-6 text-slate-300">{activeTopic.label}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Lesson Intent
               </p>
-              <p className="mt-0.5 leading-6">{selectedCourse.lessonIntent}</p>
+              <p className="mt-0.5 leading-6">{activeTopic.lessonIntent}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Shortcut
               </p>
-              <p className="mt-0.5 leading-6">{selectedCourse.shortcut}</p>
+              <p className="mt-0.5 leading-6">{activeTopic.shortcut}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -399,7 +699,7 @@ export default function NemanjaRoadmap({
                 onClick={() =>
                   onOpenTopicInChat?.({
                     course: selectedCourse.courseContext,
-                    topic: selectedCourse.topicLabel,
+                    topic: activeTopic.label,
                     prompt: nextStepPrompt,
                   })
                 }

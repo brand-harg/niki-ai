@@ -11,7 +11,6 @@ import {
   LAST_ARTIFACT_PANEL_STORAGE_KEY,
   artifactKindLabel,
   buildArtifactTitle,
-  buildSinglePagePdfFromJpeg,
   inferArtifactKind,
   parseStoredArtifactPanel,
   sanitizeDownloadFilename,
@@ -43,7 +42,6 @@ type UseArtifactWorkspaceOptions = {
   chatFocus: ChatFocusLike;
   activeKnowledgeCourse: string | null;
   parseMessageContent: (content: string) => { clean: string };
-  captureElementCanvas: (target: HTMLElement, cloneSelector?: string) => Promise<HTMLCanvasElement>;
   onRequireLogin: (detail: string) => void;
   onStudyProgress: (notice: string) => void;
   onOpenLibraryArtifact?: () => void;
@@ -60,7 +58,6 @@ export function useArtifactWorkspace({
   chatFocus,
   activeKnowledgeCourse,
   parseMessageContent,
-  captureElementCanvas,
   onRequireLogin,
   onStudyProgress,
   onOpenLibraryArtifact,
@@ -526,26 +523,37 @@ export function useArtifactWorkspace({
     }
 
     try {
-      const canvas = await captureElementCanvas(target, "[data-artifact-export]");
-      const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.95);
-      const base64 = jpegDataUrl.split(",")[1];
-      if (!base64) {
-        alert("Artifact export failed. I could not prepare the PDF download.");
-        return;
-      }
-      const jpegBytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-      const pdfBlob = buildSinglePagePdfFromJpeg(jpegBytes, canvas.width, canvas.height);
-      const objectUrl = URL.createObjectURL(pdfBlob);
-      const link = document.createElement("a");
-      link.download = `${sanitizeDownloadFilename(artifactPanel.title, "study-artifact")}.pdf`;
-      link.href = objectUrl;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      const previousTitle = document.title;
+      const nextTitle = sanitizeDownloadFilename(artifactPanel.title, "study-artifact");
+      const cleanup = () => {
+        document.body.classList.remove("niki-artifact-print-mode");
+        document.title = previousTitle;
+      };
+      const handleAfterPrint = () => {
+        cleanup();
+        window.removeEventListener("afterprint", handleAfterPrint);
+      };
+
+      document.body.classList.add("niki-artifact-print-mode");
+      document.title = nextTitle;
+      window.addEventListener("afterprint", handleAfterPrint);
+
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
+
+      window.print();
+      window.setTimeout(() => {
+        cleanup();
+        window.removeEventListener("afterprint", handleAfterPrint);
+      }, 1500);
     } catch (error) {
       console.error("Artifact export failed:", error);
       alert("Artifact export failed. I could not prepare the PDF download.");
     }
-  }, [artifactPanel, captureElementCanvas]);
+  }, [artifactPanel]);
 
   const reopenCreationNoticeArtifact = useCallback(() => {
     if (!artifactCreationNotice) return;
