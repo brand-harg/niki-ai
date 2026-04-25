@@ -222,6 +222,11 @@ const fixtures = [
     pattern: /(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Foundations)(?=[\s\S]*Core Calculus)(?=[\s\S]*Advanced \/ Applied)(?=[\s\S]*Elementary Algebra)(?=[\s\S]*PreCalc 1)(?=[\s\S]*Calc 1)(?=[\s\S]*Calc 2)(?=[\s\S]*Calc 3)(?=[\s\S]*Differential Equations)(?=[\s\S]*Statistics)(?=[\s\S]*Integration by parts)(?=[\s\S]*Partial fractions)(?=[\s\S]*setExpandedCourseId)(?=[\s\S]*setSelectedTopicId)(?=[\s\S]*Topic Detail)(?=[\s\S]*Topic Focus)(?=[\s\S]*Lesson Intent)(?=[\s\S]*Shortcut)(?=[\s\S]*(Lecture Source Context|Related Lectures))(?=[\s\S]*Verification Status)(?=[\s\S]*Next Step)(?=[\s\S]*Start learning \$\{selectedCourse\.label\})(?=[\s\S]*Learn \$\{activeTopic\.label\})(?=[\s\S]*onOpenTopicInChat)/,
   },
   {
+    name: "nemanja-roadmap-sends-course-and-topic-to-related-lectures",
+    source: `${nemanjaRoadmapSource}\n${relatedLecturesRouteSource}`,
+    pattern: /(?=[\s\S]*topicLabel:\s*activeTopic\.label)(?=[\s\S]*focusCourse:\s*selectedCourse\.courseContext)(?=[\s\S]*normalizeCourseAlias)(?=[\s\S]*courseMatches)/,
+  },
+  {
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
     source: knowledgeBaseSource,
     pattern: /Source Health[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,

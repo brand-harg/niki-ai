@@ -6,6 +6,7 @@ import { detectCourseFilter, inferCourseFromMathTopic } from "@/lib/courseFilter
 
 type RelatedLecturesRequest = {
   question?: string;
+  topicLabel?: string;
   focusCourse?: string;
   activeCourse?: string;
   maxResults?: number;
@@ -58,6 +59,17 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeCourseAlias(value?: string) {
+  const normalized = value?.trim();
+  if (!normalized) return "";
+  return detectCourseFilter(normalized) ?? inferCourseFromMathTopic(normalized) ?? normalized;
+}
+
+function courseMatches(course?: string, preferredCourse?: string) {
+  if (!course || !preferredCourse) return false;
+  return normalizeCourseAlias(course) === normalizeCourseAlias(preferredCourse);
+}
+
 function extractTopicKeywords(question: string) {
   const normalized = normalizeText(question);
   const base = Array.from(
@@ -97,7 +109,9 @@ function scoreLecture(row: LectureSourceRow, keywords: string[], preferredCourse
     if (normalizedCourse.includes(keyword)) score += 2;
   }
 
-  if (preferredCourse && normalizeText(preferredCourse) === normalizedCourse) {
+  if (courseMatches(row.course, preferredCourse)) {
+    score += 8;
+  } else if (preferredCourse && normalizeText(preferredCourse) === normalizedCourse) {
     score += 6;
   }
 
@@ -108,42 +122,32 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as RelatedLecturesRequest;
     const question = body.question?.trim() ?? "";
-    if (!question) {
+    const topicLabel = body.topicLabel?.trim() ?? "";
+    const requestContext = [question, topicLabel].filter(Boolean).join(" ").trim();
+    if (!requestContext) {
       return NextResponse.json({ lectures: [] });
     }
 
     const preferredCourse =
-      detectCourseFilter(question, body.focusCourse || body.activeCourse) ??
-      inferCourseFromMathTopic(question, body.focusCourse || body.activeCourse) ??
+      detectCourseFilter(requestContext, body.focusCourse || body.activeCourse) ??
+      inferCourseFromMathTopic(requestContext, body.focusCourse || body.activeCourse) ??
       body.focusCourse ??
       body.activeCourse ??
       "";
 
     const maxResults = Math.min(Math.max(body.maxResults ?? 4, 2), 4);
-    let query = supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("lecture_sources")
       .select("id, lecture_title, course, professor, video_url");
+      
+    const limitedData = Array.isArray(data) ? data.slice(0, 240) : [];
 
-    if (preferredCourse) {
-      query = query.ilike("course", `%${preferredCourse}%`);
-    }
-
-    let { data, error } = await query.limit(80);
-    if ((error || !data?.length) && preferredCourse) {
-      const fallback = await supabaseAdmin
-        .from("lecture_sources")
-        .select("id, lecture_title, course, professor, video_url")
-        .limit(120);
-      data = fallback.data ?? [];
-      error = fallback.error;
-    }
-
-    if (error || !data?.length) {
+    if (error || !limitedData.length) {
       return NextResponse.json({ lectures: [] });
     }
 
-    const keywords = extractTopicKeywords(question);
-    const ranked = (data as LectureSourceRow[])
+    const keywords = extractTopicKeywords(requestContext);
+    const ranked = (limitedData as LectureSourceRow[])
       .map((row) => ({
         ...row,
         score: scoreLecture(row, keywords, preferredCourse),

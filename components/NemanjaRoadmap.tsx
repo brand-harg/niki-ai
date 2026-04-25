@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { inferCourseFromMathTopic } from "@/lib/courseFilters";
+import { detectCourseFilter, inferCourseFromMathTopic } from "@/lib/courseFilters";
 
 type RoadmapCourse = {
   id: string;
@@ -364,6 +364,12 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeCourseAlias(value?: string) {
+  const normalized = value?.trim();
+  if (!normalized) return "";
+  return detectCourseFilter(normalized) ?? inferCourseFromMathTopic(normalized) ?? normalized;
+}
+
 function countTokenHits(title: string, tokens: string[]) {
   const normalizedTitle = normalizeText(title);
   return tokens.reduce((count, token) => {
@@ -412,7 +418,7 @@ export default function NemanjaRoadmap({
     return relatedLectures.map((lecture) => {
       const tokenHits = countTokenHits(lecture.lecture_title, activeTopic.topicTokens);
       const sameCourse =
-        normalizeText(lecture.course) === normalizeText(selectedCourse.courseContext);
+        normalizeCourseAlias(lecture.course) === normalizeCourseAlias(selectedCourse.courseContext);
       const isStrongMatch = sameCourse && tokenHits >= 1;
       return {
         ...lecture,
@@ -510,6 +516,7 @@ export default function NemanjaRoadmap({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: activeTopic.topicPrompt,
+            topicLabel: activeTopic.label,
             focusCourse: selectedCourse.courseContext,
             activeCourse: selectedCourse.courseContext,
             maxResults: 4,
@@ -538,7 +545,7 @@ export default function NemanjaRoadmap({
     return () => {
       cancelled = true;
     };
-  }, [activeTopic.topicPrompt, selectedCourse]);
+  }, [activeTopic.label, activeTopic.topicPrompt, selectedCourse]);
 
   if (!selectedCourse) return null;
 
