@@ -219,7 +219,7 @@ const fixtures = [
   {
     name: "nemanja-roadmap-renders-clickable-course-tree-with-details",
     source: nemanjaRoadmapSource,
-    pattern: /(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Foundations)(?=[\s\S]*Core Calculus)(?=[\s\S]*Advanced \/ Applied)(?=[\s\S]*Elementary Algebra)(?=[\s\S]*PreCalc 1)(?=[\s\S]*Calc 1)(?=[\s\S]*Calc 2)(?=[\s\S]*Calc 3)(?=[\s\S]*Differential Equations)(?=[\s\S]*Statistics)(?=[\s\S]*setSelectedCourseId\(course\.id\))(?=[\s\S]*Course Detail)(?=[\s\S]*Topic Focus)(?=[\s\S]*Lesson Intent)(?=[\s\S]*Shortcut)(?=[\s\S]*(Lecture Source Context|Related Lectures))(?=[\s\S]*Verified by NikiAI)(?=[\s\S]*Verification Status)/,
+    pattern: /(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Foundations)(?=[\s\S]*Core Calculus)(?=[\s\S]*Advanced \/ Applied)(?=[\s\S]*Elementary Algebra)(?=[\s\S]*PreCalc 1)(?=[\s\S]*Calc 1)(?=[\s\S]*Calc 2)(?=[\s\S]*Calc 3)(?=[\s\S]*Differential Equations)(?=[\s\S]*Statistics)(?=[\s\S]*setSelectedCourseId\(course\.id\))(?=[\s\S]*Course Detail)(?=[\s\S]*Topic Focus)(?=[\s\S]*Lesson Intent)(?=[\s\S]*Shortcut)(?=[\s\S]*(Lecture Source Context|Related Lectures))(?=[\s\S]*Verification Status)(?=[\s\S]*Next Step)(?=[\s\S]*(Start learning this topic|Open this topic in chat))(?=[\s\S]*onOpenTopicInChat)/,
   },
   {
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",

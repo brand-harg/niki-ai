@@ -2807,6 +2807,23 @@ export default function Home() {
     });
   };
 
+  const handleOpenRoadmapTopicInChat = ({
+    course,
+    topic,
+    prompt,
+  }: {
+    course: string;
+    topic: string;
+    prompt: string;
+  }) => {
+    setChatFocus({
+      course,
+      topic,
+    });
+    setInputValue(prompt);
+    setIsRoadmapOpen(false);
+  };
+
   const toggleFocusMode = () => {
     if (focusModeExpanded === null) {
       setFocusModeExpanded(true);
@@ -3730,7 +3747,7 @@ export default function Home() {
               </button>
             </div>
             <div className="max-h-[75vh] overflow-y-auto px-4 py-4 sm:px-5">
-              <NemanjaRoadmap />
+              <NemanjaRoadmap onOpenTopicInChat={handleOpenRoadmapTopicInChat} />
             </div>
           </div>
         </>
