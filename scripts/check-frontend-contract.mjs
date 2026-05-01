@@ -16,6 +16,12 @@ const publicArtifactsRouteSource = readFileSync("app/api/artifacts/public/route.
 const relatedLecturesRouteSource = readFileSync("app/api/lectures/related/route.ts", "utf8");
 const knowledgeBaseStatusRouteSource = readFileSync("app/api/knowledge-base/status/route.ts", "utf8");
 const chatModeControlsSource = readFileSync("components/ChatModeControls.tsx", "utf8");
+const chatEmptyStateSource = readFileSync("components/chat/ChatEmptyState.tsx", "utf8");
+const citationCardSource = readFileSync("components/chat/CitationCard.tsx", "utf8");
+const chatSidebarSource = readFileSync("components/chat/ChatSidebar.tsx", "utf8");
+const codeBlockSource = readFileSync("components/chat/CodeBlock.tsx", "utf8");
+const loginGatePromptSource = readFileSync("components/chat/LoginGatePrompt.tsx", "utf8");
+const relatedLecturesCardSource = readFileSync("components/chat/RelatedLecturesCard.tsx", "utf8");
 const knowledgeBasePanelSource = readFileSync("components/KnowledgeBasePanel.tsx", "utf8");
 const artifactWorkspacePanelSource = readFileSync("components/ArtifactWorkspacePanel.tsx", "utf8");
 const nemanjaRoadmapSource = readFileSync("components/NemanjaRoadmap.tsx", "utf8");
@@ -36,15 +42,26 @@ const supabaseClientSource = readFileSync("lib/supabaseClient.ts", "utf8");
 const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8");
 const nextConfigSource = readFileSync("next.config.ts", "utf8");
 const ragHelpersSource = readFileSync("lib/ragHelpers.ts", "utf8");
+const chatDisplaySource = readFileSync("lib/chatDisplay.ts", "utf8");
 const artifactWorkspaceSource = [
   pageSource,
   artifactWorkspacePanelSource,
   artifactWorkspaceHookSource,
   artifactWorkspaceLibSource,
 ].join("\n");
-const chatControlsSource = [pageSource, chatModeControlsSource].join("\n");
+const chatControlsSource = [chatDisplaySource, pageSource, chatModeControlsSource].join("\n");
+const chatRenderSource = [
+  pageSource,
+  chatEmptyStateSource,
+  chatDisplaySource,
+  citationCardSource,
+  codeBlockSource,
+  loginGatePromptSource,
+  relatedLecturesCardSource,
+].join("\n");
 const knowledgeBaseSource = [
   pageSource,
+  chatSidebarSource,
   knowledgeBasePanelSource,
   knowledgeBaseHookSource,
   knowledgeBaseStatusRouteSource,
@@ -218,7 +235,7 @@ const fixtures = [
   },
   {
     name: "home-shows-first-time-onboarding-prompts",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Quick Start)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*!artifactPanel)(?=[\s\S]*substantiveMessageCount === 0)(?=[\s\S]*handleOnboardingPrompt)/,
   },
   {
@@ -233,7 +250,7 @@ const fixtures = [
   },
   {
     name: "knowledge-base-sidebar-supports-all-core-courses",
-    source: pageSource,
+    source: `${pageSource}\n${chatSidebarSource}`,
     pattern: /const KNOWLEDGE_BASE_COURSES[\s\S]*Elementary Algebra[\s\S]*PreCalc 1[\s\S]*Calc 1[\s\S]*Calc 2[\s\S]*Calc 3[\s\S]*Differential Equations[\s\S]*Statistics[\s\S]*Knowledge Base/,
   },
   {
@@ -418,7 +435,7 @@ const fixtures = [
   },
   {
     name: "ungrounded-lecture-answers-offer-related-lectures",
-    source: `${pageSource}\n${relatedLecturesRouteSource}`,
+    source: `${chatRenderSource}\n${relatedLecturesRouteSource}`,
     pattern: /(?=[\s\S]*Related Lectures you may find helpful)(?=[\s\S]*These lectures cover similar topics\.)(?=[\s\S]*lectures\.slice\(0, 3\))(?=[\s\S]*formatRelatedLectureTitle)(?=[\s\S]*\/api\/lectures\/related)(?=[\s\S]*teachingMode && \(!rag\?\.citations \|\| rag\.citations\.length === 0\))(?=[\s\S]*lecture_sources)/,
   },
   {
@@ -563,8 +580,8 @@ const fixtures = [
   },
   {
     name: "logged-out-restricted-actions-show-soft-login-prompt",
-    source: pageSource,
-    pattern: /type LoginGatePrompt[\s\S]*showLoginGatePrompt[\s\S]*Log in to save your study progress[\s\S]*Keep your progress[\s\S]*Not now[\s\S]*router\.push\(["']\/login["']\)/,
+    source: chatRenderSource,
+    pattern: /(?=[\s\S]*type LoginGatePrompt)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*Log in to save your study progress)(?=[\s\S]*Keep your progress)(?=[\s\S]*Not now)(?=[\s\S]*router\.push\(["']\/login["']\))/,
   },
   {
     name: "artifact-panel-behaves-like-a-study-workspace",
@@ -643,47 +660,47 @@ const fixtures = [
   },
   {
     name: "source-cards-parse-youtube-video-ids",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /function\s+getYouTubeVideoId[\s\S]*searchParams\.get\(["']v["']\)/,
   },
   {
     name: "source-cards-render-youtube-thumbnails",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /img\.youtube\.com\/vi\/\$\{videoId\}\/mqdefault\.jpg/,
   },
   {
     name: "source-cards-deep-link-timestamp-urls",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /href=\{c\.timestampUrl\}[\s\S]*target="_blank"/,
   },
   {
     name: "source-cards-preview-youtube-clips-in-modal",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /getYouTubeEmbedUrl[\s\S]*setActiveClip\(c\)[\s\S]*Lecture clip preview[\s\S]*<iframe/,
   },
   {
     name: "source-modal-keeps-youtube-fallback-link",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /Open on YouTube/,
   },
   {
     name: "source-cards-show-open-clip-affordance",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /Open clip/,
   },
   {
     name: "source-cards-show-knowledge-base-transparency",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /Active lecture set:[\s\S]*Current question looks like[\s\S]*Low relevance/,
   },
   {
     name: "source-inspector-opens-from-source-cards",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /View source[\s\S]*aria-label="Source inspector"[\s\S]*Lecture Source details/,
   },
   {
     name: "source-inspector-honestly-labels-evidence",
-    source: pageSource,
+    source: chatRenderSource,
     pattern: /function\s+getCitationEvidenceMeta[\s\S]*Exact[\s\S]*Related[\s\S]*Foundational[\s\S]*No direct transcript snippet was available/,
   },
   {

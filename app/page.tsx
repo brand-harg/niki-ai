@@ -7,6 +7,12 @@ import CommandPalette from "@/components/CommandPalette";
 import ChatModeControls from "@/components/ChatModeControls";
 import KnowledgeBasePanel from "@/components/KnowledgeBasePanel";
 import NemanjaRoadmap from "@/components/NemanjaRoadmap";
+import ChatEmptyState from "@/components/chat/ChatEmptyState";
+import CitationCard from "@/components/chat/CitationCard";
+import ChatSidebar from "@/components/chat/ChatSidebar";
+import CodeBlock from "@/components/chat/CodeBlock";
+import LoginGatePrompt from "@/components/chat/LoginGatePrompt";
+import RelatedLecturesCard from "@/components/chat/RelatedLecturesCard";
 
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkMath from "remark-math";
@@ -24,6 +30,23 @@ import ArtifactWorkspacePanel from "@/components/ArtifactWorkspacePanel";
 import { useArtifactWorkspace } from "@/hooks/useArtifactWorkspace";
 import { useKnowledgeBasePanel } from "@/hooks/useKnowledgeBasePanel";
 import { sanitizeMathContent } from "@/lib/mathFormatting";
+import {
+  ALL_GREETING_TEXTS,
+  buildRecentContextTopic,
+  confidenceFromCitations,
+  createGreeting,
+  createHistoryMessage,
+  dedupeCitations,
+  formatPinnedTimestamp,
+  getErrorMessage,
+  getFocusSuggestion,
+  isGreetingOnly,
+  isLikelyKnowledgeFileName,
+  isPracticeRequestText,
+  normalizeCourseKey,
+  parseThoughtTrace,
+  stripPartialThink,
+} from "@/lib/chatDisplay";
 import type {
   KnowledgeBaseCourse,
 } from "@/lib/knowledgeBasePanel";
@@ -40,18 +63,6 @@ import {
 } from "@/lib/generalSettings";
 
 // --- ICONS ---
-const PlusIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
-
-const PinIcon = () => (
-  <svg className="w-3.5 h-3.5 opacity-50" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M16 9l-4-4-4 4v2l4 4 4-4v-2zm-4 7V5m0 11l4-4m-4 4l-4-4" />
-  </svg>
-);
-
 const MenuIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h12m-12 6h16" />
@@ -104,11 +115,6 @@ type ChatFocusState = {
   topic: string;
 };
 
-type FocusTopicSuggestion = {
-  topic: string;
-  keywords: string[];
-};
-
 type PendingHomeAction = "new-chat" | "open-artifact";
 
 type LoginGatePrompt = {
@@ -132,132 +138,6 @@ const KNOWLEDGE_BASE_COURSES: KnowledgeBaseCourse[] = [
   { label: "Differential Equations", courseContext: "Differential Equations", shortLabel: "Diff Eq" },
   { label: "Statistics", courseContext: "Statistics", shortLabel: "Statistics" },
 ];
-
-const FOCUS_TOPIC_SUGGESTIONS: Record<string, FocusTopicSuggestion[]> = {
-  "Elementary Algebra": [
-    { topic: "1.2 Linear Equations", keywords: ["linear equation", "solve", "isolate", "equation"] },
-    { topic: "2.1 Factoring Basics", keywords: ["factor", "factoring", "trinomial"] },
-    { topic: "3.1 Systems of Equations", keywords: ["system", "elimination", "substitution"] },
-    { topic: "4.1 Radicals and Exponents", keywords: ["radical", "sqrt", "exponent"] },
-  ],
-  PreCalc1: [
-    { topic: "1.3 More on Functions and Graphs", keywords: ["function", "graph", "domain", "range"] },
-    { topic: "2.2 Polynomial and Rational Functions", keywords: ["polynomial", "rational", "asymptote"] },
-    { topic: "3.1 Exponential Functions", keywords: ["exponential", "growth", "decay"] },
-    { topic: "3.2 Logarithmic Functions", keywords: ["log", "ln", "logarithm"] },
-  ],
-  "Calculus 1": [
-    { topic: "2.2 Derivative Rules", keywords: ["derivative", "differentiate", "power rule", "product rule", "quotient rule"] },
-    { topic: "1.3 Limits and Continuity", keywords: ["limit", "continuity", "approaches"] },
-    { topic: "3.1 Applications of Derivatives", keywords: ["optimization", "related rates", "critical point"] },
-    { topic: "3.2 Derivative as a Function", keywords: ["slope", "tangent", "derivative as a function"] },
-  ],
-  "Calculus 2": [
-    { topic: "6.1 Basic Integration", keywords: ["integral", "integrate", "antiderivative"] },
-    { topic: "7.1 U-Substitution", keywords: ["u substitution", "u-sub", "substitution"] },
-    { topic: "7.3 Integration by Parts", keywords: ["integration by parts", "ibp"] },
-    { topic: "9.1 Sequences and Series", keywords: ["sequence", "series", "summation"] },
-  ],
-  "Calculus 3": [
-    { topic: "10.2 Vectors and Geometry", keywords: ["vector", "dot product", "cross product"] },
-    { topic: "11.1 Partial Derivatives", keywords: ["partial derivative", "gradient", "multivariable"] },
-    { topic: "12.1 Double Integrals", keywords: ["double integral", "iterated integral"] },
-    { topic: "12.3 Polar and Parametric Surfaces", keywords: ["polar", "parametric", "surface"] },
-  ],
-  "Differential Equations": [
-    { topic: "1.1 Separable Equations", keywords: ["separable", "differential equation"] },
-    { topic: "1.5 Linear First-Order Equations", keywords: ["linear first-order", "integrating factor"] },
-    { topic: "2.1 Second-Order Equations", keywords: ["second order", "characteristic equation"] },
-    { topic: "3.1 Laplace Transforms", keywords: ["laplace", "transform"] },
-  ],
-  Statistics: [
-    { topic: "1.1 Statistics Basics", keywords: ["mean", "median", "mode", "standard deviation"] },
-    { topic: "2.1 Probability Foundations", keywords: ["probability", "conditional probability"] },
-    { topic: "3.1 Normal Distributions and Z-Scores", keywords: ["normal distribution", "z-score"] },
-    { topic: "4.1 Confidence Intervals and Tests", keywords: ["confidence interval", "hypothesis", "p-value", "z-test"] },
-  ],
-};
-
-function normalizeSuggestionText(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function isPracticeRequestText(value: string) {
-  const normalized = normalizeSuggestionText(value);
-  if (!normalized) return false;
-
-  return (
-    /\bpractice\b/.test(normalized) ||
-    /\bpractice problems?\b/.test(normalized) ||
-    /\bmore problems?\b/.test(normalized) ||
-    /\bproblem set\b/.test(normalized) ||
-    /\bworksheet\b/.test(normalized) ||
-    /\bdrill\b/.test(normalized)
-  );
-}
-
-function getFocusSuggestion(course: string, draft: string): string | null {
-  const normalizedDraft = normalizeSuggestionText(draft);
-  if (!normalizedDraft || normalizedDraft.length < 3) return null;
-
-  const suggestions = FOCUS_TOPIC_SUGGESTIONS[course] ?? [];
-  let bestTopic: string | null = null;
-  let bestScore = 0;
-
-  for (const suggestion of suggestions) {
-    let score = 0;
-    for (const keyword of suggestion.keywords) {
-      const normalizedKeyword = normalizeSuggestionText(keyword);
-      if (!normalizedKeyword) continue;
-      if (normalizedDraft.includes(normalizedKeyword)) {
-        score += normalizedKeyword.includes(" ") ? 3 : 2;
-      } else {
-        const parts = normalizedKeyword.split(" ").filter(Boolean);
-        const partHits = parts.filter((part) => normalizedDraft.includes(part)).length;
-        if (partHits >= Math.max(1, parts.length - 1)) score += partHits;
-      }
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestTopic = suggestion.topic;
-    }
-  }
-
-  return bestScore >= 2 ? bestTopic : null;
-}
-
-function isLikelyKnowledgeFileName(name = ""): boolean {
-  return /(syllabus|schedule|calendar|canvas|assignment|module|quiz|exam|test|deadline|ics|csv)/i.test(
-    name
-  );
-}
-
-function formatPinnedTimestamp(value?: string | null): string {
-  if (!value) return "Just pinned";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Just pinned";
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function normalizeRecentContextTopic(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function buildRecentContextTopic(course: string, draft: string, fallbackTopic: string): string {
-  const explicitTopic = normalizeRecentContextTopic(fallbackTopic);
-  if (explicitTopic) return explicitTopic;
-
-  const suggestedTopic = getFocusSuggestion(course, draft);
-  if (suggestedTopic) return suggestedTopic;
-
-  const compactDraft = normalizeRecentContextTopic(draft);
-  if (compactDraft.length <= 72) return compactDraft;
-  return `${compactDraft.slice(0, 69).trimEnd()}...`;
-}
 
 function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -333,45 +213,6 @@ type SpeechRecognitionLike = {
   onend: (() => void) | null;
 };
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-const PURE_LOGIC_GREETINGS = [
-  "What are we solving today?",
-  "Send the math, code, or technical problem.",
-  "What do you want to work through?",
-  "Give me the problem and I’ll keep it clean.",
-  "What needs fixing, proving, solving, or explaining?",
-];
-const NEMANJA_GREETINGS = [
-  "Do you need help with kalk?",
-  "All right, what are we working on?",
-  "Bring me the problem. We will make it behave.",
-  "What do we need to figure out today?",
-  "Kalk, algebra, stats, code. What is the situation?",
-];
-const ALL_GREETING_TEXTS = new Set([...PURE_LOGIC_GREETINGS, ...NEMANJA_GREETINGS]);
-
-function createGreeting(isProfessorMode: boolean): Message[] {
-  const pool = isProfessorMode ? NEMANJA_GREETINGS : PURE_LOGIC_GREETINGS;
-  const content = pool[Math.floor(Math.random() * pool.length)] ?? pool[0];
-  return [{ role: "ai", content }];
-}
-
-function isGreetingOnly(messages: Message[]) {
-  return (
-    messages.length === 0 ||
-    (messages.length === 1 &&
-      messages[0]?.role === "ai" &&
-      ALL_GREETING_TEXTS.has(messages[0]?.content ?? ""))
-  );
-}
-
-function createHistoryMessage(message: Message): Message {
-  return {
-    role: message.role,
-    content: message.content,
-    citations: message.citations,
-    retrievalConfidence: message.retrievalConfidence,
-  };
-}
 
 function getCurrentChatStorageKey(userId: string) {
   return `${CURRENT_CHAT_ID_STORAGE_KEY}:${userId}`;
@@ -384,137 +225,6 @@ function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null 
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   };
   return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
-}
-
-function formatTimestamp(seconds?: number) {
-  if (typeof seconds !== "number" || Number.isNaN(seconds)) return "";
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
-function getYouTubeVideoId(url?: string | null) {
-  if (!url) return null;
-
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.includes("youtu.be")) {
-      return parsed.pathname.split("/").filter(Boolean)[0] ?? null;
-    }
-
-    if (parsed.hostname.includes("youtube.com")) {
-      return parsed.searchParams.get("v");
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-function getYouTubeEmbedUrl(url?: string | null, timestampStartSeconds?: number) {
-  const videoId = getYouTubeVideoId(url);
-  if (!videoId) return null;
-  const start =
-    typeof timestampStartSeconds === "number" && Number.isFinite(timestampStartSeconds)
-      ? Math.max(0, Math.floor(timestampStartSeconds))
-      : 0;
-  return `https://www.youtube.com/embed/${videoId}?start=${start}&autoplay=1&rel=0`;
-}
-
-function formatRelatedLectureTitle(title?: string) {
-  const normalized = (title ?? "")
-    .replace(/^Nemanja Nikitovic Live Stream\s*/i, "")
-    .replace(/^Nemanja Nikitovic\s*/i, "")
-    .replace(/\b(Precalc1|Calculus1|Calculus2|Calculus3|Stats1|DifEq)\b\s*/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return normalized || title || "Lecture";
-}
-
-function dedupeCitations(citations: RagCitation[] = []) {
-  const seen = new Set<string>();
-  const out: RagCitation[] = [];
-
-  for (const c of citations) {
-    const key = [
-      c.lectureTitle ?? "",
-      c.course ?? "",
-      c.professor ?? "",
-      c.timestampStartSeconds ?? "",
-      c.timestampUrl ?? "",
-    ].join("|");
-
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(c);
-    }
-  }
-
-  return out;
-}
-
-function confidenceFromCitations(
-  citations: RagCitation[] = []
-): RagResponse["retrievalConfidence"] {
-  if (!citations.length) return "none";
-  const bestSimilarity = Math.max(
-    0,
-    ...citations
-      .map((citation) => citation.similarity)
-      .filter((score): score is number => typeof score === "number")
-  );
-
-  if (bestSimilarity >= 0.82) return "high";
-  if (bestSimilarity >= 0.62) return "medium";
-  return "low";
-}
-
-function cleanEvidenceText(value?: string) {
-  return value?.replace(/\s+/g, " ").trim() ?? "";
-}
-
-function normalizeCourseKey(value?: string) {
-  return (value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function getCitationEvidenceMeta(citation: RagCitation) {
-  const excerpt = cleanEvidenceText(citation.excerpt);
-  const sectionHint = cleanEvidenceText(citation.sectionHint);
-
-  if (excerpt && typeof citation.similarity === "number" && citation.similarity >= 0.82) {
-    return {
-      label: "Exact",
-      detail: "Direct transcript match from lecture",
-      body: excerpt,
-    };
-  }
-
-  if (excerpt) {
-    return {
-      label: "Related",
-      detail: "Relevant excerpt from this lecture",
-      body: excerpt,
-    };
-  }
-
-  if (sectionHint) {
-    return {
-      label: "Foundational",
-      detail: "No direct transcript — based on lecture topic",
-      body: sectionHint,
-    };
-  }
-
-  return {
-    label: "Foundational",
-    detail: "No direct transcript — based on lecture topic",
-    body: "",
-  };
 }
 
 function isLectureInventoryRequest(message: string) {
@@ -562,607 +272,6 @@ function getNodeText(children: React.ReactNode): string {
       return "";
     })
     .join("");
-}
-
-const CitationCard = ({
-  citations,
-  confidence,
-  accentColor,
-  knowledgeBaseCourse,
-  requestedCourse,
-  knowledgeBaseMismatch,
-}: {
-  citations: RagCitation[];
-  confidence?: RagResponse["retrievalConfidence"];
-  accentColor: string;
-  knowledgeBaseCourse?: string;
-  requestedCourse?: string;
-  knowledgeBaseMismatch?: boolean;
-}) => {
-  const isGreen = accentColor === "green";
-  const isAmber = accentColor === "amber";
-  const accentText = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
-  const accentBorder = isGreen ? "border-green-500/20" : isAmber ? "border-amber-500/20" : "border-cyan-500/20";
-  const accentBg = isGreen ? "bg-green-500/5" : isAmber ? "bg-amber-500/5" : "bg-cyan-500/5";
-  const unique = useMemo(() => dedupeCitations(citations).slice(0, 4), [citations]);
-  const [activeClip, setActiveClip] = useState<RagCitation | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const shownConfidence = confidence ?? confidenceFromCitations(unique);
-  const activeLectureSet = knowledgeBaseCourse?.trim() || "";
-  const requestedCourseLabel = requestedCourse?.trim() || "";
-  const lowRelevance = !!knowledgeBaseMismatch || shownConfidence === "low";
-  const lectureSupportTone =
-    unique.length > 0 && !knowledgeBaseMismatch && shownConfidence === "high"
-      ? "strong"
-      : "partial";
-  const displayedCitations = useMemo(() => {
-    const narrowed =
-      lectureSupportTone === "partial"
-        ? unique.filter((citation) => {
-            const hasTranscriptEvidence = cleanEvidenceText(citation.excerpt).length > 0;
-            const hasTopicEvidence = cleanEvidenceText(citation.sectionHint).length > 0;
-            return (
-              hasTranscriptEvidence ||
-              hasTopicEvidence ||
-              (typeof citation.similarity === "number" && citation.similarity >= 0.55)
-            );
-          })
-        : unique;
-
-    const base = narrowed.length > 0 ? narrowed : unique;
-    return lectureSupportTone === "partial" ? base.slice(0, 2) : base.slice(0, 4);
-  }, [lectureSupportTone, unique]);
-  const confidenceLabel =
-    lowRelevance
-      ? "Low relevance"
-      : shownConfidence === "high"
-      ? "High confidence"
-      : shownConfidence === "medium"
-        ? "Medium confidence"
-          : "No confidence score";
-
-  if (!displayedCitations.length) return null;
-
-  const activeEmbedUrl = getYouTubeEmbedUrl(activeClip?.timestampUrl, activeClip?.timestampStartSeconds);
-
-  return (
-    <>
-    <div className={`mt-4 rounded-2xl border ${accentBorder} ${accentBg} p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_45px_rgba(0,0,0,0.18)]`}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-            Lecture Source
-          </p>
-          <p className="mt-1 text-[10px] leading-4 text-slate-500">
-              {lectureSupportTone === "strong"
-              ? "This answer is based on lecture material"
-              : "Partially supported by lecture material"}
-            </p>
-          {activeLectureSet && (
-            <p className="mt-1 text-[10px] leading-4 text-slate-500">
-              Active lecture set: {activeLectureSet}
-              {knowledgeBaseMismatch && requestedCourseLabel
-                ? ` · Current question looks like ${requestedCourseLabel}`
-                : ""}
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setInspectorOpen(true)}
-              className={`rounded-md border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest transition ${accentBorder} bg-black/25 ${accentText} hover:bg-white/[0.05]`}
-            >
-            View source
-            </button>
-          {shownConfidence && shownConfidence !== "none" && (
-            <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
-              {confidenceLabel}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {displayedCitations.map((c, i) => {
-          const videoId = getYouTubeVideoId(c.timestampUrl);
-          const timestampLabel = formatTimestamp(c.timestampStartSeconds);
-          const evidenceMeta = getCitationEvidenceMeta(c);
-          const cardContent = (
-            <>
-              {videoId && (
-                <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/30">
-                  <Image
-                    src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
-                    alt=""
-                    fill
-                    sizes="80px"
-                    className="object-cover opacity-80 transition group-hover:scale-105 group-hover:opacity-100"
-                  />
-                  {timestampLabel && (
-                    <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1.5 py-0.5 font-mono text-[8px] font-bold text-white">
-                      {timestampLabel}
-                    </span>
-                  )}
-                </div>
-              )}
-              <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/20 text-[9px] font-black ${accentText}`}>{i + 1}</span>
-              <div className="min-w-0">
-                <p className="line-clamp-2 text-[11px] font-bold leading-snug text-slate-300">
-                  {c.lectureTitle ?? "Unknown lecture"}
-                </p>
-                <p className="mt-1 text-[10px] text-slate-500">
-                  {c.course ?? "Unknown course"}
-                  {timestampLabel ? ` · ${timestampLabel}` : ""}
-                  {c.timestampUrl && (
-                    <span className={`ml-2 ${accentText}`}>
-                      Open clip →
-                    </span>
-                  )}
-                </p>
-                <div className="mt-2">
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
-                    {evidenceMeta.label}
-                  </span>
-                </div>
-              </div>
-            </>
-          );
-
-          const className =
-            "group flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 transition hover:border-white/20 hover:bg-white/[0.035]";
-
-          return c.timestampUrl ? (
-            <a
-              key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`}
-              href={c.timestampUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(event) => {
-                if (!getYouTubeEmbedUrl(c.timestampUrl, c.timestampStartSeconds)) return;
-                event.preventDefault();
-                setActiveClip(c);
-              }}
-              className={className}
-              title={`Preview ${c.lectureTitle ?? "lecture"}${timestampLabel ? ` at ${timestampLabel}` : ""}`}
-            >
-              {cardContent}
-            </a>
-          ) : (
-            <div
-              key={`${c.lectureTitle ?? "unknown"}-${c.timestampStartSeconds ?? i}-${i}`}
-              className={className}
-            >
-              {cardContent}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-      {inspectorOpen && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Source inspector"
-          onClick={() => setInspectorOpen(false)}
-        >
-          <div
-            className="w-full max-w-4xl overflow-hidden rounded-2xl border border-white/12 bg-[#101010] shadow-[0_30px_120px_rgba(0,0,0,0.65)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-sm font-black text-slate-100">
-                  Lecture Source details
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Review the lecture material behind this answer. Exact transcript matches are shown when available, and broader matches are labeled clearly.
-                </p>
-                {activeLectureSet && (
-                  <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    Active lecture set: {activeLectureSet}
-                    {knowledgeBaseMismatch && requestedCourseLabel
-                      ? ` · This question looks like ${requestedCourseLabel}, so the current lecture sources are low relevance.`
-                      : ""}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setInspectorOpen(false)}
-                className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
-              >
-                Close
-              </button>
-            </div>
-            <div className="max-h-[75vh] overflow-y-auto px-4 py-4">
-              <div className="space-y-3">
-                {displayedCitations.map((citation, index) => {
-                  const timestampLabel = formatTimestamp(citation.timestampStartSeconds);
-                  const evidenceMeta = getCitationEvidenceMeta(citation);
-                  return (
-                    <div
-                      key={`${citation.lectureTitle ?? "source"}-${citation.timestampStartSeconds ?? index}-${index}`}
-                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-100">
-                            {citation.lectureTitle ?? "Unknown lecture"}
-                          </p>
-                          <p className="mt-1 text-[11px] text-slate-500">
-                            {citation.course ?? "Unknown course"}
-                            {timestampLabel ? ` · ${timestampLabel}` : ""}
-                          </p>
-                        </div>
-                        <div className="flex max-w-[11rem] flex-col items-end gap-1">
-                          <span className={`rounded-full border ${accentBorder} bg-white/[0.04] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-                            {evidenceMeta.label}
-                          </span>
-                          <p className="text-right text-[10px] leading-4 text-slate-500">
-                            {evidenceMeta.detail}
-                          </p>
-                          {lowRelevance && (
-                            <p className="text-right text-[10px] leading-4 text-amber-300/80">
-                              Low relevance to the current question.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {evidenceMeta.body ? (
-                        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-[13px] leading-6 text-slate-200">
-                          {evidenceMeta.body}
-                        </div>
-                      ) : (
-                        <div className="mt-3 rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-3 text-[12px] leading-5 text-slate-500">
-                          No direct transcript snippet was available for this source.
-                        </div>
-                      )}
-
-                      {citation.timestampUrl && (
-                        <div className="mt-3">
-                          <a
-                            href={citation.timestampUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`text-[11px] font-black uppercase tracking-widest ${accentText} hover:text-white`}
-                          >
-                            Open source clip →
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {activeClip && activeEmbedUrl && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Lecture clip preview"
-          onClick={() => setActiveClip(null)}
-        >
-          <div
-            className="w-full max-w-4xl overflow-hidden rounded-2xl border border-white/12 bg-[#101010] shadow-[0_30px_120px_rgba(0,0,0,0.65)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
-              <div className="min-w-0">
-                <p className="line-clamp-1 text-sm font-black text-slate-100">
-                  {activeClip.lectureTitle ?? "Lecture clip"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {activeClip.course ?? "Unknown course"}
-                  {formatTimestamp(activeClip.timestampStartSeconds)
-                    ? ` · ${formatTimestamp(activeClip.timestampStartSeconds)}`
-                    : ""}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveClip(null)}
-                className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
-              >
-                Close
-              </button>
-            </div>
-            <div className="aspect-video bg-black">
-              <iframe
-                className="h-full w-full"
-                src={activeEmbedUrl}
-                title={activeClip.lectureTitle ?? "Lecture clip"}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
-            </div>
-            {activeClip.timestampUrl && (
-              <div className="border-t border-white/10 px-4 py-3">
-                <a
-                  href={activeClip.timestampUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`text-xs font-black uppercase tracking-widest ${accentText} hover:text-white`}
-                >
-                  Open on YouTube →
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-
-const RelatedLecturesCard = ({
-  lectures,
-  accentColor,
-  accentBorder,
-}: {
-  lectures: RelatedLecture[];
-  accentColor: string;
-  accentBorder: string;
-}) => {
-  const isGreen = accentColor === "green";
-  const isAmber = accentColor === "amber";
-  const accentText = isGreen ? "text-green-400" : isAmber ? "text-amber-400" : "text-cyan-400";
-  const visibleLectures = lectures.slice(0, 3);
-
-  if (!visibleLectures.length) return null;
-
-  return (
-    <div className={`mt-4 rounded-2xl border ${accentBorder} bg-white/[0.02] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_45px_rgba(0,0,0,0.18)]`}>
-      <div className="mb-3">
-        <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-          Related Lectures you may find helpful
-        </p>
-        <p className="mt-1 text-[11px] leading-5 text-slate-500">
-          These lectures cover similar topics.
-        </p>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {visibleLectures.map((lecture) => {
-          const videoId = getYouTubeVideoId(lecture.video_url);
-          return (
-            <a
-              key={lecture.id}
-              href={lecture.video_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 transition hover:border-white/20 hover:bg-white/[0.035]"
-            >
-              {videoId && (
-                <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/30">
-                  <Image
-                    src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
-                    alt=""
-                    fill
-                    sizes="80px"
-                    className="object-cover opacity-80 transition group-hover:scale-105 group-hover:opacity-100"
-                  />
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="line-clamp-2 text-[11px] font-bold leading-snug text-slate-300">
-                  {formatRelatedLectureTitle(lecture.lecture_title)}
-                </p>
-                <p className="mt-1 text-[10px] text-slate-500">
-                  {lecture.course}
-                  {lecture.professor ? ` · ${lecture.professor}` : ""}
-                </p>
-              </div>
-            </a>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function normalizeCodeLanguage(language?: string): string {
-  const lang = (language ?? "").trim().toLowerCase();
-  if (!lang) return "text";
-
-  const aliases: Record<string, string> = {
-    javascript: "js",
-    typescript: "ts",
-    shell: "bash",
-    sh: "bash",
-    zsh: "bash",
-    powershell: "ps1",
-    python: "py",
-    plaintext: "text",
-    txt: "text",
-  };
-
-  return aliases[lang] ?? lang;
-}
-
-function inferCodeLanguage(code: string): string {
-  const trimmed = code.trim();
-  if (!trimmed) return "text";
-  if (/^\s*[{[][\s\S]*[}\]]\s*$/.test(trimmed) && /"[^"]+"\s*:/.test(trimmed)) return "json";
-  if (/\b(import|export|const|let|interface|type|React|useState|NextResponse)\b/.test(trimmed)) return "ts";
-  if (/\b(function|const|let|var|=>|console\.log)\b/.test(trimmed)) return "js";
-  if (/\b(def|import|from|print|self|None|True|False)\b/.test(trimmed)) return "py";
-  if (/\b(SELECT|INSERT|UPDATE|DELETE|CREATE TABLE|ALTER TABLE|FROM|WHERE)\b/i.test(trimmed)) return "sql";
-  if (/^(npm|pnpm|yarn|git|cd|ls|dir|python|node|npx)\b/m.test(trimmed)) return "bash";
-  return "text";
-}
-
-function codeLanguageLabel(language: string): string {
-  const labels: Record<string, string> = {
-    bash: "terminal",
-    ps1: "powershell",
-    py: "python",
-    js: "javascript",
-    jsx: "react",
-    ts: "typescript",
-    tsx: "react tsx",
-    text: "text",
-  };
-
-  return labels[language] ?? language;
-}
-
-function highlightCode(code: string, language: string): string {
-  const escaped = escapeHtml(code);
-  const lang = language.toLowerCase();
-
-  if (/^(ts|tsx|js|jsx|javascript|typescript)$/.test(lang)) {
-    return escaped
-      .replace(/(".*?"|'.*?'|`[\s\S]*?`)/g, '<span class="code-token-string">$1</span>')
-      .replace(
-        /\b(import|from|export|default|const|let|var|function|return|if|else|for|while|async|await|try|catch|class|new|type|interface|extends|implements)\b/g,
-        '<span class="code-token-keyword">$1</span>'
-      )
-      .replace(
-        /\b(true|false|null|undefined)\b/g,
-        '<span class="code-token-literal">$1</span>'
-      )
-      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>')
-      .replace(/\/\/.*/g, '<span class="code-token-comment">$&</span>');
-  }
-
-  if (/^(py|python)$/.test(lang)) {
-    return escaped
-      .replace(/(".*?"|'.*?')/g, '<span class="code-token-string">$1</span>')
-      .replace(
-        /\b(import|from|def|return|if|elif|else|for|while|try|except|class|with|as|lambda|None|True|False)\b/g,
-        '<span class="code-token-keyword">$1</span>'
-      )
-      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>')
-      .replace(/#.*/g, '<span class="code-token-comment">$&</span>');
-  }
-
-  if (/^(json)$/.test(lang)) {
-    return escaped
-      .replace(/("[^"]+"\s*:)/g, '<span class="code-token-property">$1</span>')
-      .replace(/:\s*("[^"]*")/g, ': <span class="code-token-string">$1</span>')
-      .replace(/\b(true|false|null)\b/g, '<span class="code-token-literal">$1</span>')
-      .replace(/\b(-?\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>');
-  }
-
-  if (/^(sql)$/.test(lang)) {
-    return escaped
-      .replace(/('.*?')/g, '<span class="code-token-string">$1</span>')
-      .replace(
-        /\b(select|from|where|join|left|right|inner|insert|update|delete|create|table|alter|group|order|by|limit|as|and|or|not|null|primary|key|references|index|on|values|returning)\b/gi,
-        '<span class="code-token-keyword">$1</span>'
-      )
-      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>');
-  }
-
-  return escaped;
-}
-
-const CodeBlock = ({
-  children,
-  className,
-}: {
-  children?: React.ReactNode;
-  className?: string;
-}) => {
-  const [copied, setCopied] = useState(false);
-  const raw = String(children ?? "").replace(/\n$/, "");
-  const explicitLanguage = /language-([\w-]+)/.exec(className ?? "")?.[1];
-  const language = normalizeCodeLanguage(explicitLanguage ?? inferCodeLanguage(raw));
-  const label = codeLanguageLabel(language);
-
-  const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(raw);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <div className="code-terminal my-5 overflow-hidden rounded-xl border border-white/10 bg-[#05070a] shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
-      <div className="flex h-10 items-center justify-between border-b border-white/10 bg-white/[0.045] px-4">
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/80" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">
-            {label}
-          </span>
-          <button
-            type="button"
-            onClick={copyCode}
-            className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-200"
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-      </div>
-      <pre className="m-0 max-h-[560px] overflow-auto p-4 text-left font-mono text-[13px] leading-6 text-slate-100 sm:p-5">
-        <code
-          className={`language-${language}`}
-          dangerouslySetInnerHTML={{ __html: highlightCode(raw, language) }}
-        />
-      </pre>
-    </div>
-  );
-};
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Vault connection lost.";
-}
-
-function stripPartialThink(content: string): string {
-  if (!content) return "";
-
-  let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, "");
-  const openIndex = cleaned.indexOf("<think>");
-  if (openIndex !== -1) {
-    cleaned = cleaned.slice(0, openIndex);
-  }
-
-  return cleaned;
-}
-
-// Utility to parse <think>...</think> blocks from Qwen output
-function parseThoughtTrace(content: string): {
-  steps: { label: string; detail: string }[];
-  clean: string;
-} {
-  const match = content.match(/<think>([\s\S]*?)<\/think>/);
-  if (!match) return { steps: [], clean: stripPartialThink(content).trim() };
-
-  const rawLines = match[1].trim().split(/\n+/).filter(Boolean);
-  const steps = rawLines
-    .map((line) => {
-      const colonIdx = line.indexOf(":");
-      if (colonIdx === -1) return null;
-      return {
-        label: line.slice(0, colonIdx).trim(),
-        detail: line.slice(colonIdx + 1).trim(),
-      };
-    })
-    .filter(Boolean) as { label: string; detail: string }[];
-
-  return {
-    steps,
-    clean: stripPartialThink(content.replace(/<think>[\s\S]*?<\/think>/, "")).trim(),
-  };
 }
 
 export default function Home() {
@@ -3105,247 +2214,85 @@ export default function Home() {
     });
   };
 
-  // --- SIDEBAR CHAT ROW ---
-  const ChatRow = ({ chat }: { chat: ChatItem }) => (
-    <div
-      key={chat.id}
-      onClick={() => renamingChatId !== chat.id && loadChat(chat.id)}
-      className={`w-full flex justify-between items-center p-3 rounded-xl hover:bg-white/5 text-slate-400 text-xs group cursor-pointer transition-all ${currentChatId === chat.id ? "bg-white/5 text-white" : ""
-        }`}
-    >
-      {renamingChatId === chat.id ? (
-        <input
-          autoFocus
-          value={renameValue}
-          onChange={(e) => setRenameValue(e.target.value)}
-          onBlur={() => commitRename(chat.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename(chat.id);
-            if (e.key === "Escape") setRenamingChatId(null);
-          }}
-          onClick={(e) => e.stopPropagation()}
-          className="flex-1 bg-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none border border-white/20 mr-2"
-        />
-      ) : (
-        <span
-          className="truncate group-hover:text-white transition-colors flex-1"
-          onDoubleClick={(e) => startRename(e, chat.id, chat.title)}
-          title="Double-click to rename"
-        >
-          {chat.title}
-        </span>
-      )}
-
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <div
-          onClick={(e) => togglePin(e, chat.id, !!chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${chat.is_pinned
-            ? `${accentColor} opacity-100`
-            : "opacity-20 hover:opacity-100 hover:text-white"
-            }`}
-        >
-          {chat.is_pinned ? "★" : "☆"}
-        </div>
-
-        {confirmDeleteId === chat.id ? (
-          <div className="flex items-center gap-2">
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteChat(chat.id);
-              }}
-              className="text-red-400 hover:text-red-300 cursor-pointer font-bold"
-            >
-              Delete
-            </span>
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmDeleteId(null);
-              }}
-              className="text-slate-400 hover:text-white cursor-pointer"
-            >
-              Cancel
-            </span>
-          </div>
-        ) : (
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirmDeleteId(chat.id);
-            }}
-            className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
-          >
-            ✕
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
   return (
     <main className="flex h-[100dvh] overflow-hidden bg-[#030303] font-sans antialiased text-white">
-      {isSidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={() => setIsSidebarOpen(false)}
-          className="fixed inset-0 z-20 bg-black/55 backdrop-blur-[2px] md:hidden"
-        />
-      )}
-      {/* SIDEBAR */}
-      <aside
-        className={`fixed inset-y-0 left-0 h-full bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-all duration-300 md:relative md:shadow-none ${isSidebarOpen ? "w-[19.5rem] translate-x-0" : "w-[19.5rem] -translate-x-full md:w-0 md:translate-x-0 overflow-hidden"
-          }`}
-      >
-        <div className="p-4 pt-6">
-          <button
-            onClick={startNewSession}
-            className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all group outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] ${accentBorder} bg-white/[0.06] hover:bg-white/[0.1]`}
-          >
-            <span className="text-sm font-bold text-slate-100">
-              Start New Session
-            </span>
-            <div className={`p-1 rounded-md bg-white/5 ${accentGroupHoverBg} transition-all group-hover:text-white`}>
-              <PlusIcon />
-            </div>
-          </button>
-        </div>
-
-        <div className="px-4 mb-6 flex gap-1">
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
-              ? `bg-white/5 ${accentColor} ${accentBorder}`
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
-          >
-            History
-          </button>
-          <button
-            onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
-              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-              : "text-slate-500 border-transparent hover:text-slate-300"
-              }`}
-          >
-            Knowledge Base
-          </button>
-        </div>
-
-        {/* Chat list */}
-        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
-          {activeTab === "history" ? (
-            <div className="space-y-2">
-              {chatHistoryNotice && (
-                <p className="rounded-xl border border-amber-500/15 bg-amber-500/8 px-3 py-2 text-[10px] leading-5 text-amber-200/80">
-                  {chatHistoryNotice}
-                </p>
-              )}
-              {chatHistory.some((c) => c.is_pinned) && (
-                <>
-                  <div className="flex items-center gap-2 px-2 py-2">
-                    <div className={accentColor}>
-                      <PinIcon />
-                    </div>
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                      Pinned
-                    </span>
-                  </div>
-                  {chatHistory
-                    .filter((c) => c.is_pinned)
-                    .map((chat) => (
-                      <ChatRow key={chat.id} chat={chat} />
-                    ))}
-                  <div className="h-px bg-white/5 my-4" />
-                </>
-              )}
-
-              {chatHistory.filter((c) => !c.is_pinned).length > 0 && (
-                <div className="flex items-center gap-2 px-2 py-1">
-                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                    Recent
-                  </span>
-                </div>
-              )}
-
-              {chatHistory
-                .filter((c) => !c.is_pinned)
-                .map((chat) => (
-                  <ChatRow key={chat.id} chat={chat} />
-                ))}
-
-              {!session?.user?.id && (
-                <p className="text-center text-slate-600 text-[10px] uppercase tracking-widest py-8 leading-5">
-                  Log in to save and reopen conversations.
-                </p>
-              )}
-
-              {session?.user?.id && chatHistoryLoading && chatHistory.length === 0 && (
-                <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
-                  Loading conversations...
-                </p>
-              )}
-
-              {session?.user?.id && !chatHistoryLoading && chatHistory.length === 0 && (
-                <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
-                  No sessions yet
-                </p>
-              )}
-            </div>
-          ) : (
-            <KnowledgeBasePanel
-              accentColor={accentColor}
-              accentBorder={accentBorder}
-              knowledgeBaseCourses={KNOWLEDGE_BASE_COURSES}
-              sessionUserId={session?.user?.id}
-              activeKnowledgeCourse={activeKnowledgeCourse}
-              chatFocusCourse={chatFocus.course}
-              activeLectureSetLabel={activeLectureSetLabel}
-              activeLectureSetShortLabel={activeLectureSetShortLabel}
-              activeLectureIndexedCount={activeLectureIndexedCount}
-              sourceHealth={sourceHealth}
-              sourceHealthExpanded={sourceHealthExpanded}
-              sourceHealthCourseBreakdown={sourceHealthCourseBreakdown}
-              knowledgeBaseStatusIndexedCount={knowledgeBaseStatus.indexedLectureCount}
-              pinnedSyllabus={pinnedSyllabus}
-              isSyllabusPreviewOpen={isSyllabusPreviewOpen}
-              attachedKnowledgeButtonLabel={attachedKnowledgeButtonLabel}
-              recentKnowledgeContexts={recentKnowledgeContexts}
-              savedArtifacts={savedArtifacts}
-              publicArtifacts={publicArtifacts}
-              knowledgeBaseActivationCourse={knowledgeBaseActivationCourse}
-              syllabusUploadInputRef={syllabusUploadInputRef}
-              formatPinnedTimestamp={formatPinnedTimestamp}
-              onKnowledgeFileInputChange={handleKnowledgeFileInputChange}
-              onSetActiveLectureSet={handleSetActiveLectureSet}
-              onClearActiveLectureSet={handleClearActiveLectureSet}
-              onToggleSourceHealth={() => setSourceHealthExpanded((prev) => !prev)}
-              onApplyKnowledgeCourse={applyKnowledgeCourse}
-              onRequestSyllabusUpload={() => {
-                if (!session?.user?.id) {
-                  showLoginGatePrompt(
-                    "Upload a syllabus after you log in and Niki will be able to keep it attached to your study context."
-                  );
-                  return;
-                }
-                syllabusUploadInputRef.current?.click();
-              }}
-              onPinAttachedSyllabus={() => void handlePinAttachedSyllabus()}
-              onOpenSyllabusPreview={() => setIsSyllabusPreviewOpen(true)}
-              onCloseSyllabusPreview={() => setIsSyllabusPreviewOpen(false)}
-              onUnpinSyllabus={() => setPinnedSyllabus(null)}
-              onOpenSavedArtifact={handleOpenSavedArtifact}
-              onDeleteSavedArtifact={handleDeleteSavedArtifact}
-              onOpenPublicArtifact={handleOpenPublicArtifact}
-              onLogin={() => router.push("/login")}
-              onOpenRoadmap={() => setIsRoadmapOpen(true)}
-              onRestoreRecentContext={handleRestoreRecentContext}
-              onSelectKnowledgeCourse={handleSelectKnowledgeCourse}
-            />
-          )}
-        </div>
-      </aside>
+      <ChatSidebar
+        isOpen={isSidebarOpen}
+        activeTab={activeTab}
+        chatHistory={chatHistory}
+        currentChatId={currentChatId}
+        chatHistoryLoading={chatHistoryLoading}
+        chatHistoryNotice={chatHistoryNotice}
+        sessionUserId={session?.user?.id}
+        confirmDeleteId={confirmDeleteId}
+        renamingChatId={renamingChatId}
+        renameValue={renameValue}
+        accentColor={accentColor}
+        accentBorder={accentBorder}
+        accentGroupHoverBg={accentGroupHoverBg}
+        onCloseSidebar={() => setIsSidebarOpen(false)}
+        onStartNewSession={startNewSession}
+        onSetActiveTab={setActiveTab}
+        onLoadChat={(chatId) => void loadChat(chatId)}
+        onTogglePin={(event, chatId, currentStatus) => void togglePin(event, chatId, currentStatus)}
+        onDeleteChat={(chatId) => void deleteChat(chatId)}
+        onStartRename={startRename}
+        onCommitRename={(chatId) => void commitRename(chatId)}
+        onRenameValueChange={setRenameValue}
+        onCancelRename={() => setRenamingChatId(null)}
+        onSetConfirmDeleteId={setConfirmDeleteId}
+        knowledgeBasePanel={
+          <KnowledgeBasePanel
+            accentColor={accentColor}
+            accentBorder={accentBorder}
+            knowledgeBaseCourses={KNOWLEDGE_BASE_COURSES}
+            sessionUserId={session?.user?.id}
+            activeKnowledgeCourse={activeKnowledgeCourse}
+            chatFocusCourse={chatFocus.course}
+            activeLectureSetLabel={activeLectureSetLabel}
+            activeLectureSetShortLabel={activeLectureSetShortLabel}
+            activeLectureIndexedCount={activeLectureIndexedCount}
+            sourceHealth={sourceHealth}
+            sourceHealthExpanded={sourceHealthExpanded}
+            sourceHealthCourseBreakdown={sourceHealthCourseBreakdown}
+            knowledgeBaseStatusIndexedCount={knowledgeBaseStatus.indexedLectureCount}
+            pinnedSyllabus={pinnedSyllabus}
+            isSyllabusPreviewOpen={isSyllabusPreviewOpen}
+            attachedKnowledgeButtonLabel={attachedKnowledgeButtonLabel}
+            recentKnowledgeContexts={recentKnowledgeContexts}
+            savedArtifacts={savedArtifacts}
+            publicArtifacts={publicArtifacts}
+            knowledgeBaseActivationCourse={knowledgeBaseActivationCourse}
+            syllabusUploadInputRef={syllabusUploadInputRef}
+            formatPinnedTimestamp={formatPinnedTimestamp}
+            onKnowledgeFileInputChange={handleKnowledgeFileInputChange}
+            onSetActiveLectureSet={handleSetActiveLectureSet}
+            onClearActiveLectureSet={handleClearActiveLectureSet}
+            onToggleSourceHealth={() => setSourceHealthExpanded((prev) => !prev)}
+            onApplyKnowledgeCourse={applyKnowledgeCourse}
+            onRequestSyllabusUpload={() => {
+              if (!session?.user?.id) {
+                showLoginGatePrompt(
+                  "Upload a syllabus after you log in and Niki will be able to keep it attached to your study context."
+                );
+                return;
+              }
+              syllabusUploadInputRef.current?.click();
+            }}
+            onPinAttachedSyllabus={() => void handlePinAttachedSyllabus()}
+            onOpenSyllabusPreview={() => setIsSyllabusPreviewOpen(true)}
+            onCloseSyllabusPreview={() => setIsSyllabusPreviewOpen(false)}
+            onUnpinSyllabus={() => setPinnedSyllabus(null)}
+            onOpenSavedArtifact={handleOpenSavedArtifact}
+            onDeleteSavedArtifact={handleDeleteSavedArtifact}
+            onOpenPublicArtifact={handleOpenPublicArtifact}
+            onLogin={() => router.push("/login")}
+            onOpenRoadmap={() => setIsRoadmapOpen(true)}
+            onRestoreRecentContext={handleRestoreRecentContext}
+            onSelectKnowledgeCourse={handleSelectKnowledgeCourse}
+          />
+        }
+      />
 
       {/* MAIN CONTENT */}
       <section className="chat-surface flex-1 flex min-h-0 flex-col relative min-w-0">
@@ -3630,30 +2577,13 @@ export default function Home() {
             ))}
 
             {shouldShowOnboarding && (
-              <div className="mx-auto max-w-3xl rounded-2xl border border-white/8 bg-white/[0.018] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-5 sm:py-4">
-                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-                  Quick Start
-                </p>
-                <p className="text-sm font-bold text-slate-100">
-                  Start by asking a question or selecting a course below.
-                </p>
-                <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                  NikiAI helps you learn with structured notes, lecture-aware answers, and reusable study artifacts.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {ONBOARDING_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => void handleOnboardingPrompt(prompt)}
-                      disabled={isLoading}
-                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all duration-200 outline-none ${accentBorder} bg-white/[0.02] ${accentColor} hover:scale-[1.01] hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40`}
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ChatEmptyState
+                prompts={ONBOARDING_PROMPTS}
+                isLoading={isLoading}
+                accentColor={accentColor}
+                accentBorder={accentBorder}
+                onPromptClick={(prompt) => void handleOnboardingPrompt(prompt)}
+              />
             )}
 
             {isLoading && (
@@ -3878,49 +2808,17 @@ export default function Home() {
       </section>
 
       {loginGatePrompt && (
-        <>
-          <button
-            type="button"
-            aria-label="Close login prompt"
-            onClick={() => setLoginGatePrompt(null)}
-            className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px]"
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Login required"
-            className="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-3xl border border-white/10 bg-[#090909]/98 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl sm:bottom-8"
-          >
-            <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-              Keep your progress
-            </p>
-            <h2 className="mt-2 text-lg font-extrabold tracking-tight text-white">
-              {loginGatePrompt.title}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              {loginGatePrompt.detail}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setLoginGatePrompt(null)}
-                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
-              >
-                Not now
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginGatePrompt(null);
-                  router.push("/login");
-                }}
-                className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.04] ${accentColor} hover:bg-white/[0.08]`}
-              >
-                Log In
-              </button>
-            </div>
-          </div>
-        </>
+        <LoginGatePrompt
+          title={loginGatePrompt.title}
+          detail={loginGatePrompt.detail}
+          accentColor={accentColor}
+          accentBorder={accentBorder}
+          onClose={() => setLoginGatePrompt(null)}
+          onLogin={() => {
+            setLoginGatePrompt(null);
+            router.push("/login");
+          }}
+        />
       )}
 
       {isRoadmapOpen && (
