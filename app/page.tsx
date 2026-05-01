@@ -97,6 +97,7 @@ const CURRENT_CHAT_MODE_STORAGE_KEY = "niki_current_chat_mode";
 const CURRENT_SESSION_SNAPSHOT_STORAGE_KEY = "niki_current_session_snapshot";
 const PENDING_HOME_ACTION_STORAGE_KEY = "niki_pending_home_action";
 const MOBILE_CHAT_CONTROLS_EXPANDED_KEY = "niki_mobile_chat_controls_expanded";
+const CURRENT_CHAT_ID_STORAGE_KEY = "niki_current_chat_id";
 
 type ChatFocusState = {
   course: string;
@@ -281,6 +282,7 @@ type ChatItem = {
   id: string;
   title: string;
   is_pinned?: boolean;
+  updated_at?: string;
 };
 type RagCitation = {
   lectureTitle?: string;
@@ -369,6 +371,10 @@ function createHistoryMessage(message: Message): Message {
     citations: message.citations,
     retrievalConfidence: message.retrievalConfidence,
   };
+}
+
+function getCurrentChatStorageKey(userId: string) {
+  return `${CURRENT_CHAT_ID_STORAGE_KEY}:${userId}`;
 }
 
 function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
@@ -1170,6 +1176,8 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [chatHistoryLoading, setChatHistoryLoading] = useState(false);
+  const [chatHistoryNotice, setChatHistoryNotice] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isNikiMode, setIsNikiMode] = useState(false);
   const [lectureMode, setLectureMode] = useState(false);
@@ -1208,6 +1216,8 @@ export default function Home() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatViewportRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef<string | null>(null);
+  const chatLoadSequenceRef = useRef(0);
+  const attachedFileRef = useRef<AttachedFile | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const isUnmountingRef = useRef(false);
@@ -1497,6 +1507,22 @@ export default function Home() {
     }
   }, [chatFocus]);
 
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    try {
+      const storageKey = getCurrentChatStorageKey(userId);
+      if (currentChatId) {
+        window.localStorage.setItem(storageKey, currentChatId);
+      } else {
+        window.localStorage.removeItem(storageKey);
+      }
+    } catch {
+      // Ignore storage persistence failures.
+    }
+  }, [currentChatId, session?.user?.id]);
+
 
   useEffect(() => {
     const trimmedTopic = chatFocus.topic.trim();
@@ -1561,6 +1587,10 @@ export default function Home() {
   }, [profileLoaded]);
 
   useEffect(() => {
+    attachedFileRef.current = attachedFile;
+  }, [attachedFile]);
+
+  useEffect(() => {
     try {
       const pendingAction = window.localStorage.getItem(
         PENDING_HOME_ACTION_STORAGE_KEY
@@ -1571,6 +1601,7 @@ export default function Home() {
         abortControllerRef.current?.abort();
         abortControllerRef.current = null;
         isStreamingRef.current = false;
+        chatLoadSequenceRef.current += 1;
         setIsLoading(false);
         if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
         setAttachedFile(null);
@@ -1767,7 +1798,7 @@ export default function Home() {
     const loadUserData = async (userId: string, activeSession?: AppSession) => {
       if (!profileLoadedRef.current) setProfileLoaded(false);
       const results = await Promise.allSettled([
-        withTimeout(fetchHistory(userId), "fetchHistory"),
+        withTimeout(fetchHistory(userId, { restoreSelected: true }), "fetchHistory"),
         withTimeout(fetchProfile(userId, activeSession), "fetchProfile"),
       ]);
 
@@ -1778,6 +1809,34 @@ export default function Home() {
       }
 
       if (mounted) setProfileLoaded(true);
+    };
+
+    const clearSignedOutState = (notice: string | null = null) => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      isStreamingRef.current = false;
+      chatLoadSequenceRef.current += 1;
+      speechRecognitionRef.current?.abort();
+      speechRecognitionRef.current = null;
+      setIsListening(false);
+      const attached = attachedFileRef.current;
+      if (attached?.preview) URL.revokeObjectURL(attached.preview);
+      attachedFileRef.current = null;
+      setAttachedFile(null);
+      setSession(null);
+      setProfile(null);
+      setProfileLoaded(true);
+      setChatHistory([]);
+      setChatHistoryLoading(false);
+      setChatHistoryNotice(notice);
+      setCurrentChatId(null);
+      currentChatIdRef.current = null;
+      setMessages(createGreeting(false));
+      setLoginGatePrompt(null);
+      setConfirmDeleteId(null);
+      setRenamingChatId(null);
+      setInputValue("");
+      lastSessionIdRef.current = null;
     };
 
     const initialize = async () => {
@@ -1807,14 +1866,7 @@ export default function Home() {
         if (!mounted) return;
 
         if (!session?.user?.id) {
-          setSession(null);
-          setProfile(null);
-          setProfileLoaded(true);
-          setChatHistory([]);
-          setCurrentChatId(null);
-          currentChatIdRef.current = null;
-          setMessages(createGreeting(false));
-          lastSessionIdRef.current = null;
+          clearSignedOutState();
           setAuthChecked(true);
           return;
         }
@@ -1827,14 +1879,7 @@ export default function Home() {
       } catch (error) {
         if (mounted) {
           console.warn("Auth initialization failed; preserving stored session for next retry:", error);
-          setSession(null);
-          setProfile(null);
-          setProfileLoaded(true);
-          setChatHistory([]);
-          setCurrentChatId(null);
-          currentChatIdRef.current = null;
-          setMessages(createGreeting(false));
-          lastSessionIdRef.current = null;
+          clearSignedOutState("Chat history is unavailable right now.");
           setAuthChecked(true);
         }
       }
@@ -1846,9 +1891,15 @@ export default function Home() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
-      if (isStreamingRef.current) return;
 
       const newUserId = session?.user?.id ?? null;
+      if (!newUserId) {
+        clearSignedOutState();
+        setAuthChecked(true);
+        return;
+      }
+
+      if (isStreamingRef.current) return;
 
       if (newUserId && newUserId === lastSessionIdRef.current) {
         setSession(session);
@@ -1859,21 +1910,10 @@ export default function Home() {
         return;
       }
 
-      if (newUserId) {
-        lastSessionIdRef.current = newUserId;
-        setSession(session);
-        applySessionFallbackProfile(session);
-        void loadUserData(newUserId, session);
-      } else {
-        lastSessionIdRef.current = null;
-        setSession(null);
-        setProfile(null);
-        setProfileLoaded(true);
-        setChatHistory([]);
-        setCurrentChatId(null);
-        currentChatIdRef.current = null;
-        setMessages(createGreeting(false));
-      }
+      lastSessionIdRef.current = newUserId;
+      setSession(session);
+      applySessionFallbackProfile(session);
+      void loadUserData(newUserId, session);
     });
 
     return () => {
@@ -1882,6 +1922,8 @@ export default function Home() {
       abortControllerRef.current?.abort();
       subscription.unsubscribe();
     };
+    // Auth bootstrap is intentionally subscribed once; adding helper dependencies would resubscribe on unrelated chat state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1946,7 +1988,13 @@ export default function Home() {
     setProfileLoaded(true);
   };
 
-  const fetchHistory = async (userId: string) => {
+  const fetchHistory = async (
+    userId: string,
+    options?: { restoreSelected?: boolean }
+  ): Promise<ChatItem[]> => {
+    setChatHistoryLoading(true);
+    setChatHistoryNotice(null);
+
     const { data, error } = await supabase
       .from("chats")
       .select("*")
@@ -1954,19 +2002,85 @@ export default function Home() {
       .order("is_pinned", { ascending: false })
       .order("updated_at", { ascending: false });
 
-    if (error) console.log("Fetch history error:", error);
-    if (data) setChatHistory(data);
+    if (error) {
+      console.log("Fetch history error:", error);
+      setChatHistoryNotice("Chat history could not load. Try refreshing.");
+      setChatHistoryLoading(false);
+      return [];
+    }
+
+    const nextHistory = (data ?? []) as ChatItem[];
+    setChatHistory(nextHistory);
+    setChatHistoryLoading(false);
+
+    const activeChatStillExists =
+      !!currentChatIdRef.current &&
+      nextHistory.some((chat) => chat.id === currentChatIdRef.current);
+
+    if (currentChatIdRef.current && !activeChatStillExists && !isStreamingRef.current) {
+      setCurrentChatId(null);
+      currentChatIdRef.current = null;
+      applyPreferredModeToFreshChat({ resetTeaching: true });
+    }
+
+    if (options?.restoreSelected && !currentChatIdRef.current) {
+      try {
+        const storedChatId = window.localStorage.getItem(getCurrentChatStorageKey(userId));
+        if (storedChatId && nextHistory.some((chat) => chat.id === storedChatId)) {
+          void loadChat(storedChatId, { userId, refreshHistory: false });
+        }
+      } catch {
+        // Ignore storage read failures.
+      }
+    }
+
+    return nextHistory;
   };
 
-  const loadChat = async (chatId: string) => {
+  const loadChat = async (
+    chatId: string,
+    options?: { userId?: string; refreshHistory?: boolean }
+  ) => {
+    const userId = options?.userId ?? session?.user?.id;
+    if (!userId) {
+      setChatHistoryNotice("Log in to reopen saved conversations.");
+      return;
+    }
+
+    const loadToken = chatLoadSequenceRef.current + 1;
+    chatLoadSequenceRef.current = loadToken;
+    setChatHistoryNotice(null);
+    setRenamingChatId(null);
+
+    const { data: chatRow, error: chatError } = await supabase
+      .from("chats")
+      .select("id, title, is_pinned")
+      .eq("id", chatId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (loadToken !== chatLoadSequenceRef.current) return;
+
+    if (chatError || !chatRow) {
+      console.log("Load chat ownership check failed:", chatError);
+      setChatHistoryNotice("This conversation is no longer available.");
+      if (currentChatIdRef.current === chatId) {
+        setCurrentChatId(null);
+        currentChatIdRef.current = null;
+        applyPreferredModeToFreshChat({ resetTeaching: true });
+      }
+      void fetchHistory(userId);
+      return;
+    }
+
     setCurrentChatId(chatId);
     currentChatIdRef.current = chatId;
-    setRenamingChatId(null);
 
     await supabase
       .from("chats")
       .update({ updated_at: new Date().toISOString() })
-      .eq("id", chatId);
+      .eq("id", chatId)
+      .eq("user_id", userId);
 
     const { data, error } = await supabase
       .from("messages")
@@ -1974,8 +2088,11 @@ export default function Home() {
       .eq("chat_id", chatId)
       .order("created_at", { ascending: true });
 
+    if (loadToken !== chatLoadSequenceRef.current) return;
+
     if (error) {
       console.log("Load chat error:", error);
+      setChatHistoryNotice("Messages could not load for this conversation.");
       return;
     }
 
@@ -2020,31 +2137,42 @@ export default function Home() {
       applyPreferredModeToFreshChat({ resetTeaching: true });
     }
 
-    if (session?.user?.id) fetchHistory(session.user.id);
+    if (options?.refreshHistory !== false) void fetchHistory(userId);
   };
 
   const togglePin = async (e: React.MouseEvent, chatId: string, currentStatus: boolean) => {
     e.stopPropagation();
+    if (!session?.user?.id) {
+      setChatHistoryNotice("Log in to pin saved conversations.");
+      return;
+    }
 
     const { error } = await supabase
       .from("chats")
       .update({ is_pinned: !currentStatus, updated_at: new Date().toISOString() })
-      .eq("id", chatId);
+      .eq("id", chatId)
+      .eq("user_id", session.user.id);
 
     if (error) {
       console.log("Toggle pin error:", error);
+      setChatHistoryNotice("This conversation could not be updated.");
       return;
     }
 
-    if (session?.user?.id) fetchHistory(session.user.id);
+    void fetchHistory(session.user.id);
   };
 
   const deleteChat = async (chatId: string) => {
     if (!session?.user?.id) return;
 
-    const { error } = await supabase.from("chats").delete().eq("id", chatId);
+    const { error } = await supabase
+      .from("chats")
+      .delete()
+      .eq("id", chatId)
+      .eq("user_id", session.user.id);
     if (error) {
       console.log("Delete chat error:", error);
+      setChatHistoryNotice("This conversation could not be deleted.");
       return;
     }
 
@@ -2072,14 +2200,23 @@ export default function Home() {
       setRenamingChatId(null);
       return;
     }
+    if (!session?.user?.id) {
+      setChatHistoryNotice("Log in to rename saved conversations.");
+      setRenamingChatId(null);
+      return;
+    }
 
     const { error } = await supabase
       .from("chats")
       .update({ title: trimmed, updated_at: new Date().toISOString() })
-      .eq("id", chatId);
+      .eq("id", chatId)
+      .eq("user_id", session.user.id);
 
     if (error) {
       console.log("Rename error:", error);
+      setChatHistoryNotice("This conversation could not be renamed.");
+      setRenamingChatId(null);
+      return;
     }
 
     setChatHistory((prev) =>
@@ -2297,7 +2434,9 @@ export default function Home() {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     isStreamingRef.current = false;
+    chatLoadSequenceRef.current += 1;
     setIsLoading(false);
+    setChatHistoryNotice(null);
 
     if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
     setAttachedFile(null);
@@ -2533,7 +2672,7 @@ export default function Home() {
           currentAttached?.file.name ||
           "File upload";
 
-        const { data: newChat } = await supabase
+        const { data: newChat, error: newChatError } = await supabase
           .from("chats")
           .insert({
             user_id: session.user.id,
@@ -2544,10 +2683,19 @@ export default function Home() {
           .select()
           .single();
 
+        if (newChatError) {
+          console.log("Create chat error:", newChatError);
+          setChatHistoryNotice("This chat is not saved yet. The answer will still appear here.");
+        }
+
         if (newChat) {
           chatId = newChat.id;
           setCurrentChatId(chatId);
           currentChatIdRef.current = chatId;
+          setChatHistory((prev) => {
+            const withoutDuplicate = prev.filter((chat) => chat.id !== newChat.id);
+            return [newChat as ChatItem, ...withoutDuplicate];
+          });
         }
       }
 
@@ -2557,17 +2705,23 @@ export default function Home() {
       }
 
       if (chatId && session) {
-        await supabase.from("messages").insert({
+        const { error: userMessageError } = await supabase.from("messages").insert({
           chat_id: chatId,
           role: "user",
           text: displayContent,
           ...(storagePath ? { attachment_path: storagePath } : {}),
         });
 
+        if (userMessageError) {
+          console.log("Save user message error:", userMessageError);
+          setChatHistoryNotice("This message could not be saved to history.");
+        }
+
         await supabase
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
-          .eq("id", chatId);
+          .eq("id", chatId)
+          .eq("user_id", session.user.id);
       }
 
       let base64Image: string | null = null;
@@ -2737,7 +2891,7 @@ export default function Home() {
           return updated;
         });
 
-        await supabase
+        const { error: aiMessageError } = await supabase
           .from("messages")
           .insert({
             chat_id: chatId,
@@ -2746,10 +2900,16 @@ export default function Home() {
             citations: lectureCitations,
           });
 
+        if (aiMessageError) {
+          console.log("Save AI message error:", aiMessageError);
+          setChatHistoryNotice("The latest answer could not be saved to history.");
+        }
+
         await supabase
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
-          .eq("id", chatId);
+          .eq("id", chatId)
+          .eq("user_id", session.user.id);
       }
     } catch (error: unknown) {
       if (!(error instanceof Error) || error.name !== "AbortError") {
@@ -3077,6 +3237,11 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
           {activeTab === "history" ? (
             <div className="space-y-2">
+              {chatHistoryNotice && (
+                <p className="rounded-xl border border-amber-500/15 bg-amber-500/8 px-3 py-2 text-[10px] leading-5 text-amber-200/80">
+                  {chatHistoryNotice}
+                </p>
+              )}
               {chatHistory.some((c) => c.is_pinned) && (
                 <>
                   <div className="flex items-center gap-2 px-2 py-2">
@@ -3110,7 +3275,19 @@ export default function Home() {
                   <ChatRow key={chat.id} chat={chat} />
                 ))}
 
-              {chatHistory.length === 0 && (
+              {!session?.user?.id && (
+                <p className="text-center text-slate-600 text-[10px] uppercase tracking-widest py-8 leading-5">
+                  Log in to save and reopen conversations.
+                </p>
+              )}
+
+              {session?.user?.id && chatHistoryLoading && chatHistory.length === 0 && (
+                <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
+                  Loading conversations...
+                </p>
+              )}
+
+              {session?.user?.id && !chatHistoryLoading && chatHistory.length === 0 && (
                 <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
                   No sessions yet
                 </p>
@@ -3835,14 +4012,15 @@ export default function Home() {
           setIsPaletteOpen(false);
         }}
         onPinChat={async () => {
-          if (!currentChatId) return;
+          if (!currentChatId || !session?.user?.id) return;
           const chat = chatHistory.find((c) => c.id === currentChatId);
           if (!chat) return;
           await supabase
             .from("chats")
             .update({ is_pinned: !chat.is_pinned, updated_at: new Date().toISOString() })
-            .eq("id", currentChatId);
-          if (session?.user?.id) fetchHistory(session.user.id);
+            .eq("id", currentChatId)
+            .eq("user_id", session.user.id);
+          void fetchHistory(session.user.id);
         }}
       />
     </main>

@@ -19,6 +19,10 @@ function getPinnedSyllabusStorageKey(userId?: string | null): string | null {
   return userId ? `${PINNED_SYLLABUS_STORAGE_KEY}:${userId}` : null;
 }
 
+function getRecentKnowledgeContextsStorageKey(userId?: string | null): string | null {
+  return userId ? `${RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY}:${userId}` : null;
+}
+
 type ChatFocusLike = {
   course: string;
   topic: string;
@@ -263,9 +267,10 @@ export function useKnowledgeBasePanel({
 
   useEffect(() => {
     try {
-      if (sessionUserId) {
+      const storageKey = getRecentKnowledgeContextsStorageKey(sessionUserId);
+      if (storageKey) {
         window.localStorage.setItem(
-          RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY,
+          storageKey,
           JSON.stringify(recentKnowledgeContexts)
         );
       } else {
@@ -291,9 +296,10 @@ export function useKnowledgeBasePanel({
       }
 
       try {
-        const storedRecentContexts = window.localStorage.getItem(
-          RECENT_KNOWLEDGE_CONTEXTS_STORAGE_KEY
-        );
+        const storageKey = getRecentKnowledgeContextsStorageKey(sessionUserId);
+        const storedRecentContexts = storageKey
+          ? window.localStorage.getItem(storageKey)
+          : null;
         if (!storedRecentContexts) {
           if (!cancelled) {
             setRecentKnowledgeContexts([]);

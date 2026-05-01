@@ -1251,14 +1251,21 @@ function ensureLectureConnectionSection(input: {
   content: string;
   lectureMode: boolean;
   citations: Array<{ similarity?: number }>;
+  attachedSourceLabel?: string;
 }): string {
   if (!input.lectureMode) return input.content;
 
   const trimmed = input.content.trim();
   if (!trimmed) return trimmed;
   const supportLevel = getLectureSupportLevel(input.citations);
-  const noSourceBlock =
-    "**Lecture Source**\nNo direct lecture source found for this topic\nAnswered using general math knowledge.";
+  const attachedSourceLine = input.attachedSourceLabel
+    ? `Using ${input.attachedSourceLabel} context where relevant.`
+    : "Answered using general math knowledge.";
+  const noSourceBlock = [
+    "**Lecture Source**",
+    "No direct lecture source found for this topic",
+    attachedSourceLine,
+  ].join("\n");
   const lectureConnectionPattern =
     /(?:^|\n)(\*\*Lecture (?:Connection|Source)\*\*|#{1,6}\s*Lecture (?:Connection|Source)|Lecture (?:Connection|Source):)\s*[\s\S]*?(?=\n(?:\*\*[^*\n]+\*\*|#{1,6}\s+|## Final Answer\b)|$)/i;
 
@@ -1266,7 +1273,7 @@ function ensureLectureConnectionSection(input: {
     if (lectureConnectionPattern.test(trimmed)) {
       return trimmed.replace(lectureConnectionPattern, (_match, heading: string) => {
         if (/lecture (connection|source):/i.test(heading)) {
-          return `\nNo direct lecture source found for this topic\nAnswered using general math knowledge.`;
+          return `\nNo direct lecture source found for this topic\n${attachedSourceLine}`;
         }
         return `\n${noSourceBlock}`;
       }).trim();
@@ -1302,7 +1309,7 @@ function ensureLectureConnectionSection(input: {
         : [
             "**Lecture Source**",
             "No direct lecture source found for this topic",
-            "Answered using general math knowledge.",
+            attachedSourceLine,
           ];
 
   const finalAnswerMatch = trimmed.match(/\n## Final Answer\b/i);
@@ -1350,6 +1357,14 @@ export async function POST(req: Request) {
 
     const hasImage = !!base64Image;
     const hasTextFile = !!textFileContent;
+    const attachedSourceLabel =
+      hasTextFile && pinnedSyllabusContent
+        ? "uploaded file and pinned syllabus"
+        : hasTextFile
+          ? "uploaded file"
+          : pinnedSyllabusContent
+            ? "pinned syllabus"
+            : "";
     const isDevLog = process.env.NODE_ENV !== "production";
     const historyWithoutCurrent =
       history.length > 0 &&
@@ -1855,6 +1870,7 @@ export async function POST(req: Request) {
           content: reply,
           lectureMode,
           citations: ragCitations,
+          attachedSourceLabel,
         });
 
         return await buildLoggedTextResponse(normalizeModelMathOutput(lectureSafeReply), {
@@ -1933,6 +1949,7 @@ export async function POST(req: Request) {
               content: `${correctionAcknowledgement}\n\n${polishedCorrectedMathReply}`,
               lectureMode,
               citations: ragCitations,
+              attachedSourceLabel,
             });
             return await buildLoggedTextResponse(
               normalizeModelMathOutput(correctedLectureSafeReply),
@@ -1981,6 +1998,7 @@ export async function POST(req: Request) {
               content: polishedContextualMathReply,
               lectureMode,
               citations: ragCitations,
+              attachedSourceLabel,
             });
             return await buildLoggedTextResponse(normalizeModelMathOutput(contextualLectureSafeReply), {
               headers: {
@@ -2201,9 +2219,11 @@ export async function POST(req: Request) {
             {
               role: "system" as const,
               content:
-                knowledgeBaseActive
-                  ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details."
-                  : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details or citations.",
+                attachedSourceLabel
+                  ? `Lecture mode is enabled without direct lecture retrieval. Use the ${attachedSourceLabel} context only where it is relevant, label it as attached context rather than a lecture citation, and do not invent lecture-specific details.`
+                  : knowledgeBaseActive
+                    ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details."
+                    : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details or citations.",
             },
           ]
           : []),
@@ -2272,6 +2292,7 @@ export async function POST(req: Request) {
         content: stableContent,
         lectureMode,
         citations: ragCitations,
+        attachedSourceLabel,
       });
       const stableOutput = forceStructuredMath || lectureMode
         ? normalizeModelMathOutput(lectureSafeStableContent)

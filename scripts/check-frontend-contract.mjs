@@ -147,6 +147,11 @@ const fixtures = [
     pattern: /applySessionFallbackProfile\(session\)[\s\S]*void loadUserData\(session\.user\.id, session\)/,
   },
   {
+    name: "home-clears-user-only-state-on-logout",
+    source: pageSource,
+    pattern: /(?=[\s\S]*clearSignedOutState)(?=[\s\S]*abortControllerRef\.current\?\.abort\(\))(?=[\s\S]*attachedFileRef\.current)(?=[\s\S]*setAttachedFile\(null\))(?=[\s\S]*setLoginGatePrompt\(null\))(?=[\s\S]*if \(!newUserId\)[\s\S]*clearSignedOutState\(\))/,
+  },
+  {
     name: "auth-profile-creates-google-metadata-fallback",
     source: authProfileSource,
     pattern: /profileFallbackFromSession[\s\S]*user_metadata[\s\S]*avatar_url[\s\S]*ensureProfileForSession/,
@@ -187,6 +192,11 @@ const fixtures = [
     pattern: /readLocalGeneralSettings[\s\S]*writeLocalGeneralSettings[\s\S]*writeLocalPersonalizationSettings[\s\S]*Saved On This Device[\s\S]*Saved/,
   },
   {
+    name: "general-settings-reacts-to-auth-state-changes",
+    source: generalPageSource,
+    pattern: /(?=[\s\S]*onAuthStateChange)(?=[\s\S]*fetchSettings\(nextSession\))(?=[\s\S]*setHasSession\(false\))(?=[\s\S]*setSyncState\("local"\))/,
+  },
+  {
     name: "general-settings-show-inline-sync-badges",
     source: generalPageSource,
     pattern: /syncBadgeText[\s\S]*Saved locally[\s\S]*Cloud synced[\s\S]*Auto-save active/,
@@ -210,6 +220,16 @@ const fixtures = [
     name: "home-shows-first-time-onboarding-prompts",
     source: pageSource,
     pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Quick Start)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*!artifactPanel)(?=[\s\S]*substantiveMessageCount === 0)(?=[\s\S]*handleOnboardingPrompt)/,
+  },
+  {
+    name: "chat-history-restores-selected-chat-per-user",
+    source: pageSource,
+    pattern: /(?=[\s\S]*CURRENT_CHAT_ID_STORAGE_KEY)(?=[\s\S]*getCurrentChatStorageKey\(userId\))(?=[\s\S]*restoreSelected)(?=[\s\S]*loadChat\(storedChatId,\s*\{\s*userId,\s*refreshHistory:\s*false\s*\}\))/,
+  },
+  {
+    name: "chat-history-mutates-only-current-user-chats",
+    source: pageSource,
+    pattern: /(?=[\s\S]*\.from\("chats"\)[\s\S]*\.update\(\{ is_pinned: !currentStatus)(?=[\s\S]*\.eq\("user_id", session\.user\.id\))(?=[\s\S]*\.from\("chats"\)[\s\S]*\.delete\(\)[\s\S]*\.eq\("user_id", session\.user\.id\))(?=[\s\S]*\.from\("chats"\)[\s\S]*\.update\(\{ title: trimmed)(?=[\s\S]*\.eq\("user_id", session\.user\.id\))/,
   },
   {
     name: "knowledge-base-sidebar-supports-all-core-courses",
@@ -254,7 +274,7 @@ const fixtures = [
   {
     name: "knowledge-base-pinned-syllabus-is-session-scoped",
     source: knowledgeBaseHookSource,
-    pattern: /(?=[\s\S]*getPinnedSyllabusStorageKey)(?=[\s\S]*setPinnedSyllabus\(null\))(?=[\s\S]*setIsSyllabusPreviewOpen\(false\))(?=[\s\S]*removeItem\(PINNED_SYLLABUS_STORAGE_KEY\))(?=[\s\S]*readStoredPinnedSyllabus\(nextStorageKey\))/,
+    pattern: /(?=[\s\S]*getPinnedSyllabusStorageKey)(?=[\s\S]*getRecentKnowledgeContextsStorageKey)(?=[\s\S]*setPinnedSyllabus\(null\))(?=[\s\S]*setIsSyllabusPreviewOpen\(false\))(?=[\s\S]*removeItem\(PINNED_SYLLABUS_STORAGE_KEY\))(?=[\s\S]*readStoredPinnedSyllabus\(nextStorageKey\))/,
   },
   {
     name: "settings-menu-reacts-to-auth-state-changes",
@@ -279,7 +299,7 @@ const fixtures = [
   {
     name: "knowledge-base-source-health-expands-with-course-breakdown",
     source: knowledgeBaseSource,
-    pattern: /sourceHealthExpanded[\s\S]*Using lecture sources for this answer[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
+    pattern: /sourceHealthExpanded[\s\S]*Lecture sources are available for chat[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
   },
   {
     name: "chat-focus-mode-supports-all-core-courses-and-persists",
@@ -404,7 +424,7 @@ const fixtures = [
   {
     name: "lecture-mode-uses-nuanced-source-support-messaging",
     source: `${pageSource}\n${chatRouteSource}`,
-    pattern: /(?=[\s\S]*This answer is based on lecture material)(?=[\s\S]*Partially supported by lecture material)(?=[\s\S]*No direct lecture source found for this topic)(?=[\s\S]*Answered using general math knowledge\.)/,
+    pattern: /(?=[\s\S]*This answer is based on lecture material)(?=[\s\S]*Partially supported by lecture material)(?=[\s\S]*No direct lecture source found for this topic)(?=[\s\S]*Answered using general math knowledge\.)(?=[\s\S]*attachedSourceLabel)(?=[\s\S]*Using \$\{input\.attachedSourceLabel\} context where relevant\.)(?=[\s\S]*label it as attached context rather than a lecture citation)/,
   },
   {
     name: "chat-request-includes-focus-mode-context",
@@ -529,12 +549,12 @@ const fixtures = [
   {
     name: "artifact-resume-state-is-session-scoped",
     source: artifactWorkspaceHookSource,
-    pattern: /(?=[\s\S]*getArtifactResumeStorageKey)(?=[\s\S]*setRecentArtifactResumeState\(null\))(?=[\s\S]*removeItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))(?=[\s\S]*window\.localStorage\.getItem\(scopedStorageKey\))(?=[\s\S]*window\.localStorage\.getItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))/,
+    pattern: /(?=[\s\S]*getArtifactResumeStorageKey)(?=[\s\S]*setRecentArtifactResumeState\(null\))(?=[\s\S]*removeItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))(?=[\s\S]*window\.localStorage\.getItem\(scopedStorageKey\))(?=[\s\S]*window\.localStorage\.getItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))(?=[\s\S]*Saved artifacts are hidden after logout\.)/,
   },
   {
     name: "artifact-panel-supports-saveable-study-library",
     source: artifactWorkspaceSource,
-    pattern: /(?=[\s\S]*handleOpenSavedArtifact)(?=[\s\S]*handleSaveArtifact)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*study_artifacts)(?=[\s\S]*Save to Study Library)/,
+    pattern: /(?=[\s\S]*handleOpenSavedArtifact)(?=[\s\S]*handleSaveArtifact)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*study_artifacts)(?=[\s\S]*\.update\(payload\)[\s\S]*\.eq\("id", artifactPanel\.savedArtifactId\)[\s\S]*\.eq\("user_id", sessionUserId\))(?=[\s\S]*That saved artifact is no longer available)(?=[\s\S]*Save to Study Library)/,
   },
   {
     name: "artifact-library-supports-delete-with-owner-check",
@@ -569,7 +589,7 @@ const fixtures = [
   {
     name: "artifact-library-badges-reflect-public-and-private-state",
     source: knowledgeBaseSource,
-    pattern: /🌐 Public[\s\S]*🔒 Private[\s\S]*Only artifacts explicitly marked public are discoverable here\./,
+    pattern: /🌐 Public[\s\S]*🔒 Private[\s\S]*Only artifacts explicitly marked public appear here\./,
   },
   {
     name: "profile-page-shows-real-sync-feedback",

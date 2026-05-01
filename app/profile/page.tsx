@@ -594,7 +594,7 @@ export default function ProfilePage() {
                       Improve the model for everyone
                     </h3>
                     <p className="text-[10px] text-slate-400 leading-relaxed italic">
-                      Allow content to be used to train models, making NikiAi
+                      Allow content to be used to train models, making NikiAI
                       faster for your math queries.
                     </p>
                   </div>
@@ -678,7 +678,7 @@ export default function ProfilePage() {
                         Usage Logs
                       </span>
                       <p className="text-[8px] text-slate-600 uppercase mt-1 italic">
-                        Anonymous logic gaps improve Nemanja Mode
+                        Share metadata only to improve reliability
                       </p>
                     </div>
 

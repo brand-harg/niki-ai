@@ -455,7 +455,7 @@ export default function CommandPalette({
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${a.dot}`} />
             <span className={`text-[9px] font-black uppercase tracking-[0.15em] ${a.text}`}>
-              NikiAi Command Palette
+              NikiAI Command Palette
             </span>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-slate-700 font-mono">

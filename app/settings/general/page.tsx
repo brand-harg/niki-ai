@@ -32,16 +32,28 @@ export default function GeneralSettingsPage() {
   });
 
   useEffect(() => {
-    const fetchSettings = async () => {
+    let mounted = true;
+
+    const fetchSettings = async (
+      sessionOverride?: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null
+    ) => {
       const localGeneralSettings = readLocalGeneralSettings();
       const localPersonalization = readLocalPersonalizationSettings();
+      if (!mounted) return;
+
       setSettings((prev) => ({
         ...prev,
         ...localGeneralSettings,
         default_niki_mode: localPersonalization.default_niki_mode,
       }));
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const session =
+        sessionOverride ??
+        (
+          await supabase.auth.getSession()
+        ).data.session;
+      if (!mounted) return;
+
       if (!session) {
         setHasSession(false);
         setSyncState("local");
@@ -78,7 +90,25 @@ export default function GeneralSettingsPage() {
       setLoading(false);
     };
 
-    fetchSettings();
+    void fetchSettings();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      void fetchSettings(nextSession);
+    });
+
+    const handleFocus = () => {
+      if (mounted) void fetchSettings();
+    };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [router]);
 
   const showStatus = (msg: string) => {
@@ -321,7 +351,9 @@ export default function GeneralSettingsPage() {
             <div className="flex items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl">
               <div>
                 <span className="text-xs font-bold text-slate-200">Ctrl / Cmd + Enter to Send</span>
-                <p className="text-[8px] text-slate-600 uppercase mt-1">Enter stays harmless until you mean it</p>
+                <p className="text-[8px] text-slate-600 uppercase mt-1">
+                  Enter makes a new line unless you use the shortcut
+                </p>
               </div>
               <button
                 onClick={() =>

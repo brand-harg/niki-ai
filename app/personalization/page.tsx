@@ -210,7 +210,7 @@ export default function PersonalizationPage() {
             AI<span className={accentText}>Personalization</span>
           </h1>
           <p className="text-slate-600 text-[10px] font-mono uppercase tracking-[0.2em] mt-2">
-            Fine-tune the Nemanja logic engine
+            Fine-tune how NikiAI explains and supports you
           </p>
           {isGuestMode && (
             <p className="text-slate-500 text-[10px] font-mono uppercase tracking-[0.16em] mt-3">
@@ -230,7 +230,7 @@ export default function PersonalizationPage() {
         <div className="bg-[#080808] border border-white/5 rounded-[3rem] p-10 space-y-10 shadow-2xl">
           <div className="space-y-4">
             <h3 className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-4">
-              What should NikiAi know about you?
+              What should NikiAI know about you?
             </h3>
             <textarea
               value={data.about_user || ""}
@@ -245,7 +245,7 @@ export default function PersonalizationPage() {
 
           <div className="space-y-4">
             <h3 className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-4">
-              How should NikiAi respond?
+              How should NikiAI respond?
             </h3>
             <textarea
               value={data.response_style || ""}

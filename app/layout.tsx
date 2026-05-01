@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NikiAi | Professor Nikitovic",
+  title: "NikiAI | Professor Nikitovic",
   description:
     "Stop guessing and start deriving. Your personal academic vault for Calculus, Statistics, and beyond.",
 };

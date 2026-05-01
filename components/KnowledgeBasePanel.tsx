@@ -180,7 +180,7 @@ export default function KnowledgeBasePanel({
           role="button"
           tabIndex={0}
           aria-expanded={sourceHealthExpanded}
-          title="Using lecture sources for this answer"
+          title="Lecture sources are available for chat"
           onClick={onToggleSourceHealth}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -213,7 +213,7 @@ export default function KnowledgeBasePanel({
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">{sourceHealth.detail}</p>
               )}
               <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                Using lecture sources for this answer
+                Lecture sources are available for chat
               </p>
             </div>
             <div className="mt-1 flex items-start gap-2">
@@ -308,7 +308,7 @@ export default function KnowledgeBasePanel({
                   </div>
                 ) : (
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    No indexed lecture breakdown is available yet.
+                    No course breakdown is available yet.
                   </p>
                 )}
               </div>
@@ -332,8 +332,9 @@ export default function KnowledgeBasePanel({
                 </>
               ) : (
                 <p className="text-[11px] leading-5 text-slate-500">
-                  Upload or pin a syllabus, schedule, or study file so chat can follow your real course
-                  timeline without turning the panel into a file dump.
+                  {sessionUserId
+                    ? "Upload or pin a syllabus, schedule, or study file so chat can follow your real course timeline."
+                    : "Log in to upload a syllabus or pin a course file for future study sessions."}
                 </p>
               )}
             </div>
@@ -480,10 +481,10 @@ export default function KnowledgeBasePanel({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className={`text-[10px] font-black ${accentColor} uppercase`}>
-                    Public Discovery
+                    Public Artifacts
                   </p>
                   <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                    Only artifacts explicitly marked public are discoverable here.
+                    Only artifacts explicitly marked public appear here.
                   </p>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
@@ -600,7 +601,7 @@ export default function KnowledgeBasePanel({
             })}
           </div>
           <p className="mt-3 text-[11px] leading-5 text-slate-500">
-            Organized course focus keeps retrieval tidy without turning the sidebar into a raw file pile.
+            Choose a course to set chat focus and guide lecture retrieval.
           </p>
         </div>
       </div>
@@ -623,7 +624,7 @@ export default function KnowledgeBasePanel({
                   {pinnedSyllabus.name}
                 </h2>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Attached {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)} for retrieval-aware study help.
+                  Attached {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)} for lecture-aware study help.
                 </p>
               </div>
               <button

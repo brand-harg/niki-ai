@@ -368,12 +368,28 @@ export function useArtifactWorkspace({
         .from("study_artifacts")
         .update(payload)
         .eq("id", artifactPanel.savedArtifactId)
+        .eq("user_id", sessionUserId)
         .select("*")
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.log("Update artifact error:", error);
         setArtifactSaveNotice("I couldn't update that artifact right now.");
+        return;
+      }
+
+      if (!data) {
+        setArtifactSaveNotice("That saved artifact is no longer available. Save it again to keep this draft.");
+        setArtifactPanel((prev) => {
+          if (!prev) return prev;
+          const nextPanel = {
+            ...prev,
+            savedArtifactId: null,
+          };
+          setArtifactBaselineSnapshot(serializeArtifactWorkspace(nextPanel));
+          return nextPanel;
+        });
+        void fetchStudyArtifacts(sessionUserId);
         return;
       }
 
@@ -453,6 +469,7 @@ export function useArtifactWorkspace({
     chatFocus.course,
     chatFocus.topic,
     fetchPublicArtifacts,
+    fetchStudyArtifacts,
     onRequireLogin,
     onStudyProgress,
     profileIsSearchable,
@@ -613,11 +630,31 @@ export function useArtifactWorkspace({
         if (cancelled) return;
         setRecentArtifactResumeState(null);
         setDismissedRecentArtifactId(null);
+        setSavedArtifacts([]);
+        setArtifactPanel((prev) => {
+          if (!prev?.savedArtifactId) return prev;
+          setArtifactBaselineSnapshot(null);
+          setArtifactSaveNotice("Saved artifacts are hidden after logout.");
+          return null;
+        });
       }, 0);
       previousSessionUserIdRef.current = null;
       return () => {
         cancelled = true;
       };
+    }
+
+    if (previousUserId && previousUserId !== sessionUserId) {
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setArtifactPanel((prev) => {
+          if (!prev?.savedArtifactId) return prev;
+          setArtifactBaselineSnapshot(null);
+          setArtifactSaveNotice(null);
+          return null;
+        });
+        setSavedArtifacts([]);
+      }, 0);
     }
 
     try {
