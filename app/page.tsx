@@ -1259,6 +1259,7 @@ export default function Home() {
 
   const handleScreenshot = async () => {
     const target =
+      (document.querySelector("[data-chat-thread]") as HTMLDivElement | null) ??
       chatViewportRef.current ??
       (document.querySelector("[data-chat-capture]") as HTMLDivElement | null);
 
@@ -1268,7 +1269,9 @@ export default function Home() {
     }
 
     try {
-      const canvas = await captureElementCanvas(target, "[data-chat-capture]");
+      const canvas = await captureElementCanvas(target, "[data-chat-thread]", {
+        backgroundColor: "#030303",
+      });
 
       const link = document.createElement("a");
       link.download = `nikiai-chat-${Date.now()}.png`;
@@ -2044,7 +2047,7 @@ export default function Home() {
           className={`flex-1 min-h-0 overflow-y-auto ${effectiveCompactMode ? "pt-3 pb-36 sm:pb-8 text-[15px]" : "pt-4 sm:pt-10 pb-40 sm:pb-8 text-[17px] sm:text-[18px]"
             } px-3 sm:px-6 scroll-smooth`}
         >
-          <div className="mx-auto max-w-5xl space-y-4 sm:space-y-8">
+          <div data-chat-thread className="mx-auto max-w-5xl space-y-4 sm:space-y-8">
             {sessionStudyLabel && (
               <div className="px-1">
                 <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>

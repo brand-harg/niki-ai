@@ -321,6 +321,8 @@ export default function ArtifactWorkspacePanel({
             }
 
             body.niki-artifact-print-mode [data-artifact-panel-shell] > div {
+              height: auto !important;
+              max-height: none !important;
               overflow: visible !important;
             }
 
@@ -328,11 +330,26 @@ export default function ArtifactWorkspacePanel({
               display: block !important;
             }
 
+            body.niki-artifact-print-mode [data-artifact-panel-shell] section,
+            body.niki-artifact-print-mode [data-artifact-panel-shell] .min-h-0,
+            body.niki-artifact-print-mode [data-artifact-panel-shell] .flex-1,
+            body.niki-artifact-print-mode [data-artifact-panel-shell] .overflow-hidden,
+            body.niki-artifact-print-mode [data-artifact-panel-shell] .overflow-y-auto {
+              min-height: 0 !important;
+              height: auto !important;
+              max-height: none !important;
+              overflow: visible !important;
+            }
+
             body.niki-artifact-print-mode [data-artifact-export] {
               border: none !important;
               background: #ffffff !important;
               box-shadow: none !important;
               color: #0f172a !important;
+              display: block !important;
+              width: 100% !important;
+              max-width: 7.5in !important;
+              margin: 0 auto !important;
               page-break-inside: auto !important;
               break-inside: auto !important;
             }
