@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getLectureCourseCounts } from "@/lib/ragHelpers";
+import { logSafeError } from "@/lib/safeLogger";
 
 export async function GET() {
   try {
@@ -15,7 +16,9 @@ export async function GET() {
       status,
     });
   } catch (error) {
-    console.error("Knowledge base status route error:", error);
+    logSafeError("api.knowledge-base.status", error, {
+      route: "/api/knowledge-base/status",
+    });
     return NextResponse.json(
       {
         indexedLectureCount: 0,

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { detectCourseFilter, inferCourseFromMathTopic } from "@/lib/courseFilters";
 import { normalizeModelMathOutput, sanitizeMathContent } from "@/lib/mathFormatting";
+import { logSafeError } from "@/lib/safeLogger";
 import {
   buildLectureContextSystemMessage,
   buildModeReminderSystemMessage,
@@ -2431,9 +2432,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ reply: "System Error: Model timed out." });
     }
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("❌ Fatal error:", error);
-    }
+    logSafeError("api.chat.fatal", error, { route: "/api/chat" });
 
     return NextResponse.json(
       {

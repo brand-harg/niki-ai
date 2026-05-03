@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { logSafeError } from "@/lib/safeLogger";
 
 export async function GET() {
   try {
@@ -14,13 +15,13 @@ export async function GET() {
       .limit(8);
 
     if (error) {
-      console.error("Public artifacts fetch failed:", error);
+      logSafeError("api.artifacts.public.fetch", error, { route: "/api/artifacts/public" });
       return NextResponse.json({ artifacts: [] }, { status: 500 });
     }
 
     return NextResponse.json({ artifacts: data ?? [] });
   } catch (error) {
-    console.error("Public artifacts route error:", error);
+    logSafeError("api.artifacts.public.route", error, { route: "/api/artifacts/public" });
     return NextResponse.json({ artifacts: [] }, { status: 500 });
   }
 }

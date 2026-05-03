@@ -4,6 +4,7 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { detectCourseFilter, inferCourseFromMathTopic } from "@/lib/courseFilters";
+import { logSafeError } from "@/lib/safeLogger";
 
 type RagRequest = {
   question?: string;
@@ -1956,6 +1957,9 @@ ${truncateText(chunk.clean_text, MAX_CONTEXT_CHARS)}`;
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown failure";
+    logSafeError("api.rag.query", error, {
+      route: "/api/rag/query",
+    });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

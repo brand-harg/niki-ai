@@ -81,6 +81,9 @@ Verify storage bucket rules manually:
 - Development-only logs stay behind `NODE_ENV !== "production"` checks.
 - Training logs sanitize obvious auth/password tokens before insert.
 - Usage logs include only coarse metadata: mode, teaching state, course/topic context, and timestamps.
+- Unexpected production errors use privacy-safe structured logging only.
+- Error boundary logs include action/digest metadata, not rendered private study content.
+- API route logs include route/action and safe metadata, not request bodies.
 
 ## Environment Readiness
 
