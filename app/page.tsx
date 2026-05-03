@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import ThoughtTrace from "@/components/ThoughtTrace";
@@ -555,7 +555,7 @@ export default function Home() {
 
   const focusModeHeaderClass = getFocusModeHeaderClass(focusModeExpanded);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const query = window.matchMedia("(min-width: 768px)");
     const syncSidebarToViewport = () => setIsSidebarOpen(query.matches);
 
@@ -1962,6 +1962,8 @@ export default function Home() {
           <div className="flex items-center gap-5">
             <button
               data-testid="sidebar-toggle"
+              type="button"
+              aria-label={isSidebarOpen ? "Close chat sidebar" : "Open chat sidebar"}
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none`}
             >
@@ -1993,13 +1995,14 @@ export default function Home() {
               Calendar
             </button>
 
-            <div className="sm:border-l border-white/10 sm:pl-6 flex items-center gap-3 sm:gap-5">
+            <div className="sm:border-l border-white/10 sm:pl-6 flex min-w-[5.75rem] items-center justify-end gap-3 sm:min-w-[11rem] sm:gap-5">
               {!authChecked ? (
-                <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
+                <div className="h-8 w-full max-w-[8.5rem] rounded-full bg-white/5 animate-pulse" />
               ) : session ? (
                 <button
+                  type="button"
                   onClick={() => router.push("/settings")}
-                  className="group flex items-center gap-3 p-1 pr-3 rounded-full hover:bg-white/5 transition-all border border-transparent hover:border-white/10 outline-none"
+                  className="group flex min-w-0 items-center gap-3 rounded-full border border-transparent p-1 pr-3 outline-none transition-all hover:border-white/10 hover:bg-white/5"
                 >
                   <div
                     className={`relative w-8 h-8 rounded-full ${accentBg} flex items-center justify-center font-black text-[10px] text-white overflow-hidden border border-white/10 shadow-lg`}
