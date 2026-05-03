@@ -6,7 +6,7 @@ import ThoughtTrace from "@/components/ThoughtTrace";
 import CommandPalette from "@/components/CommandPalette";
 import ChatModeControls from "@/components/ChatModeControls";
 import KnowledgeBasePanel from "@/components/KnowledgeBasePanel";
-import NemanjaRoadmap from "@/components/NemanjaRoadmap";
+import RoadmapModal from "@/components/roadmap/RoadmapModal";
 import ChatEmptyState from "@/components/chat/ChatEmptyState";
 import CitationCard from "@/components/chat/CitationCard";
 import ChatSidebar from "@/components/chat/ChatSidebar";
@@ -22,14 +22,30 @@ import "katex/dist/katex.min.css";
 import FileUploadButton from "@/components/FileUploadButton";
 import FilePreview, { type AttachedFile } from "@/components/FilePreview";
 import html2canvas from "html2canvas";
-import { inferCourseFromMathTopic } from "@/lib/courseFilters";
 import { clearAuthCallbackUrl, hasAuthCallbackParams, recoverSessionFromUrl } from "@/lib/authRecovery";
 import { ensureProfileForSession, mergeProfileWithFallback, profileFallbackFromSession } from "@/lib/authProfile";
 import { resolveAvatarUrl } from "@/lib/avatarUrl";
 import ArtifactWorkspacePanel from "@/components/ArtifactWorkspacePanel";
 import { useArtifactWorkspace } from "@/hooks/useArtifactWorkspace";
+import { useChatAttachment } from "@/hooks/useChatAttachment";
+import { useChatHistory, type ChatHistoryMessageRow } from "@/hooks/useChatHistory";
 import { useKnowledgeBasePanel } from "@/hooks/useKnowledgeBasePanel";
+import {
+  useLectureSourceContext,
+  type RagCitation,
+  type RagResponse,
+  type RelatedLecture,
+} from "@/hooks/useLectureSourceContext";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { sanitizeMathContent } from "@/lib/mathFormatting";
+import {
+  buildFocusStatusLabel,
+  buildFocusSummary,
+  buildMobileControlsSummary,
+  buildSessionStudyLabel,
+  getFocusCourseLabel,
+  getFocusModeHeaderClass,
+} from "@/lib/chatFocus";
 import {
   ALL_GREETING_TEXTS,
   buildRecentContextTopic,
@@ -43,7 +59,6 @@ import {
   isGreetingOnly,
   isLikelyKnowledgeFileName,
   isPracticeRequestText,
-  normalizeCourseKey,
   parseThoughtTrace,
   stripPartialThink,
 } from "@/lib/chatDisplay";
@@ -108,8 +123,6 @@ const CURRENT_CHAT_MODE_STORAGE_KEY = "niki_current_chat_mode";
 const CURRENT_SESSION_SNAPSHOT_STORAGE_KEY = "niki_current_session_snapshot";
 const PENDING_HOME_ACTION_STORAGE_KEY = "niki_pending_home_action";
 const MOBILE_CHAT_CONTROLS_EXPANDED_KEY = "niki_mobile_chat_controls_expanded";
-const CURRENT_CHAT_ID_STORAGE_KEY = "niki_current_chat_id";
-
 type ChatFocusState = {
   course: string;
   topic: string;
@@ -158,95 +171,12 @@ function withTimeout<T>(promise: PromiseLike<T>, label: string, ms = AUTH_TIMEOU
   });
 }
 
-type ChatItem = {
-  id: string;
-  title: string;
-  is_pinned?: boolean;
-  updated_at?: string;
-};
-type RagCitation = {
-  lectureTitle?: string;
-  professor?: string;
-  timestampStartSeconds?: number;
-  timestampUrl?: string | null;
-  course?: string;
-  similarity?: number;
-  excerpt?: string;
-  sectionHint?: string;
-};
-type RagResponse = {
-  context?: string[];
-  styleSnippets?: { text: string; personaTag?: string }[];
-  citations?: RagCitation[];
-  retrievalConfidence?: "high" | "medium" | "low" | "none";
-  error?: string;
-};
-type RelatedLecture = {
-  id: string;
-  lecture_title: string;
-  course: string;
-  professor: string;
-  video_url: string;
-};
 type CalendarEventContextRow = {
   title: string;
   event_date: string;
   event_time: string;
   course: string | null;
 };
-type SpeechRecognitionResultLike = {
-  [index: number]: { transcript: string };
-  isFinal?: boolean;
-};
-type SpeechRecognitionEventLike = {
-  results: ArrayLike<SpeechRecognitionResultLike>;
-};
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: { error?: string }) => void) | null;
-  onend: (() => void) | null;
-};
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
-function getCurrentChatStorageKey(userId: string) {
-  return `${CURRENT_CHAT_ID_STORAGE_KEY}:${userId}`;
-}
-
-function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
-  if (typeof window === "undefined") return null;
-  const speechWindow = window as Window & {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  };
-  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
-}
-
-function isLectureInventoryRequest(message: string) {
-  return (
-    /\b(?:what|which|list|show|all)\b[\s\S]{0,50}\blectures?\b/i.test(message) ||
-    /\blectures?\b[\s\S]{0,40}\b(?:have|got|available|list|show)\b/i.test(message) ||
-    /\b(?:show|list)\s+me\s+(?:all\s+)?(?:of\s+)?(?:calc(?:ulus)?\s*[123]|pre\s*calc(?:ulus)?\s*1?|precalc\s*1?|stats?|statistics|differential\s+equations?|elementary\s+algebra)\b/i.test(message) ||
-    /\b(?:calc(?:ulus)?\s*[123]|pre\s*calc(?:ulus)?\s*1?|precalc\s*1?|stats?|statistics|differential\s+equations?|elementary\s+algebra)\b[\s\S]{0,24}\b(?:lectures?|all)\b/i.test(message)
-  );
-}
-
-function isExplicitKnowledgeBaseRequest(message: string) {
-  return (
-    /\b(source|sources|citation|citations|cite|evidence|transcript|clip|clips|timestamp|timestamps|video|videos|watch|grounded|lecture connection)\b/i.test(
-      message
-    ) ||
-    /where did (?:that|this) come from/i.test(message) ||
-    /show (?:me )?(?:the )?(?:source|sources|citations|evidence)/i.test(message) ||
-    /peek evidence/i.test(message) ||
-    /\b(lecture|lectures)\b/i.test(message)
-  );
-}
 
 function getCalloutKind(text: string) {
   if (/^Efficiency Tip\b/i.test(text)) return "math-callout-efficiency";
@@ -283,19 +213,12 @@ export default function Home() {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [chatHistoryLoading, setChatHistoryLoading] = useState(false);
-  const [chatHistoryNotice, setChatHistoryNotice] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isNikiMode, setIsNikiMode] = useState(false);
-  const [lectureMode, setLectureMode] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
   const [isLoading, setIsLoading] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [chatFocus, setChatFocus] = useState<ChatFocusState>({
     course: "",
     topic: "",
@@ -311,27 +234,18 @@ export default function Home() {
   const [studyProgressNotice, setStudyProgressNotice] = useState<string | null>(null);
   const [isRoadmapOpen, setIsRoadmapOpen] = useState(false);
   const [loginGatePrompt, setLoginGatePrompt] = useState<LoginGatePrompt | null>(null);
-  const [speechSupported, setSpeechSupported] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [trainingPromptSnoozedUntil, setTrainingPromptSnoozedUntil] = useState<number | null>(null);
   const [trainingPromptHidden, setTrainingPromptHidden] = useState(false);
   const [trainingPromptBusy, setTrainingPromptBusy] = useState(false);
   const headerAvatarUrl = resolveAvatarUrl(profile?.avatar_url);
 
-  // --- RENAME STATE ---
-  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatViewportRef = useRef<HTMLDivElement>(null);
-  const currentChatIdRef = useRef<string | null>(null);
-  const chatLoadSequenceRef = useRef(0);
-  const attachedFileRef = useRef<AttachedFile | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const isUnmountingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const lastSessionIdRef = useRef<string | null>(null);
+  const activeSessionUserIdRef = useRef<string | null>(null);
   const profileLoadedRef = useRef(false);
   const lastFocusAnnouncementRef = useRef<string>("");
 
@@ -356,6 +270,29 @@ export default function Home() {
     : isAmber
       ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
       : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white";
+
+  const {
+    speechSupported,
+    isListening,
+    toggleListening: handleVoiceInput,
+    abortListening: abortVoiceInput,
+  } = useVoiceInput({
+    isLoading,
+    inputValue,
+    setInputValue,
+  });
+
+  const {
+    attachedFile,
+    handleFileSelect,
+    handleRemoveFile,
+    clearAttachment,
+    consumeAttachment,
+  } = useChatAttachment();
+
+  useEffect(() => {
+    activeSessionUserIdRef.current = session?.user?.id ?? null;
+  }, [session?.user?.id]);
 
   const {
     activeKnowledgeCourse,
@@ -394,11 +331,19 @@ export default function Home() {
     onRequireLogin: showLoginGatePrompt,
   });
 
+  const {
+    lectureMode,
+    setLectureMode,
+    getLectureSourceBundle,
+  } = useLectureSourceContext({
+    activeKnowledgeCourse,
+    chatFocus,
+    profileCurrentUnit: profile?.current_unit,
+    isNikiMode,
+  });
+
   const focusCourseLabel = useMemo(() => {
-    return (
-      KNOWLEDGE_BASE_COURSES.find((course) => course.courseContext === chatFocus.course)?.label ??
-      "No subject selected"
-    );
+    return getFocusCourseLabel(KNOWLEDGE_BASE_COURSES, chatFocus.course);
   }, [chatFocus.course]);
 
   const focusSuggestion = useMemo(() => {
@@ -407,45 +352,33 @@ export default function Home() {
   }, [chatFocus.course, chatFocus.topic, inputValue]);
 
   const focusSummary = useMemo(() => {
-    const trimmedTopic = chatFocus.topic.trim();
-    if (!chatFocus.course) {
-      return trimmedTopic ? `No subject selected · ${trimmedTopic}` : "No subject selected";
-    }
-    return `${focusCourseLabel} · ${trimmedTopic || "No topic set"}`;
+    return buildFocusSummary(
+      { course: chatFocus.course, topic: chatFocus.topic },
+      focusCourseLabel
+    );
   }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
 
   const focusStatusLabel = useMemo(() => {
-    const trimmedTopic = chatFocus.topic.trim();
-    if (!chatFocus.course && !trimmedTopic) return "No course selected";
-    if (!chatFocus.course) return `Focus: ${trimmedTopic}`;
-    if (!trimmedTopic) return `Focus: ${focusCourseLabel}`;
-    return `Focus: ${focusCourseLabel} • ${trimmedTopic}`;
+    return buildFocusStatusLabel(
+      { course: chatFocus.course, topic: chatFocus.topic },
+      focusCourseLabel
+    );
   }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
 
   const sessionStudyLabel = useMemo(() => {
-    const trimmedTopic = chatFocus.topic.trim();
-    if (!chatFocus.course) return "";
-    if (!trimmedTopic) return `Studying: ${focusCourseLabel}`;
-    return `Studying: ${focusCourseLabel} • ${trimmedTopic}`;
+    return buildSessionStudyLabel(
+      { course: chatFocus.course, topic: chatFocus.topic },
+      focusCourseLabel
+    );
   }, [chatFocus.course, chatFocus.topic, focusCourseLabel]);
 
   const mobileControlsSummary = useMemo(() => {
-    const trimmedTopic = chatFocus.topic.trim();
-    const focusPart = !chatFocus.course
-      ? trimmedTopic
-        ? `No course • ${trimmedTopic}`
-        : "No course"
-      : trimmedTopic
-        ? `${focusCourseLabel} • ${trimmedTopic}`
-        : focusCourseLabel;
-
-    return [
-      isNikiMode ? "Nemanja" : "Pure Logic",
-      isNikiMode ? (lectureMode ? "Teaching ON" : "Teaching OFF") : null,
-      focusPart,
-    ]
-      .filter(Boolean)
-      .join(" • ");
+    return buildMobileControlsSummary({
+      chatFocus: { course: chatFocus.course, topic: chatFocus.topic },
+      focusCourseLabel,
+      isNikiMode,
+      lectureMode,
+    });
   }, [chatFocus.course, chatFocus.topic, focusCourseLabel, isNikiMode, lectureMode]);
 
   const practiceModeActive = useMemo(() => {
@@ -536,13 +469,92 @@ export default function Home() {
       }
       setMessages(createGreeting(preferredMode));
     },
-    [effectivePersonalization.default_niki_mode]
+    [effectivePersonalization.default_niki_mode, setLectureMode]
   );
+  const applyPreferredModeToFreshChatRef = useRef(applyPreferredModeToFreshChat);
 
-  const focusModeHeaderClass =
-    focusModeExpanded === true
-      ? "rounded-2xl border border-white/8 bg-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]"
-      : "rounded-full border border-white/8 bg-white/[0.02] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:rounded-2xl sm:px-3 sm:py-3";
+  useEffect(() => {
+    applyPreferredModeToFreshChatRef.current = applyPreferredModeToFreshChat;
+  }, [applyPreferredModeToFreshChat]);
+
+  const resetFreshChatToPreferredMode = useCallback(() => {
+    applyPreferredModeToFreshChatRef.current({ resetTeaching: true });
+  }, []);
+
+  const formatLoadedChatMessages = useCallback((data: ChatHistoryMessageRow[]): Message[] => {
+    return data
+      .filter((msg) => msg.role === "ai" || msg.role === "user")
+      .map((msg) => {
+        const aiCitations =
+          msg.role === "ai"
+            ? dedupeCitations((Array.isArray(msg.citations) ? msg.citations : []) as RagCitation[])
+            : [];
+        return {
+          role: msg.role as Message["role"],
+          content: typeof msg.text === "string" ? msg.text : "",
+          citations: msg.role === "ai" ? aiCitations : undefined,
+          retrievalConfidence:
+            msg.role === "ai" ? confidenceFromCitations(aiCitations) : undefined,
+          mode:
+            msg.role === "ai" && (msg.mode === "pure" || msg.mode === "nemanja")
+              ? msg.mode
+              : undefined,
+          teachingEnabled:
+            msg.role === "ai" && typeof msg.teaching_enabled === "boolean"
+              ? msg.teaching_enabled
+              : undefined,
+          knowledgeBaseCourse:
+            msg.role === "ai"
+              ? typeof msg.knowledge_base_course === "string"
+                ? msg.knowledge_base_course
+                : aiCitations[0]?.course
+              : undefined,
+          requestedCourse:
+            msg.role === "ai" && typeof msg.requested_course === "string"
+              ? msg.requested_course
+              : undefined,
+          knowledgeBaseMismatch:
+            msg.role === "ai" && typeof msg.knowledge_base_mismatch === "boolean"
+              ? msg.knowledge_base_mismatch
+              : undefined,
+        };
+      });
+  }, []);
+
+  const {
+    chatHistory,
+    currentChatId,
+    setCurrentChatId,
+    chatHistoryLoading,
+    chatHistoryNotice,
+    setChatHistoryNotice,
+    confirmDeleteId,
+    setConfirmDeleteId,
+    renamingChatId,
+    setRenamingChatId,
+    renameValue,
+    setRenameValue,
+    currentChatIdRef,
+    chatLoadSequenceRef,
+    invalidateChatHistoryLoads,
+    clearChatHistoryState,
+    fetchHistory,
+    loadChat,
+    registerCreatedChat,
+    togglePin,
+    toggleCurrentChatPin,
+    deleteChat,
+    startRename,
+    commitRename,
+  } = useChatHistory<Message>({
+    sessionUserId: session?.user?.id,
+    isStreamingRef,
+    setMessages,
+    resetFreshChat: resetFreshChatToPreferredMode,
+    formatLoadedMessages: formatLoadedChatMessages,
+  });
+
+  const focusModeHeaderClass = getFocusModeHeaderClass(focusModeExpanded);
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 768px)");
@@ -617,23 +629,6 @@ export default function Home() {
   }, [chatFocus]);
 
   useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) return;
-
-    try {
-      const storageKey = getCurrentChatStorageKey(userId);
-      if (currentChatId) {
-        window.localStorage.setItem(storageKey, currentChatId);
-      } else {
-        window.localStorage.removeItem(storageKey);
-      }
-    } catch {
-      // Ignore storage persistence failures.
-    }
-  }, [currentChatId, session?.user?.id]);
-
-
-  useEffect(() => {
     const trimmedTopic = chatFocus.topic.trim();
     const focusKey = `${chatFocus.course}::${trimmedTopic}`;
 
@@ -696,10 +691,6 @@ export default function Home() {
   }, [profileLoaded]);
 
   useEffect(() => {
-    attachedFileRef.current = attachedFile;
-  }, [attachedFile]);
-
-  useEffect(() => {
     try {
       const pendingAction = window.localStorage.getItem(
         PENDING_HOME_ACTION_STORAGE_KEY
@@ -710,12 +701,10 @@ export default function Home() {
         abortControllerRef.current?.abort();
         abortControllerRef.current = null;
         isStreamingRef.current = false;
-        chatLoadSequenceRef.current += 1;
+        invalidateChatHistoryLoads();
         setIsLoading(false);
-        if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
-        setAttachedFile(null);
+        clearAttachment();
         setCurrentChatId(null);
-        currentChatIdRef.current = null;
         applyPreferredModeToFreshChat({ resetTeaching: true });
         setConfirmDeleteId(null);
         setRenamingChatId(null);
@@ -727,7 +716,15 @@ export default function Home() {
     } catch {
       // Ignore storage access failures.
     }
-  }, [applyPreferredModeToFreshChat, attachedFile?.preview, openStoredArtifactFromStorage]);
+  }, [
+    applyPreferredModeToFreshChat,
+    clearAttachment,
+    invalidateChatHistoryLoads,
+    openStoredArtifactFromStorage,
+    setConfirmDeleteId,
+    setCurrentChatId,
+    setRenamingChatId,
+  ]);
 
   const switchNikiMode = (mode: boolean) => {
     setIsNikiMode(mode);
@@ -883,14 +880,49 @@ export default function Home() {
     hr: ({ ...props }) => <hr className="my-7 border-white/10" {...props} />,
   };
 
+  const fetchProfile = useCallback(async (userId: string, activeSession?: AppSession) => {
+    const isCurrentProfileRequest = () => activeSessionUserIdRef.current === userId;
+    const fallbackProfile = profileFallbackFromSession(activeSession ?? null);
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (!isCurrentProfileRequest()) return;
+
+    if (error) console.log("Home profile fetch error:", error);
+    if (data) {
+      setProfile(mergeProfileWithFallback(data, fallbackProfile) as AppProfile);
+      setProfileLoaded(true);
+      return;
+    }
+
+    if (fallbackProfile) {
+      setProfile(fallbackProfile);
+      const bootstrappedProfile = await ensureProfileForSession(activeSession ?? null);
+      if (!isCurrentProfileRequest()) return;
+      if (bootstrappedProfile) {
+        setProfile((prev) => mergeProfileWithFallback(prev, bootstrappedProfile) as AppProfile);
+      }
+      setProfileLoaded(true);
+      return;
+    }
+
+    setProfileLoaded(true);
+  }, []);
+
+  const fetchHistoryRef = useRef(fetchHistory);
+  const fetchProfileRef = useRef(fetchProfile);
+  const clearChatHistoryStateRef = useRef(clearChatHistoryState);
+  const abortVoiceInputRef = useRef(abortVoiceInput);
 
   useEffect(() => {
-    setSpeechSupported(!!getSpeechRecognitionConstructor());
-    return () => {
-      speechRecognitionRef.current?.abort();
-      speechRecognitionRef.current = null;
-    };
-  }, []);
+    fetchHistoryRef.current = fetchHistory;
+    fetchProfileRef.current = fetchProfile;
+    clearChatHistoryStateRef.current = clearChatHistoryState;
+    abortVoiceInputRef.current = abortVoiceInput;
+  }, [abortVoiceInput, clearChatHistoryState, fetchHistory, fetchProfile]);
 
   // --- BOOT & SYNC SEQUENCE ---
   useEffect(() => {
@@ -907,8 +939,8 @@ export default function Home() {
     const loadUserData = async (userId: string, activeSession?: AppSession) => {
       if (!profileLoadedRef.current) setProfileLoaded(false);
       const results = await Promise.allSettled([
-        withTimeout(fetchHistory(userId, { restoreSelected: true }), "fetchHistory"),
-        withTimeout(fetchProfile(userId, activeSession), "fetchProfile"),
+        withTimeout(fetchHistoryRef.current(userId, { restoreSelected: true }), "fetchHistory"),
+        withTimeout(fetchProfileRef.current(userId, activeSession), "fetchProfile"),
       ]);
 
       for (const result of results) {
@@ -917,33 +949,23 @@ export default function Home() {
         }
       }
 
-      if (mounted) setProfileLoaded(true);
+      if (mounted && activeSessionUserIdRef.current === userId) setProfileLoaded(true);
     };
 
     const clearSignedOutState = (notice: string | null = null) => {
       abortControllerRef.current?.abort();
       abortControllerRef.current = null;
       isStreamingRef.current = false;
-      chatLoadSequenceRef.current += 1;
-      speechRecognitionRef.current?.abort();
-      speechRecognitionRef.current = null;
-      setIsListening(false);
-      const attached = attachedFileRef.current;
-      if (attached?.preview) URL.revokeObjectURL(attached.preview);
-      attachedFileRef.current = null;
-      setAttachedFile(null);
+      activeSessionUserIdRef.current = null;
+      setIsLoading(false);
+      abortVoiceInputRef.current();
+      clearAttachment();
       setSession(null);
       setProfile(null);
       setProfileLoaded(true);
-      setChatHistory([]);
-      setChatHistoryLoading(false);
-      setChatHistoryNotice(notice);
-      setCurrentChatId(null);
-      currentChatIdRef.current = null;
+      clearChatHistoryStateRef.current(notice);
       setMessages(createGreeting(false));
       setLoginGatePrompt(null);
-      setConfirmDeleteId(null);
-      setRenamingChatId(null);
       setInputValue("");
       lastSessionIdRef.current = null;
     };
@@ -954,6 +976,7 @@ export default function Home() {
           const recoveredSession = await withTimeout(recoverSessionFromUrl(), "recoverSessionFromUrl");
           if (recoveredSession?.user?.id) {
             clearAuthCallbackUrl("/");
+            activeSessionUserIdRef.current = recoveredSession.user.id;
             setSession(recoveredSession);
             setAuthChecked(true);
             lastSessionIdRef.current = recoveredSession.user.id;
@@ -980,6 +1003,7 @@ export default function Home() {
           return;
         }
 
+        activeSessionUserIdRef.current = session.user.id;
         setSession(session);
         setAuthChecked(true);
         lastSessionIdRef.current = session.user.id;
@@ -1008,9 +1032,8 @@ export default function Home() {
         return;
       }
 
-      if (isStreamingRef.current) return;
-
       if (newUserId && newUserId === lastSessionIdRef.current) {
+        activeSessionUserIdRef.current = newUserId;
         setSession(session);
         applySessionFallbackProfile(session);
         if (!profileLoadedRef.current) {
@@ -1019,6 +1042,27 @@ export default function Home() {
         return;
       }
 
+      const previousUserId = lastSessionIdRef.current;
+
+      if (isStreamingRef.current) {
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
+        isStreamingRef.current = false;
+        chatLoadSequenceRef.current += 1;
+        setIsLoading(false);
+      }
+
+      if (previousUserId && previousUserId !== newUserId) {
+        clearChatHistoryStateRef.current();
+        setMessages(createGreeting(false));
+        setInputValue("");
+        setLoginGatePrompt(null);
+        clearAttachment();
+        setProfile(null);
+        setProfileLoaded(false);
+      }
+
+      activeSessionUserIdRef.current = newUserId;
       lastSessionIdRef.current = newUserId;
       setSession(session);
       applySessionFallbackProfile(session);
@@ -1031,7 +1075,7 @@ export default function Home() {
       abortControllerRef.current?.abort();
       subscription.unsubscribe();
     };
-    // Auth bootstrap is intentionally subscribed once; adding helper dependencies would resubscribe on unrelated chat state.
+    // Auth bootstrap is intentionally subscribed once; latest helper refs above avoid resubscribing on unrelated chat state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1039,7 +1083,7 @@ export default function Home() {
     const handleWindowClick = () => setConfirmDeleteId(null);
     window.addEventListener("click", handleWindowClick);
     return () => window.removeEventListener("click", handleWindowClick);
-  }, []);
+  }, [setConfirmDeleteId]);
 
   useEffect(() => {
     if (substantiveMessageCount > 0) return;
@@ -1074,288 +1118,6 @@ export default function Home() {
       window.removeEventListener("keydown", handleCmdK);
     };
   }, []);
-
-  const fetchProfile = async (userId: string, activeSession?: AppSession) => {
-    const fallbackProfile = profileFallbackFromSession(activeSession ?? null);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (error) console.log("Home profile fetch error:", error);
-    if (data) {
-      setProfile(mergeProfileWithFallback(data, fallbackProfile) as AppProfile);
-    } else if (fallbackProfile) {
-      setProfile(fallbackProfile);
-      ensureProfileForSession(activeSession ?? null).then((bootstrappedProfile) => {
-        if (bootstrappedProfile) {
-          setProfile((prev) => mergeProfileWithFallback(prev, bootstrappedProfile) as AppProfile);
-        }
-      });
-    }
-    setProfileLoaded(true);
-  };
-
-  const fetchHistory = async (
-    userId: string,
-    options?: { restoreSelected?: boolean }
-  ): Promise<ChatItem[]> => {
-    setChatHistoryLoading(true);
-    setChatHistoryNotice(null);
-
-    const { data, error } = await supabase
-      .from("chats")
-      .select("*")
-      .eq("user_id", userId)
-      .order("is_pinned", { ascending: false })
-      .order("updated_at", { ascending: false });
-
-    if (error) {
-      console.log("Fetch history error:", error);
-      setChatHistoryNotice("Chat history could not load. Try refreshing.");
-      setChatHistoryLoading(false);
-      return [];
-    }
-
-    const nextHistory = (data ?? []) as ChatItem[];
-    setChatHistory(nextHistory);
-    setChatHistoryLoading(false);
-
-    const activeChatStillExists =
-      !!currentChatIdRef.current &&
-      nextHistory.some((chat) => chat.id === currentChatIdRef.current);
-
-    if (currentChatIdRef.current && !activeChatStillExists && !isStreamingRef.current) {
-      setCurrentChatId(null);
-      currentChatIdRef.current = null;
-      applyPreferredModeToFreshChat({ resetTeaching: true });
-    }
-
-    if (options?.restoreSelected && !currentChatIdRef.current) {
-      try {
-        const storedChatId = window.localStorage.getItem(getCurrentChatStorageKey(userId));
-        if (storedChatId && nextHistory.some((chat) => chat.id === storedChatId)) {
-          void loadChat(storedChatId, { userId, refreshHistory: false });
-        }
-      } catch {
-        // Ignore storage read failures.
-      }
-    }
-
-    return nextHistory;
-  };
-
-  const loadChat = async (
-    chatId: string,
-    options?: { userId?: string; refreshHistory?: boolean }
-  ) => {
-    const userId = options?.userId ?? session?.user?.id;
-    if (!userId) {
-      setChatHistoryNotice("Log in to reopen saved conversations.");
-      return;
-    }
-
-    const loadToken = chatLoadSequenceRef.current + 1;
-    chatLoadSequenceRef.current = loadToken;
-    setChatHistoryNotice(null);
-    setRenamingChatId(null);
-
-    const { data: chatRow, error: chatError } = await supabase
-      .from("chats")
-      .select("id, title, is_pinned")
-      .eq("id", chatId)
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (loadToken !== chatLoadSequenceRef.current) return;
-
-    if (chatError || !chatRow) {
-      console.log("Load chat ownership check failed:", chatError);
-      setChatHistoryNotice("This conversation is no longer available.");
-      if (currentChatIdRef.current === chatId) {
-        setCurrentChatId(null);
-        currentChatIdRef.current = null;
-        applyPreferredModeToFreshChat({ resetTeaching: true });
-      }
-      void fetchHistory(userId);
-      return;
-    }
-
-    setCurrentChatId(chatId);
-    currentChatIdRef.current = chatId;
-
-    await supabase
-      .from("chats")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", chatId)
-      .eq("user_id", userId);
-
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("chat_id", chatId)
-      .order("created_at", { ascending: true });
-
-    if (loadToken !== chatLoadSequenceRef.current) return;
-
-    if (error) {
-      console.log("Load chat error:", error);
-      setChatHistoryNotice("Messages could not load for this conversation.");
-      return;
-    }
-
-    if (data && data.length > 0) {
-      const formatted: Message[] = data
-        .filter((msg) => msg.role === "ai" || msg.role === "user")
-        .map((msg) => {
-          const aiCitations = msg.role === "ai" ? dedupeCitations(msg.citations ?? []) : [];
-          return {
-            role: msg.role as Message["role"],
-            content: msg.text || "",
-            citations: msg.role === "ai" ? aiCitations : undefined,
-            retrievalConfidence:
-              msg.role === "ai" ? confidenceFromCitations(aiCitations) : undefined,
-            mode:
-              msg.role === "ai" && (msg.mode === "pure" || msg.mode === "nemanja")
-                ? msg.mode
-                : undefined,
-            teachingEnabled:
-              msg.role === "ai" && typeof msg.teaching_enabled === "boolean"
-                ? msg.teaching_enabled
-                : undefined,
-            knowledgeBaseCourse:
-              msg.role === "ai"
-                ? typeof msg.knowledge_base_course === "string"
-                  ? msg.knowledge_base_course
-                  : aiCitations[0]?.course
-                : undefined,
-            requestedCourse:
-              msg.role === "ai" && typeof msg.requested_course === "string"
-                ? msg.requested_course
-                : undefined,
-            knowledgeBaseMismatch:
-              msg.role === "ai" && typeof msg.knowledge_base_mismatch === "boolean"
-                ? msg.knowledge_base_mismatch
-                : undefined,
-          };
-        });
-
-      setMessages(formatted);
-    } else {
-      applyPreferredModeToFreshChat({ resetTeaching: true });
-    }
-
-    if (options?.refreshHistory !== false) void fetchHistory(userId);
-  };
-
-  const togglePin = async (e: React.MouseEvent, chatId: string, currentStatus: boolean) => {
-    e.stopPropagation();
-    if (!session?.user?.id) {
-      setChatHistoryNotice("Log in to pin saved conversations.");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("chats")
-      .update({ is_pinned: !currentStatus, updated_at: new Date().toISOString() })
-      .eq("id", chatId)
-      .eq("user_id", session.user.id);
-
-    if (error) {
-      console.log("Toggle pin error:", error);
-      setChatHistoryNotice("This conversation could not be updated.");
-      return;
-    }
-
-    void fetchHistory(session.user.id);
-  };
-
-  const deleteChat = async (chatId: string) => {
-    if (!session?.user?.id) return;
-
-    const { error } = await supabase
-      .from("chats")
-      .delete()
-      .eq("id", chatId)
-      .eq("user_id", session.user.id);
-    if (error) {
-      console.log("Delete chat error:", error);
-      setChatHistoryNotice("This conversation could not be deleted.");
-      return;
-    }
-
-    setChatHistory((prev) => prev.filter((chat) => chat.id !== chatId));
-
-    if (currentChatId === chatId) {
-      setCurrentChatId(null);
-      currentChatIdRef.current = null;
-      applyPreferredModeToFreshChat({ resetTeaching: true });
-    }
-
-    setConfirmDeleteId(null);
-  };
-
-  const startRename = (e: React.MouseEvent, chatId: string, currentTitle: string) => {
-    e.stopPropagation();
-    setConfirmDeleteId(null);
-    setRenamingChatId(chatId);
-    setRenameValue(currentTitle);
-  };
-
-  const commitRename = async (chatId: string) => {
-    const trimmed = renameValue.trim();
-    if (!trimmed) {
-      setRenamingChatId(null);
-      return;
-    }
-    if (!session?.user?.id) {
-      setChatHistoryNotice("Log in to rename saved conversations.");
-      setRenamingChatId(null);
-      return;
-    }
-
-    const { error } = await supabase
-      .from("chats")
-      .update({ title: trimmed, updated_at: new Date().toISOString() })
-      .eq("id", chatId)
-      .eq("user_id", session.user.id);
-
-    if (error) {
-      console.log("Rename error:", error);
-      setChatHistoryNotice("This conversation could not be renamed.");
-      setRenamingChatId(null);
-      return;
-    }
-
-    setChatHistory((prev) =>
-      prev.map((c) => (c.id === chatId ? { ...c, title: trimmed } : c))
-    );
-
-    setRenamingChatId(null);
-  };
-
-  const handleFileSelect = (file: File) => {
-    const MAX_SIZE = 25 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      alert("File too large. Maximum size is 25 MB.");
-      return;
-    }
-
-    const isImage = file.type.startsWith("image/");
-
-    if (isImage) {
-      const preview = URL.createObjectURL(file);
-      setAttachedFile({ file, preview, type: "image" });
-    } else {
-      setAttachedFile({ file, type: "text" });
-    }
-  };
-
-  const handleRemoveFile = () => {
-    if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
-    setAttachedFile(null);
-  };
 
   function showLoginGatePrompt(detail: string) {
     setLoginGatePrompt({
@@ -1522,14 +1284,17 @@ export default function Home() {
     file: File,
     chatId: string
   ): Promise<string | null> => {
-    if (!session?.user?.id) return null;
+    const uploadUserId = session?.user?.id;
+    if (!uploadUserId) return null;
 
     const ext = file.name.split(".").pop();
-    const path = `${session.user.id}/${chatId}/${Date.now()}.${ext}`;
+    const path = `${uploadUserId}/${chatId}/${Date.now()}.${ext}`;
 
     const { error } = await supabase.storage
       .from("chat-uploads")
       .upload(path, file, { upsert: false });
+
+    if (activeSessionUserIdRef.current !== uploadUserId) return null;
 
     if (error) {
       console.error("Upload error:", error);
@@ -1543,15 +1308,13 @@ export default function Home() {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     isStreamingRef.current = false;
-    chatLoadSequenceRef.current += 1;
+    invalidateChatHistoryLoads();
     setIsLoading(false);
     setChatHistoryNotice(null);
 
-    if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
-    setAttachedFile(null);
+    clearAttachment();
 
     setCurrentChatId(null);
-    currentChatIdRef.current = null;
     applyPreferredModeToFreshChat({ resetTeaching: true });
     setConfirmDeleteId(null);
     setRenamingChatId(null);
@@ -1569,122 +1332,6 @@ export default function Home() {
     if (e.key === "Enter") {
       e.preventDefault();
       handleSend();
-    }
-  };
-
-  const handleVoiceInput = () => {
-    if (isLoading) return;
-
-    if (isListening) {
-      speechRecognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
-
-    const SpeechRecognition = getSpeechRecognitionConstructor();
-    if (!SpeechRecognition) {
-      setSpeechSupported(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    const startingText = inputValue.trim();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (!transcript) return;
-      setInputValue(startingText ? `${startingText} ${transcript}` : transcript);
-    };
-
-    recognition.onerror = (event) => {
-      console.warn("Speech recognition failed:", event.error ?? "unknown error");
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      if (speechRecognitionRef.current === recognition) {
-        speechRecognitionRef.current = null;
-      }
-      setIsListening(false);
-    };
-
-    speechRecognitionRef.current?.abort();
-    speechRecognitionRef.current = recognition;
-    setIsListening(true);
-    recognition.start();
-  };
-
-  const fetchRag = async (
-    question: string,
-    options?: { teachingMode?: boolean; nikiMode?: boolean }
-  ): Promise<RagResponse | null> => {
-    const nikiMode = options?.nikiMode ?? isNikiMode;
-    const teachingMode = options?.teachingMode ?? lectureMode;
-    if (!question.trim()) return null;
-    if (!isExplicitKnowledgeBaseRequest(question) && !teachingMode) return null;
-    if (isLectureInventoryRequest(question)) return null;
-
-    try {
-      const knowledgeFallback = activeKnowledgeCourse || profile?.current_unit;
-      const inferredCourse = inferCourseFromMathTopic(question);
-      const res = await fetch("/api/rag/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question,
-          lectureMode: true,
-          courseFilter: knowledgeFallback || inferredCourse,
-          minSimilarity: 0.2,
-          maxChunks: 8,
-          maxStyleSnippets: nikiMode ? 6 : 3,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        console.warn("RAG status:", res.status, text);
-        return null;
-      }
-
-      const json = (await res.json()) as RagResponse;
-      return {
-        ...json,
-        citations: dedupeCitations(json.citations ?? []),
-      };
-    } catch (error) {
-      console.warn("RAG fetch failed:", error);
-      return null;
-    }
-  };
-
-  const fetchRelatedLectures = async (question: string): Promise<RelatedLecture[]> => {
-    if (!question.trim()) return [];
-
-    try {
-      const response = await fetch("/api/lectures/related", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question,
-          focusCourse: chatFocus.course || undefined,
-          activeCourse: activeKnowledgeCourse || profile?.current_unit || undefined,
-          maxResults: 4,
-        }),
-      });
-
-      if (!response.ok) return [];
-      const payload = (await response.json()) as { lectures?: RelatedLecture[] };
-      return Array.isArray(payload.lectures) ? payload.lectures : [];
-    } catch {
-      return [];
     }
   };
 
@@ -1743,6 +1390,8 @@ export default function Home() {
 
     const currentName = profile?.first_name || profile?.username || "User";
     let chatId = currentChatIdRef.current;
+    const sendSessionUserId = session?.user?.id ?? null;
+    const isSendSessionCurrent = () => activeSessionUserIdRef.current === sendSessionUserId;
     const displayContent =
       trimmedUserText || (attached ? `[${attached.file.name}]` : "");
     const requestHistory: Message[] = [
@@ -1761,8 +1410,7 @@ export default function Home() {
 
     const currentAttached = attached;
     if (consumeAttachedFile) {
-      setAttachedFile(null);
-      if (currentAttached?.preview) URL.revokeObjectURL(currentAttached.preview);
+      consumeAttachment(currentAttached);
     }
 
     abortControllerRef.current?.abort();
@@ -1775,7 +1423,7 @@ export default function Home() {
     }, 120000);
 
     try {
-      if (!chatId && session) {
+      if (!chatId && sendSessionUserId) {
         const title =
           trimmedUserText.substring(0, 50) ||
           currentAttached?.file.name ||
@@ -1784,13 +1432,15 @@ export default function Home() {
         const { data: newChat, error: newChatError } = await supabase
           .from("chats")
           .insert({
-            user_id: session.user.id,
+            user_id: sendSessionUserId,
             title,
             project_name: activeTab === "projects" ? "Calculus 1" : null,
             updated_at: new Date().toISOString(),
           })
           .select()
           .single();
+
+        if (!isSendSessionCurrent()) return;
 
         if (newChatError) {
           console.log("Create chat error:", newChatError);
@@ -1799,21 +1449,17 @@ export default function Home() {
 
         if (newChat) {
           chatId = newChat.id;
-          setCurrentChatId(chatId);
-          currentChatIdRef.current = chatId;
-          setChatHistory((prev) => {
-            const withoutDuplicate = prev.filter((chat) => chat.id !== newChat.id);
-            return [newChat as ChatItem, ...withoutDuplicate];
-          });
+          registerCreatedChat(newChat);
         }
       }
 
       let storagePath: string | null = null;
-      if (currentAttached && chatId && session) {
+      if (currentAttached && chatId && sendSessionUserId) {
         storagePath = await uploadFileToSupabase(currentAttached.file, chatId);
+        if (!isSendSessionCurrent()) return;
       }
 
-      if (chatId && session) {
+      if (chatId && sendSessionUserId) {
         const { error: userMessageError } = await supabase.from("messages").insert({
           chat_id: chatId,
           role: "user",
@@ -1830,34 +1476,36 @@ export default function Home() {
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
           .eq("id", chatId)
-          .eq("user_id", session.user.id);
+          .eq("user_id", sendSessionUserId);
+
+        if (!isSendSessionCurrent()) return;
       }
 
       let base64Image: string | null = null;
       let textFileContent: string | null = null;
-      const rag = await fetchRag(trimmedUserText, { teachingMode, nikiMode });
-      const relatedLectures =
-        teachingMode && (!rag?.citations || rag.citations.length === 0)
-          ? await fetchRelatedLectures(trimmedUserText)
-          : [];
-      const activeLectureSet = activeKnowledgeCourse || profile?.current_unit || undefined;
-      const requestedCourse = inferCourseFromMathTopic(trimmedUserText);
-      const knowledgeBaseMismatch =
-        !!activeLectureSet &&
-        !!requestedCourse &&
-        normalizeCourseKey(activeLectureSet) !== normalizeCourseKey(requestedCourse);
-      const calendarContext = session?.user?.id
-        ? await fetchUpcomingCalendarContext(session.user.id)
+      const {
+        rag,
+        relatedLectures,
+        activeLectureSet,
+        requestedCourse,
+        knowledgeBaseMismatch,
+      } = await getLectureSourceBundle(trimmedUserText, { teachingMode, nikiMode });
+      if (!isSendSessionCurrent()) return;
+      const calendarContext = sendSessionUserId
+        ? await fetchUpcomingCalendarContext(sendSessionUserId)
         : "";
+      if (!isSendSessionCurrent()) return;
 
       if (currentAttached?.type === "image") {
         const arrayBuffer = await currentAttached.file.arrayBuffer();
+        if (!isSendSessionCurrent()) return;
         const uint8 = new Uint8Array(arrayBuffer);
         let binary = "";
         uint8.forEach((b) => (binary += String.fromCharCode(b)));
         base64Image = btoa(binary);
       } else if (currentAttached?.type === "text") {
         textFileContent = await currentAttached.file.text();
+        if (!isSendSessionCurrent()) return;
       }
 
       const response = await fetch("/api/chat", {
@@ -1868,7 +1516,7 @@ export default function Home() {
           history: requestHistory,
           isNikiMode: nikiMode,
           userName: currentName,
-          userId: session?.user?.id,
+          userId: sendSessionUserId,
           chatId,
           trainConsent: profile?.train_on_data,
           usageLogsConsent: profile?.share_usage_data,
@@ -1898,6 +1546,8 @@ export default function Home() {
         signal: controller.signal,
       });
 
+      if (!isSendSessionCurrent()) return;
+
       if (!response.ok) {
         const errorText = await response.text();
 
@@ -1910,6 +1560,7 @@ export default function Home() {
         }
 
         console.warn("API status:", response.status, apiMessage);
+        if (!isSendSessionCurrent()) return;
         setMessages((prev) => [
           ...prev,
           {
@@ -1922,6 +1573,7 @@ export default function Home() {
         return;
       }
 
+      if (!isSendSessionCurrent()) return;
       setMessages((prev) => [
         ...prev,
         {
@@ -1947,6 +1599,10 @@ export default function Home() {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            if (!isSendSessionCurrent()) {
+              controller.abort();
+              break;
+            }
             const chunk = decoder.decode(value, { stream: true });
             aiReply += chunk;
 
@@ -1977,7 +1633,7 @@ export default function Home() {
         }
       }
 
-      if (chatId && session && aiReply.length > 0) {
+      if (chatId && sendSessionUserId && aiReply.length > 0 && isSendSessionCurrent()) {
         const lectureCitations = dedupeCitations(rag?.citations ?? []);
         const finalReply = aiReply.trim();
 
@@ -2760,7 +2416,7 @@ export default function Home() {
                       attachedFile
                         ? `Ask about ${attachedFile.file.name}…`
                         : isNikiMode && lectureMode
-                          ? "Teaching: ask with retrieval context..."
+                          ? "Lecture Mode: ask with source context..."
                           : isNikiMode
                             ? "Ask in Nemanja Mode..."
                             : "Ask a math, code, or technical question..."
@@ -2821,41 +2477,12 @@ export default function Home() {
         />
       )}
 
-      {isRoadmapOpen && (
-        <>
-          <button
-            type="button"
-            aria-label="Close roadmap"
-            onClick={() => setIsRoadmapOpen(false)}
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
-          />
-          <div className="fixed inset-x-3 top-8 z-50 mx-auto max-w-5xl rounded-3xl border border-white/10 bg-[#090909]/98 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl sm:inset-x-8">
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
-              <div className="min-w-0">
-                <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-                  Roadmap
-                </p>
-                <h2 className="mt-2 truncate text-lg font-extrabold tracking-tight text-white">
-                  Nemanja Roadmap
-                </h2>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Browse the course path and open lecture-backed detail without cluttering chat.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsRoadmapOpen(false)}
-                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
-              >
-                Close
-              </button>
-            </div>
-            <div className="max-h-[75vh] overflow-y-auto px-4 py-4 sm:px-5">
-              <NemanjaRoadmap onOpenTopicInChat={handleOpenRoadmapTopicInChat} />
-            </div>
-          </div>
-        </>
-      )}
+      <RoadmapModal
+        isOpen={isRoadmapOpen}
+        accentColor={accentColor}
+        onClose={() => setIsRoadmapOpen(false)}
+        onOpenTopicInChat={handleOpenRoadmapTopicInChat}
+      />
 
       <ArtifactWorkspacePanel
         artifactPanel={artifactPanel}
@@ -2896,11 +2523,9 @@ export default function Home() {
         onNewSession={startNewSession}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         onClearChat={() => {
-          if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview);
-          setAttachedFile(null);
+          clearAttachment();
           applyPreferredModeToFreshChat({ resetTeaching: true });
           setCurrentChatId(null);
-          currentChatIdRef.current = null;
         }}
         onRenameChat={() => {
           if (currentChatId) {
@@ -2909,17 +2534,7 @@ export default function Home() {
           }
           setIsPaletteOpen(false);
         }}
-        onPinChat={async () => {
-          if (!currentChatId || !session?.user?.id) return;
-          const chat = chatHistory.find((c) => c.id === currentChatId);
-          if (!chat) return;
-          await supabase
-            .from("chats")
-            .update({ is_pinned: !chat.is_pinned, updated_at: new Date().toISOString() })
-            .eq("id", currentChatId)
-            .eq("user_id", session.user.id);
-          void fetchHistory(session.user.id);
-        }}
+        onPinChat={toggleCurrentChatPin}
       />
     </main>
   );
