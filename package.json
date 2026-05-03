@@ -23,6 +23,7 @@
     "test:privacy-boundaries": "node scripts/check-privacy-boundaries.mjs",
     "test:safe-logging": "node scripts/check-safe-logging.mjs",
     "test:performance": "node scripts/check-performance-budget.mjs",
+    "audit:beta": "node scripts/run-beta-audit.mjs",
     "test:e2e": "playwright test",
     "test:api-route": "node scripts/check-api-route-contract.mjs",
     "test:diagnostics": "node scripts/check-diagnostics-contract.mjs",
