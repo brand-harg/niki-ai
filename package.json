@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "npm run test:chat-focus && npm run test:frontend-contract && npm run test:math-sanitizer",
+    "test:chat-focus": "node scripts/check-chat-focus-display.mjs",
     "test:format": "node scripts/check-math-format.mjs",
     "test:prompt": "node scripts/check-prompt-regression.mjs",
     "test:persona-extraction": "node scripts/check-persona-extraction-contract.mjs",

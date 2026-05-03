@@ -16,6 +16,7 @@ const publicArtifactsRouteSource = readFileSync("app/api/artifacts/public/route.
 const relatedLecturesRouteSource = readFileSync("app/api/lectures/related/route.ts", "utf8");
 const knowledgeBaseStatusRouteSource = readFileSync("app/api/knowledge-base/status/route.ts", "utf8");
 const chatModeControlsSource = readFileSync("components/ChatModeControls.tsx", "utf8");
+const focusModePanelSource = readFileSync("components/focus/FocusModePanel.tsx", "utf8");
 const chatEmptyStateSource = readFileSync("components/chat/ChatEmptyState.tsx", "utf8");
 const citationCardSource = readFileSync("components/chat/CitationCard.tsx", "utf8");
 const chatSidebarSource = readFileSync("components/chat/ChatSidebar.tsx", "utf8");
@@ -25,8 +26,12 @@ const relatedLecturesCardSource = readFileSync("components/chat/RelatedLecturesC
 const knowledgeBasePanelSource = readFileSync("components/KnowledgeBasePanel.tsx", "utf8");
 const artifactWorkspacePanelSource = readFileSync("components/ArtifactWorkspacePanel.tsx", "utf8");
 const nemanjaRoadmapSource = readFileSync("components/NemanjaRoadmap.tsx", "utf8");
+const roadmapModalSource = readFileSync("components/roadmap/RoadmapModal.tsx", "utf8");
 const artifactWorkspaceHookSource = readFileSync("hooks/useArtifactWorkspace.ts", "utf8");
 const knowledgeBaseHookSource = readFileSync("hooks/useKnowledgeBasePanel.ts", "utf8");
+const lectureSourceHookSource = readFileSync("hooks/useLectureSourceContext.ts", "utf8");
+const chatHistoryHookSource = readFileSync("hooks/useChatHistory.ts", "utf8");
+const voiceInputHookSource = readFileSync("hooks/useVoiceInput.ts", "utf8");
 const artifactWorkspaceLibSource = readFileSync("lib/artifactWorkspace.ts", "utf8");
 const avatarUrlSource = readFileSync("lib/avatarUrl.ts", "utf8");
 const authProfileSource = readFileSync("lib/authProfile.ts", "utf8");
@@ -43,29 +48,73 @@ const fileUploadSource = readFileSync("components/FileUploadButton.tsx", "utf8")
 const nextConfigSource = readFileSync("next.config.ts", "utf8");
 const ragHelpersSource = readFileSync("lib/ragHelpers.ts", "utf8");
 const chatDisplaySource = readFileSync("lib/chatDisplay.ts", "utf8");
+const chatFocusSource = readFileSync("lib/chatFocus.ts", "utf8");
 const artifactWorkspaceSource = [
   pageSource,
   artifactWorkspacePanelSource,
   artifactWorkspaceHookSource,
   artifactWorkspaceLibSource,
 ].join("\n");
-const chatControlsSource = [chatDisplaySource, pageSource, chatModeControlsSource].join("\n");
+const chatControlsSource = [
+  chatDisplaySource,
+  chatFocusSource,
+  pageSource,
+  chatModeControlsSource,
+  focusModePanelSource,
+].join("\n");
 const chatRenderSource = [
   pageSource,
   chatEmptyStateSource,
   chatDisplaySource,
+  chatFocusSource,
   citationCardSource,
   codeBlockSource,
   loginGatePromptSource,
   relatedLecturesCardSource,
 ].join("\n");
+const chatHistorySource = [
+  pageSource,
+  chatHistoryHookSource,
+  chatSidebarSource,
+].join("\n");
 const knowledgeBaseSource = [
   pageSource,
+  chatFocusSource,
+  focusModePanelSource,
   chatSidebarSource,
   knowledgeBasePanelSource,
   knowledgeBaseHookSource,
   knowledgeBaseStatusRouteSource,
 ].join("\n");
+
+function hasAll(source, fragments) {
+  return fragments.every((fragment) => source.includes(fragment));
+}
+
+function extractBlock(source, marker) {
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) return "";
+
+  const arrowIndex = source.indexOf("=>", markerIndex);
+  const openIndex = source.indexOf("{", arrowIndex === -1 ? markerIndex : arrowIndex);
+  if (openIndex === -1) return "";
+
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(markerIndex, index + 1);
+    }
+  }
+
+  return "";
+}
+
+function hasOwnerScope(source) {
+  return /\.eq\(["']user_id["'],\s*(?:sessionUserId|userId|saveUserId|deleteUserId|sendSessionUserId)\)/.test(source);
+}
 
 const fixtures = [
   {
@@ -165,8 +214,28 @@ const fixtures = [
   },
   {
     name: "home-clears-user-only-state-on-logout",
-    source: pageSource,
-    pattern: /(?=[\s\S]*clearSignedOutState)(?=[\s\S]*abortControllerRef\.current\?\.abort\(\))(?=[\s\S]*attachedFileRef\.current)(?=[\s\S]*setAttachedFile\(null\))(?=[\s\S]*setLoginGatePrompt\(null\))(?=[\s\S]*if \(!newUserId\)[\s\S]*clearSignedOutState\(\))/,
+    check: () => {
+      const clearSignedOutStateBlock = extractBlock(pageSource, "const clearSignedOutState");
+      return hasAll(clearSignedOutStateBlock, [
+        "abortControllerRef.current?.abort()",
+        "clearAttachment()",
+        "setLoginGatePrompt(null)",
+        "clearChatHistoryStateRef.current(notice)",
+      ]) && pageSource.includes("if (!newUserId)") && pageSource.includes("clearSignedOutState()");
+    },
+  },
+  {
+    name: "home-aborts-streaming-on-auth-user-change",
+    check: () => {
+      const authBlock = extractBlock(pageSource, "supabase.auth.onAuthStateChange");
+      return hasAll(authBlock, [
+        "if (isStreamingRef.current)",
+        "abortControllerRef.current?.abort()",
+        "chatLoadSequenceRef.current += 1",
+        "previousUserId && previousUserId !== newUserId",
+        "setMessages(createGreeting(false))",
+      ]) && authBlock.includes("clearChatHistoryStateRef.current()");
+    },
   },
   {
     name: "auth-profile-creates-google-metadata-fallback",
@@ -197,6 +266,19 @@ const fixtures = [
     name: "chat-request-includes-personalization-context",
     source: `${pageSource}\n${chatRouteSource}`,
     pattern: /aboutUserContext:\s*effectivePersonalization\.about_user[\s\S]*responseStyleContext:\s*effectivePersonalization\.response_style[\s\S]*User context:[\s\S]*Response style:/,
+  },
+  {
+    name: "chat-send-ignores-stale-session-completions",
+    check: () => {
+      const sendChatMessage = extractBlock(pageSource, "const sendChatMessage");
+      return hasAll(sendChatMessage, [
+        "const sendSessionUserId = session?.user?.id ?? null",
+        "const isSendSessionCurrent = () => activeSessionUserIdRef.current === sendSessionUserId",
+        "if (!isSendSessionCurrent()) return",
+        "if (chatId && sendSessionUserId && aiReply.length > 0 && isSendSessionCurrent())",
+        "if (!isUnmountingRef.current && isSendSessionCurrent()) setIsLoading(false)",
+      ]);
+    },
   },
   {
     name: "new-chats-respect-default-nemanja-mode",
@@ -236,17 +318,43 @@ const fixtures = [
   {
     name: "home-shows-first-time-onboarding-prompts",
     source: chatRenderSource,
-    pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Quick Start)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*!artifactPanel)(?=[\s\S]*substantiveMessageCount === 0)(?=[\s\S]*handleOnboardingPrompt)/,
+    pattern: /(?=[\s\S]*ONBOARDING_PROMPTS)(?=[\s\S]*Create notes on derivatives ->)(?=[\s\S]*Explain limits step-by-step ->)(?=[\s\S]*Give me practice problems ->)(?=[\s\S]*Help me study for Calc 1 ->)(?=[\s\S]*Start Here)(?=[\s\S]*shouldShowOnboarding)(?=[\s\S]*!artifactPanel)(?=[\s\S]*substantiveMessageCount === 0)(?=[\s\S]*handleOnboardingPrompt)/,
   },
   {
     name: "chat-history-restores-selected-chat-per-user",
-    source: pageSource,
+    source: chatHistorySource,
     pattern: /(?=[\s\S]*CURRENT_CHAT_ID_STORAGE_KEY)(?=[\s\S]*getCurrentChatStorageKey\(userId\))(?=[\s\S]*restoreSelected)(?=[\s\S]*loadChat\(storedChatId,\s*\{\s*userId,\s*refreshHistory:\s*false\s*\}\))/,
   },
   {
     name: "chat-history-mutates-only-current-user-chats",
-    source: pageSource,
-    pattern: /(?=[\s\S]*\.from\("chats"\)[\s\S]*\.update\(\{ is_pinned: !currentStatus)(?=[\s\S]*\.eq\("user_id", session\.user\.id\))(?=[\s\S]*\.from\("chats"\)[\s\S]*\.delete\(\)[\s\S]*\.eq\("user_id", session\.user\.id\))(?=[\s\S]*\.from\("chats"\)[\s\S]*\.update\(\{ title: trimmed)(?=[\s\S]*\.eq\("user_id", session\.user\.id\))/,
+    check: () => {
+      const togglePin = extractBlock(chatHistoryHookSource, "const togglePin");
+      const deleteChat = extractBlock(chatHistoryHookSource, "const deleteChat");
+      const commitRename = extractBlock(chatHistoryHookSource, "const commitRename");
+      return (
+        hasAll(togglePin, ['.from("chats")', ".update({ is_pinned: !currentStatus", '.eq("id", chatId)']) &&
+        hasOwnerScope(togglePin) &&
+        hasAll(deleteChat, ['.from("chats")', ".delete()", '.eq("id", chatId)']) &&
+        hasOwnerScope(deleteChat) &&
+        hasAll(commitRename, ['.from("chats")', ".update({ title: trimmed", '.eq("id", chatId)']) &&
+        hasOwnerScope(commitRename)
+      );
+    },
+  },
+  {
+    name: "chat-history-invalidates-stale-async-loads",
+    check: () => {
+      const clearState = extractBlock(chatHistoryHookSource, "const clearChatHistoryState");
+      const loadChat = extractBlock(chatHistoryHookSource, "const loadChat");
+      const fetchHistory = extractBlock(chatHistoryHookSource, "const fetchHistory");
+      return (
+        clearState.includes("chatLoadSequenceRef.current += 1") &&
+        loadChat.includes("const loadToken = chatLoadSequenceRef.current + 1") &&
+        loadChat.includes("if (loadToken !== chatLoadSequenceRef.current) return") &&
+        fetchHistory.includes("const loadToken = chatLoadSequenceRef.current") &&
+        fetchHistory.includes("if (loadToken !== chatLoadSequenceRef.current)")
+      );
+    },
   },
   {
     name: "knowledge-base-sidebar-supports-all-core-courses",
@@ -266,16 +374,16 @@ const fixtures = [
   {
     name: "knowledge-base-sidebar-shows-source-health-and-pinned-syllabus",
     source: knowledgeBaseSource,
-    pattern: /Source Health[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,
+    pattern: /Lecture Sources[\s\S]*Pinned Syllabus[\s\S]*handlePinAttachedSyllabus/,
   },
   {
     name: "knowledge-base-panel-is-an-interactive-control-surface",
     source: knowledgeBaseSource,
-    pattern: /Start New Session[\s\S]*Active Lecture Set[\s\S]*Set Active[\s\S]*Clear[\s\S]*Upload \/ Attach File[\s\S]*Recent Context/,
+    pattern: /New Chat[\s\S]*Active Lecture Set[\s\S]*Set Active[\s\S]*Clear[\s\S]*Upload Course File[\s\S]*Recent Context/,
   },
   {
     name: "knowledge-base-can-open-roadmap-panel",
-    source: `${pageSource}\n${knowledgeBasePanelSource}\n${nemanjaRoadmapSource}`,
+    source: `${pageSource}\n${knowledgeBasePanelSource}\n${nemanjaRoadmapSource}\n${roadmapModalSource}`,
     pattern: /(?=[\s\S]*Open Roadmap)(?=[\s\S]*onOpenRoadmap)(?=[\s\S]*isRoadmapOpen)(?=[\s\S]*Nemanja Roadmap)(?=[\s\S]*Close roadmap)/,
   },
   {
@@ -316,7 +424,7 @@ const fixtures = [
   {
     name: "knowledge-base-source-health-expands-with-course-breakdown",
     source: knowledgeBaseSource,
-    pattern: /sourceHealthExpanded[\s\S]*Lecture sources are available for chat[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
+    pattern: /sourceHealthExpanded[\s\S]*Expand to see course coverage[\s\S]*By course[\s\S]*applyKnowledgeCourse/,
   },
   {
     name: "chat-focus-mode-supports-all-core-courses-and-persists",
@@ -326,17 +434,17 @@ const fixtures = [
   {
     name: "chat-focus-mode-shows-topic-suggestions",
     source: chatControlsSource,
-    pattern: /const FOCUS_TOPIC_SUGGESTIONS[\s\S]*getFocusSuggestion[\s\S]*Suggested:[\s\S]*focusSuggestion/,
+    pattern: /const FOCUS_TOPIC_SUGGESTIONS[\s\S]*getFocusSuggestion[\s\S]*Try:[\s\S]*focusSuggestion/,
   },
   {
     name: "chat-focus-mode-is-collapsible-and-mobile-friendly",
     source: chatControlsSource,
-    pattern: /(?=[\s\S]*MOBILE_CHAT_CONTROLS_EXPANDED_KEY)(?=[\s\S]*mobileControlsExpanded)(?=[\s\S]*toggleMobileControls)(?=[\s\S]*focusModeExpanded)(?=[\s\S]*toggleFocusMode)(?=[\s\S]*Focus Mode)(?=[\s\S]*focusSummary)(?=[\s\S]*Control how chat interprets your question)(?=[\s\S]*hidden sm:block)/,
+    pattern: /(?=[\s\S]*MOBILE_CHAT_CONTROLS_EXPANDED_KEY)(?=[\s\S]*mobileControlsExpanded)(?=[\s\S]*toggleMobileControls)(?=[\s\S]*focusModeExpanded)(?=[\s\S]*toggleFocusMode)(?=[\s\S]*Focus Mode)(?=[\s\S]*focusSummary)(?=[\s\S]*Adds course and topic context to your next message\.)(?=[\s\S]*hidden sm:block)/,
   },
   {
     name: "mobile-chat-controls-collapse-into-summary-bar",
     source: chatControlsSource,
-    pattern: /mobileControlsSummary[\s\S]*No course[\s\S]*toggleMobileControls[\s\S]*rounded-\[0\.95rem\][\s\S]*Pure Logic[\s\S]*Nemanja Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
+    pattern: /(?=[\s\S]*mobileControlsSummary)(?=[\s\S]*No course)(?=[\s\S]*toggleMobileControls)(?=[\s\S]*rounded-\[0\.95rem\])(?=[\s\S]*Pure Logic)(?=[\s\S]*Nemanja Mode)(?=[\s\S]*Lecture Mode On)(?=[\s\S]*Lecture Mode Off)/,
   },
   {
     name: "chat-focus-mode-syncs-with-knowledge-base-and-allows-no-subject",
@@ -345,12 +453,12 @@ const fixtures = [
   },
   {
     name: "chat-ui-shows-live-focus-context-label",
-    source: pageSource,
+    source: `${pageSource}\n${chatFocusSource}`,
     pattern: /(?=[\s\S]*data-chat-capture)(?=[\s\S]*focusStatusLabel)(?=[\s\S]*No course selected)(?=[\s\S]*aria-live=["']polite["'])(?=[\s\S]*messages\.map\()/,
   },
   {
     name: "chat-ui-shows-study-session-identity",
-    source: pageSource,
+    source: `${pageSource}\n${chatFocusSource}`,
     pattern: /sessionStudyLabel[\s\S]*Studying:\s*\$\{focusCourseLabel\}[\s\S]*Studying:\s*\$\{focusCourseLabel\} • \$\{trimmedTopic\}/,
   },
   {
@@ -430,13 +538,13 @@ const fixtures = [
   },
   {
     name: "lecture-mode-prefetches-rag-citations-for-source-cards",
-    source: pageSource,
-    pattern: /const teachingMode = options\?\.teachingMode \?\? lectureMode;[\s\S]*!isExplicitKnowledgeBaseRequest\(question\) && !teachingMode[\s\S]*\/api\/rag\/query/,
+    source: `${pageSource}\n${lectureSourceHookSource}`,
+    pattern: /const teachingMode = options\?\.teachingMode \?\? lectureMode;[\s\S]*!isExplicitKnowledgeBaseRequest\(question\) && !teachingMode[\s\S]*\/api\/rag\/query[\s\S]*citations: dedupeCitations\(json\.citations \?\? \[\]\)/,
   },
   {
     name: "ungrounded-lecture-answers-offer-related-lectures",
-    source: `${chatRenderSource}\n${relatedLecturesRouteSource}`,
-    pattern: /(?=[\s\S]*Related Lectures you may find helpful)(?=[\s\S]*These lectures cover similar topics\.)(?=[\s\S]*lectures\.slice\(0, 3\))(?=[\s\S]*formatRelatedLectureTitle)(?=[\s\S]*\/api\/lectures\/related)(?=[\s\S]*teachingMode && \(!rag\?\.citations \|\| rag\.citations\.length === 0\))(?=[\s\S]*lecture_sources)/,
+    source: `${chatRenderSource}\n${lectureSourceHookSource}\n${relatedLecturesRouteSource}`,
+    pattern: /(?=[\s\S]*Related Lectures)(?=[\s\S]*These are follow-up suggestions, not sources used in this answer\.)(?=[\s\S]*lectures\.slice\(0, 3\))(?=[\s\S]*formatRelatedLectureTitle)(?=[\s\S]*\/api\/lectures\/related)(?=[\s\S]*teachingMode && \(!rag\?\.citations \|\| rag\.citations\.length === 0\))(?=[\s\S]*lecture_sources)/,
   },
   {
     name: "lecture-mode-uses-nuanced-source-support-messaging",
@@ -531,12 +639,12 @@ const fixtures = [
   {
     name: "tools-menu-contains-teaching-toggle",
     source: fileUploadSource,
-    pattern: /Teaching: ON[\s\S]*Teaching: OFF/,
+    pattern: /Lecture Mode On[\s\S]*Lecture Mode Off/,
   },
   {
     name: "nemanja-mode-shows-teaching-toggle-only",
     source: chatControlsSource,
-    pattern: /Pure Logic[\s\S]*Nemanja Mode[\s\S]*\{isNikiMode && \([\s\S]*Lecture Mode[\s\S]*Teaching: ON[\s\S]*Teaching: OFF/,
+    pattern: /Pure Logic[\s\S]*Nemanja Mode[\s\S]*\{isNikiMode && \([\s\S]*Lecture Mode[\s\S]*\{lectureMode \? "On" : "Off"\}/,
   },
   {
     name: "pure-logic-responses-offer-explain-bridge",
@@ -569,19 +677,62 @@ const fixtures = [
     pattern: /(?=[\s\S]*getArtifactResumeStorageKey)(?=[\s\S]*setRecentArtifactResumeState\(null\))(?=[\s\S]*removeItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))(?=[\s\S]*window\.localStorage\.getItem\(scopedStorageKey\))(?=[\s\S]*window\.localStorage\.getItem\(LAST_ARTIFACT_PANEL_STORAGE_KEY\))(?=[\s\S]*Saved artifacts are hidden after logout\.)/,
   },
   {
+    name: "artifact-workspace-ignores-stale-session-results",
+    check: () => {
+      const fetchArtifacts = extractBlock(artifactWorkspaceHookSource, "const fetchStudyArtifacts");
+      const saveArtifact = extractBlock(artifactWorkspaceHookSource, "const handleSaveArtifact");
+      const deleteArtifact = extractBlock(artifactWorkspaceHookSource, "const handleDeleteSavedArtifact");
+      return (
+        artifactWorkspaceHookSource.includes("const activeSessionUserIdRef") &&
+        fetchArtifacts.includes("activeSessionUserIdRef.current !== userId") &&
+        saveArtifact.includes("const saveUserId = sessionUserId") &&
+        saveArtifact.includes("activeSessionUserIdRef.current !== saveUserId") &&
+        deleteArtifact.includes("const deleteUserId = sessionUserId") &&
+        deleteArtifact.includes("activeSessionUserIdRef.current !== deleteUserId")
+      );
+    },
+  },
+  {
     name: "artifact-panel-supports-saveable-study-library",
-    source: artifactWorkspaceSource,
-    pattern: /(?=[\s\S]*handleOpenSavedArtifact)(?=[\s\S]*handleSaveArtifact)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*study_artifacts)(?=[\s\S]*\.update\(payload\)[\s\S]*\.eq\("id", artifactPanel\.savedArtifactId\)[\s\S]*\.eq\("user_id", sessionUserId\))(?=[\s\S]*That saved artifact is no longer available)(?=[\s\S]*Save to Study Library)/,
+    check: () => {
+      const saveArtifact = extractBlock(artifactWorkspaceHookSource, "const handleSaveArtifact");
+      return (
+        artifactWorkspaceSource.includes("handleOpenSavedArtifact") &&
+        artifactWorkspaceSource.includes("showLoginGatePrompt") &&
+        artifactWorkspaceSource.includes("Save to Study Library") &&
+        hasAll(saveArtifact, [
+          'from("study_artifacts")',
+          ".update(payload)",
+          '.eq("id", artifactPanel.savedArtifactId)',
+          "That saved artifact is no longer available",
+          "activeSessionUserIdRef.current !== saveUserId",
+        ]) &&
+        hasOwnerScope(saveArtifact)
+      );
+    },
   },
   {
     name: "artifact-library-supports-delete-with-owner-check",
-    source: artifactWorkspaceSource,
-    pattern: /(?=[\s\S]*handleDeleteSavedArtifact)(?=[\s\S]*window\.confirm\(`Delete "\$\{artifact\.title\}" from your Study Library\?`\))(?=[\s\S]*from\("study_artifacts"\)\s*\.delete\(\)\s*\.eq\("id", artifact\.id\)\s*\.eq\("user_id", sessionUserId\))(?=[\s\S]*Artifact deleted)(?=[\s\S]*Delete)/,
+    check: () => {
+      const deleteArtifact = extractBlock(artifactWorkspaceHookSource, "const handleDeleteSavedArtifact");
+      return (
+        artifactWorkspaceSource.includes("Delete") &&
+        hasAll(deleteArtifact, [
+          'window.confirm(`Delete "${artifact.title}" from your Study Library?`)',
+          'from("study_artifacts")',
+          ".delete()",
+          '.eq("id", artifact.id)',
+          "activeSessionUserIdRef.current !== deleteUserId",
+          "Artifact deleted",
+        ]) &&
+        hasOwnerScope(deleteArtifact)
+      );
+    },
   },
   {
     name: "logged-out-restricted-actions-show-soft-login-prompt",
     source: chatRenderSource,
-    pattern: /(?=[\s\S]*type LoginGatePrompt)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*Log in to save your study progress)(?=[\s\S]*Keep your progress)(?=[\s\S]*Not now)(?=[\s\S]*router\.push\(["']\/login["']\))/,
+    pattern: /(?=[\s\S]*type LoginGatePrompt)(?=[\s\S]*showLoginGatePrompt)(?=[\s\S]*Log in to save your study progress)(?=[\s\S]*Save your progress)(?=[\s\S]*Keep Chatting)(?=[\s\S]*router\.push\(["']\/login["']\))/,
   },
   {
     name: "artifact-panel-behaves-like-a-study-workspace",
@@ -650,12 +801,12 @@ const fixtures = [
   },
   {
     name: "voice-input-uses-browser-speech-recognition",
-    source: pageSource,
+    source: `${voiceInputHookSource}\n${pageSource}`,
     pattern: /getSpeechRecognitionConstructor[\s\S]*webkitSpeechRecognition[\s\S]*handleVoiceInput/,
   },
   {
     name: "voice-input-has-accessible-push-to-talk-button",
-    source: pageSource,
+    source: `${pageSource}\n${voiceInputHookSource}`,
     pattern: /aria-label=\{isListening \? "Stop voice input" : "Start voice input"\}[\s\S]*Push to talk/,
   },
   {
@@ -696,7 +847,7 @@ const fixtures = [
   {
     name: "source-inspector-opens-from-source-cards",
     source: chatRenderSource,
-    pattern: /View source[\s\S]*aria-label="Source inspector"[\s\S]*Lecture Source details/,
+    pattern: /Review Sources[\s\S]*aria-label="Source inspector"[\s\S]*Lecture Source details/,
   },
   {
     name: "source-inspector-honestly-labels-evidence",
@@ -747,7 +898,7 @@ const fixtures = [
 
 let failed = false;
 for (const fixture of fixtures) {
-  const pass = fixture.pattern.test(fixture.source);
+  const pass = fixture.check ? fixture.check() : fixture.pattern.test(fixture.source);
   if (pass) {
     console.log(`✅ ${fixture.name}`);
   } else {

@@ -73,7 +73,12 @@ export function useArtifactWorkspace({
   const [dismissedRecentArtifactId, setDismissedRecentArtifactId] = useState<string | null>(null);
   const artifactPreviewRef = useRef<HTMLDivElement>(null);
   const previousSessionUserIdRef = useRef<string | null>(sessionUserId ?? null);
+  const activeSessionUserIdRef = useRef<string | null>(sessionUserId ?? null);
   const activeSavedArtifactId = artifactPanel?.savedArtifactId ?? null;
+
+  useEffect(() => {
+    activeSessionUserIdRef.current = sessionUserId ?? null;
+  }, [sessionUserId]);
 
   const artifactPreviewContent = useMemo(() => {
     return artifactPanel ? sanitizeMathContent(artifactPanel.content) : "";
@@ -145,6 +150,8 @@ export function useArtifactWorkspace({
       .eq("user_id", userId)
       .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false });
+
+    if (activeSessionUserIdRef.current !== userId) return;
 
     if (error) {
       console.log("Fetch study artifacts error:", error);
@@ -344,6 +351,7 @@ export function useArtifactWorkspace({
       return;
     }
 
+    const saveUserId = sessionUserId;
     const resolvedCourseTag =
       artifactPanel.courseTag ??
       inferCourseFromMathTopic(artifactPanel.sourcePrompt) ??
@@ -352,7 +360,7 @@ export function useArtifactWorkspace({
       null;
     const resolvedTopicTag = artifactPanel.topicTag ?? (chatFocus.topic.trim() || null);
     const payload = {
-      user_id: sessionUserId,
+      user_id: saveUserId,
       title: artifactPanel.title.trim() || buildArtifactTitle(artifactPanel.kind, artifactPanel.sourcePrompt),
       content: artifactPanel.content,
       source_prompt: artifactPanel.sourcePrompt || null,
@@ -372,6 +380,8 @@ export function useArtifactWorkspace({
         .select("*")
         .maybeSingle();
 
+      if (activeSessionUserIdRef.current !== saveUserId) return;
+
       if (error) {
         console.log("Update artifact error:", error);
         setArtifactSaveNotice("I couldn't update that artifact right now.");
@@ -389,7 +399,7 @@ export function useArtifactWorkspace({
           setArtifactBaselineSnapshot(serializeArtifactWorkspace(nextPanel));
           return nextPanel;
         });
-        void fetchStudyArtifacts(sessionUserId);
+        void fetchStudyArtifacts(saveUserId);
         return;
       }
 
@@ -431,6 +441,8 @@ export function useArtifactWorkspace({
       })
       .select("*")
       .single();
+
+    if (activeSessionUserIdRef.current !== saveUserId) return;
 
     if (error) {
       console.log("Save artifact error:", error);
@@ -483,6 +495,7 @@ export function useArtifactWorkspace({
         return;
       }
 
+      const deleteUserId = sessionUserId;
       const confirmed = window.confirm(`Delete "${artifact.title}" from your Study Library?`);
       if (!confirmed) return;
 
@@ -491,6 +504,8 @@ export function useArtifactWorkspace({
         .delete()
         .eq("id", artifact.id)
         .eq("user_id", sessionUserId);
+
+      if (activeSessionUserIdRef.current !== deleteUserId) return;
 
       if (error) {
         console.log("Delete artifact error:", error);
@@ -504,7 +519,7 @@ export function useArtifactWorkspace({
 
       if (recentArtifactResumeState?.savedArtifactId === artifact.id) {
         setRecentArtifactResumeState(null);
-        clearStoredArtifactResume(sessionUserId);
+        clearStoredArtifactResume(deleteUserId);
       }
 
       setArtifactPanel((prev) => {
