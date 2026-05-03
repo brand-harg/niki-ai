@@ -21,7 +21,6 @@ import Image from "next/image";
 import "katex/dist/katex.min.css";
 import FileUploadButton from "@/components/FileUploadButton";
 import FilePreview, { type AttachedFile } from "@/components/FilePreview";
-import html2canvas from "html2canvas";
 import { clearAuthCallbackUrl, hasAuthCallbackParams, recoverSessionFromUrl } from "@/lib/authRecovery";
 import { ensureProfileForSession, mergeProfileWithFallback, profileFallbackFromSession } from "@/lib/authProfile";
 import { resolveAvatarUrl } from "@/lib/avatarUrl";
@@ -1199,6 +1198,7 @@ export default function Home() {
     };
 
     try {
+      const { default: html2canvas } = await import("html2canvas");
       makeScreenshotSafe(target);
 
         return await html2canvas(target, {
