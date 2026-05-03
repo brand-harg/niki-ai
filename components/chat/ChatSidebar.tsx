@@ -166,6 +166,7 @@ export default function ChatSidebar({
       )}
       {/* SIDEBAR */}
       <aside
+        data-testid="chat-sidebar"
         className={`fixed inset-y-0 left-0 h-full bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-all duration-300 md:relative md:shadow-none ${isOpen ? "w-[19.5rem] translate-x-0" : "w-[19.5rem] -translate-x-full md:w-0 md:translate-x-0 overflow-hidden"
           }`}
       >

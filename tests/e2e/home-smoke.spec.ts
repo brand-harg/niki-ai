@@ -8,6 +8,7 @@ async function openFreshHome(page: Page) {
   await page.goto("/");
   await expect(page.getByTestId("niki-home")).toBeVisible();
   await expect(page.getByTestId("chat-input")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Log In" })).toBeVisible();
 }
 
 test.describe("NIKIAI home smoke", () => {
@@ -66,6 +67,54 @@ test.describe("NIKIAI home smoke", () => {
 
     await page.getByTestId("mobile-study-controls-toggle").click();
     await expect(page.getByTestId("mobile-mode-nemanja")).toBeVisible();
+  });
+
+  test("mobile sidebar opens, closes, and leaves composer usable", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openFreshHome(page);
+
+    const sidebar = page.getByTestId("chat-sidebar");
+    const chatInput = page.getByTestId("chat-input");
+
+    await expect(page.getByTestId("chat-composer")).toBeVisible();
+    await page.getByTestId("sidebar-toggle").click();
+
+    await expect(sidebar).toBeVisible();
+    await expect(page.getByRole("button", { name: "History" })).toBeVisible();
+
+    await page.mouse.click(370, 120);
+    await expect(sidebar).toHaveClass(/-translate-x-full/);
+
+    await chatInput.fill("sidebar still lets me type");
+    await expect(chatInput).toHaveValue("sidebar still lets me type");
+  });
+
+  test("mocked chat send renders user and assistant messages without real model calls", async ({ page }) => {
+    let chatApiCalls = 0;
+    await page.route("**/api/chat", async (route) => {
+      chatApiCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/plain; charset=utf-8",
+        body: "Mocked browser smoke response.",
+      });
+    });
+
+    await openFreshHome(page);
+
+    const chatInput = page.getByTestId("chat-input");
+    const sendButton = page.getByRole("button", { name: "Send" });
+    await chatInput.click();
+    await chatInput.pressSequentially("hello browser smoke");
+    await expect(sendButton).toBeEnabled();
+    await sendButton.click();
+
+    await expect(page.getByText("hello browser smoke")).toBeVisible();
+    await expect(page.getByText("Mocked browser smoke response.")).toBeVisible();
+    await expect(chatInput).toBeEnabled();
+    await expect(chatInput).toHaveValue("");
+    await expect(sendButton).toBeDisabled();
+    expect(chatApiCalls).toBe(1);
   });
 
   test("settings artifact entry point is safely gated when logged out", async ({ page }) => {

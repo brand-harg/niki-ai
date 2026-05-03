@@ -1961,6 +1961,7 @@ export default function Home() {
         <header className="h-16 border-b border-white/10 flex items-center justify-between px-4 sm:px-8 bg-[#030303]/82 backdrop-blur-md z-20">
           <div className="flex items-center gap-5">
             <button
+              data-testid="sidebar-toggle"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none`}
             >
