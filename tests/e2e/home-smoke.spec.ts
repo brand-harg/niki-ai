@@ -117,6 +117,50 @@ test.describe("NIKIAI home smoke", () => {
     expect(chatApiCalls).toBe(1);
   });
 
+  test("new chat abandons an in-flight mocked response without stale rendering", async ({ page }) => {
+    let chatApiCalls = 0;
+    let releaseResponse: () => void = () => {};
+    const delayedResponse = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+
+    await page.route("**/api/chat", async (route) => {
+      chatApiCalls += 1;
+      await delayedResponse;
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/plain; charset=utf-8",
+          body: "Stale mocked response should not render.",
+        });
+      } catch {
+        // The app may abort the request when the session is reset, which is the expected path.
+      }
+    });
+
+    await openFreshHome(page);
+
+    const chatInput = page.getByTestId("chat-input");
+    const sendButton = page.getByRole("button", { name: "Send" });
+    await chatInput.click();
+    await chatInput.pressSequentially("hold this response");
+    await expect(sendButton).toBeEnabled();
+    await sendButton.click();
+
+    await expect(page.getByText("hold this response")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Thinking" })).toBeVisible();
+
+    await page.getByRole("button", { name: "New Chat" }).click();
+    releaseResponse();
+
+    await expect(page.getByText("Stale mocked response should not render.")).toHaveCount(0);
+    await expect(page.getByText(/Thinking/i)).toHaveCount(0);
+    await expect(chatInput).toBeEnabled();
+    await chatInput.pressSequentially("fresh after abort");
+    await expect(chatInput).toHaveValue("fresh after abort");
+    expect(chatApiCalls).toBe(1);
+  });
+
   test("settings artifact entry point is safely gated when logged out", async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.clear();
