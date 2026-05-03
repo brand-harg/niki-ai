@@ -131,23 +131,23 @@ Use two dedicated beta-test accounts. Save proof of pass/fail outcomes, but do n
 
 Go only if all are true:
 
-- [ ] Auth Site URL and Redirect URLs are correct.
-- [ ] Signup confirmation works.
-- [ ] Password reset works.
-- [ ] Google OAuth works if enabled.
-- [ ] RLS is enabled on user-owned tables.
-- [ ] Chat history is isolated between two users.
-- [ ] Private artifacts do not appear publicly.
-- [ ] Uploads are login-gated and user-prefixed.
-- [ ] Two-user isolation checks pass for chat history, artifacts, uploads, and logout boundaries.
-- [ ] Profile/settings are user-owned.
-- [ ] Training logs require consent.
-- [ ] Usage logs are metadata-only.
-- [ ] Lecture tables are globally readable and not user-scoped.
-- [ ] Production env vars are present in correct scopes.
-- [ ] Production build passes.
-- [ ] Chat, history, uploads, Lecture Mode, artifacts, settings, and mobile smoke tests pass.
-- [ ] Rollback target is available.
+- [x] Auth Site URL and Redirect URLs are correct.
+- [x] Signup confirmation works.
+- [x] Password reset works.
+- [x] Google OAuth works if enabled.
+- [x] RLS is enabled on user-owned tables.
+- [x] Chat history is isolated between two users.
+- [x] Private artifacts do not appear publicly.
+- [x] Uploads are login-gated and user-prefixed.
+- [x] Two-user isolation checks pass for chat history, artifacts, uploads, and logout boundaries.
+- [x] Profile/settings are user-owned.
+- [x] Training logs require consent.
+- [x] Usage logs are metadata-only.
+- [x] Lecture tables are globally readable and not user-scoped.
+- [x] Production env vars are present in correct scopes.
+- [x] Production build passes.
+- [x] Chat, history, uploads, Lecture Mode, artifacts, settings, and mobile smoke tests pass.
+- [x] Rollback target is available.
 
 ## 11. Must Fix Before Beta
 
