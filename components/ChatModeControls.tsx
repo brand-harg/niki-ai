@@ -71,6 +71,7 @@ export default function ChatModeControls({
         <div className="flex items-center justify-center">
           <div className="flex max-w-[300px] w-auto items-center rounded-full border border-white/6 bg-[#0b0b0b]/88 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur sm:max-w-[340px] sm:rounded-xl">
             <button
+              data-testid="mode-pure-logic"
               onClick={() => switchNikiMode(false)}
               className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${
                 !isNikiMode ? "bg-white/10 text-white" : "text-slate-500 hover:text-white"
@@ -79,6 +80,7 @@ export default function ChatModeControls({
               Pure Logic
             </button>
             <button
+              data-testid="mode-nemanja"
               onClick={() => switchNikiMode(true)}
               className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none sm:rounded-lg sm:px-4 sm:py-2 sm:text-[9px] ${
                 isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-500 hover:text-white"
@@ -181,6 +183,7 @@ export default function ChatModeControls({
 
       <div className="sm:hidden">
         <button
+          data-testid="mobile-study-controls-toggle"
           type="button"
           onClick={toggleMobileControls}
           className="flex w-full items-center justify-between gap-3 rounded-[0.95rem] border border-white/6 bg-white/[0.02] px-3 py-2 text-left outline-none transition-all hover:bg-white/[0.038]"
@@ -211,6 +214,7 @@ export default function ChatModeControls({
             </div>
             <div className="flex items-center rounded-full border border-white/6 bg-[#0b0b0b]/88 p-1 shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur">
               <button
+                data-testid="mobile-mode-pure-logic"
                 onClick={() => switchNikiMode(false)}
                 className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
                   !isNikiMode ? "bg-white/10 text-white" : "text-slate-500 hover:text-white"
@@ -219,6 +223,7 @@ export default function ChatModeControls({
                 Pure Logic
               </button>
               <button
+                data-testid="mobile-mode-nemanja"
                 onClick={() => switchNikiMode(true)}
                 className={`flex-1 rounded-full px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all outline-none ${
                   isNikiMode ? `bg-white/5 ${accentColor}` : "text-slate-500 hover:text-white"

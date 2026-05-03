@@ -19,6 +19,7 @@
     "audit:responses": "node scripts/audit-response-logs.mjs",
     "test:response-audit": "node scripts/check-response-audit-contract.mjs",
     "test:frontend-contract": "node scripts/check-frontend-contract.mjs",
+    "test:e2e": "playwright test",
     "test:api-route": "node scripts/check-api-route-contract.mjs",
     "test:diagnostics": "node scripts/check-diagnostics-contract.mjs",
     "diagnostics:heartbeat": "node scripts/heartbeat-diagnostics.mjs",
@@ -55,6 +56,7 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/html2canvas": "^0.5.35",
     "@types/node": "^20",

@@ -1873,7 +1873,10 @@ export default function Home() {
   };
 
   return (
-    <main className="flex h-[100dvh] overflow-hidden bg-[#030303] font-sans antialiased text-white">
+    <main
+      data-testid="niki-home"
+      className="flex h-[100dvh] overflow-hidden bg-[#030303] font-sans antialiased text-white"
+    >
       <ChatSidebar
         isOpen={isSidebarOpen}
         activeTab={activeTab}
@@ -2395,7 +2398,10 @@ export default function Home() {
               </div>
             )}
 
-            <div className="bg-[#101010]/95 border border-white/10 rounded-[1.25rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-[0_22px_70px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-white/25 transition-all backdrop-blur">
+            <div
+              data-testid="chat-composer"
+              className="bg-[#101010]/95 border border-white/10 rounded-[1.25rem] sm:rounded-[2rem] p-2 sm:p-3 shadow-[0_22px_70px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-white/25 transition-all backdrop-blur"
+            >
               <div className="flex flex-wrap items-end gap-2 sm:flex-nowrap sm:gap-3">
                 <FileUploadButton
                   onFileSelect={handleFileSelect}
@@ -2410,6 +2416,7 @@ export default function Home() {
 
                 <div className="min-w-0 flex-1 basis-[13rem]">
                   <input
+                    data-testid="chat-input"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}

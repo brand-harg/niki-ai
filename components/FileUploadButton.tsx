@@ -52,6 +52,7 @@ export default function FileUploadButton({
     <div className="relative flex-shrink-0">
       {/* Trigger */}
       <button
+        data-testid="attachment-menu-button"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
         className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-all outline-none border shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]
@@ -166,6 +167,7 @@ export default function FileUploadButton({
 
       {/* Hidden file input */}
       <input
+        data-testid="chat-file-input"
         ref={fileRef}
         type="file"
         accept={ACCEPT}

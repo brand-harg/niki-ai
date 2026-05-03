@@ -16,7 +16,10 @@ export default function ChatEmptyState({
   onPromptClick,
 }: ChatEmptyStateProps) {
   return (
-    <div className="mx-auto max-w-3xl rounded-2xl border border-white/8 bg-white/[0.018] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-5 sm:py-4">
+    <div
+      data-testid="chat-empty-state"
+      className="mx-auto max-w-3xl rounded-2xl border border-white/8 bg-white/[0.018] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] sm:px-5 sm:py-4"
+    >
       <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
         Start Here
       </p>
