@@ -1,226 +1,145 @@
--- NIKIAI Supabase linter remediation draft.
--- REVIEW IN STAGING FIRST. DO NOT RUN DIRECTLY AGAINST PRODUCTION.
+-- NIKIAI Supabase RLS performance remediation draft.
+-- REVIEW AND APPLY IN STAGING FIRST. DO NOT RUN DIRECTLY AGAINST PRODUCTION.
 --
--- Goals:
--- - Improve RLS policy performance by wrapping auth.uid() in SELECT where policy names are repo-known.
--- - Consolidate logically identical study_artifacts SELECT policies.
--- - Add safe FK helper indexes without removing existing indexes.
--- - Add explicit search_path to repo-known RAG functions.
--- - Keep dashboard-only function changes in manual-confirmation comments.
+-- Scope:
+-- - Fix repo-known auth_rls_initplan warnings by replacing direct auth.uid()
+--   calls in RLS policies with (select auth.uid()).
+-- - Consolidate the repo-known study_artifacts SELECT policies while preserving
+--   the existing public/private behavior.
 --
--- Not included:
--- - No vector extension move.
+-- Explicitly not included in this draft:
+-- - No app/frontend behavior changes.
+-- - No dashboard-only policy rewrites for tables whose policies are not
+--   represented in repo SQL.
+-- - No vector extension changes.
+-- - No function/search_path changes.
+-- - No FK index changes.
 -- - No unused-index removal.
--- - No guessed policy rewrites for dashboard-only profiles/chats/messages/security_logs policies.
--- - No consolidation of unknown usage_interactions SELECT policies.
--- - No executable handle_new_user()/rls_auto_enable() changes without live function review.
 
 begin;
 
 -- ---------------------------------------------------------------------------
--- 1. RLS performance: repo-known study_artifacts policies.
+-- 1. study_artifacts SELECT policy consolidation.
 -- ---------------------------------------------------------------------------
+-- Previous behavior from repo SQL:
+-- - "study artifacts select public rows": anyone may read rows where
+--   is_public = true.
+-- - "study artifacts select own rows": authenticated users may read rows where
+--   auth.uid() = user_id.
+--
+-- New behavior is logically equivalent, but uses one permissive SELECT policy
+-- to address the multiple_permissive_policies warning and wraps auth.uid() in a
+-- SELECT to address auth_rls_initplan.
 
 drop policy if exists "study artifacts select own rows" on public.study_artifacts;
 drop policy if exists "study artifacts select public rows" on public.study_artifacts;
+drop policy if exists "study artifacts select visible rows" on public.study_artifacts;
 
 create policy "study artifacts select visible rows"
 on public.study_artifacts
 for select
 using (
   is_public = true
-  or (select auth.uid()) = user_id
+  or user_id = (select auth.uid())
 );
+
+-- ---------------------------------------------------------------------------
+-- 2. study_artifacts owner policies.
+-- ---------------------------------------------------------------------------
+-- Keep INSERT/UPDATE/DELETE behavior identical: users can only create, update,
+-- or delete their own artifacts. The only change is wrapping auth.uid() in
+-- SELECT so the value is evaluated once per statement instead of once per row.
 
 alter policy "study artifacts insert own rows"
 on public.study_artifacts
-with check ((select auth.uid()) = user_id);
+with check (user_id = (select auth.uid()));
 
 alter policy "study artifacts update own rows"
 on public.study_artifacts
-using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);
+using (user_id = (select auth.uid()))
+with check (user_id = (select auth.uid()));
 
 alter policy "study artifacts delete own rows"
 on public.study_artifacts
-using ((select auth.uid()) = user_id);
+using (user_id = (select auth.uid()));
 
 -- ---------------------------------------------------------------------------
--- 2. RLS performance: repo-known calendar_events policies.
+-- 3. calendar_events owner policies.
 -- ---------------------------------------------------------------------------
+-- Keep calendar behavior identical: users can only select, insert, update, or
+-- delete their own events. The only change is the auth.uid() initplan
+-- performance wrapper.
 
 alter policy "calendar events select own rows"
 on public.calendar_events
-using ((select auth.uid()) = user_id);
+using (user_id = (select auth.uid()));
 
 alter policy "calendar events insert own rows"
 on public.calendar_events
-with check ((select auth.uid()) = user_id);
+with check (user_id = (select auth.uid()));
 
 alter policy "calendar events update own rows"
 on public.calendar_events
-using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);
+using (user_id = (select auth.uid()))
+with check (user_id = (select auth.uid()));
 
 alter policy "calendar events delete own rows"
 on public.calendar_events
-using ((select auth.uid()) = user_id);
-
--- ---------------------------------------------------------------------------
--- 3. Safe FK indexes. These do not remove or replace existing indexes.
--- ---------------------------------------------------------------------------
-
-create index if not exists ingestion_jobs_source_id_idx
-on public.ingestion_jobs (source_id);
-
-create index if not exists lecture_sources_created_by_idx
-on public.lecture_sources (created_by);
-
-do $$
-begin
-  if to_regclass('public.security_logs') is not null then
-    execute 'create index if not exists security_logs_user_id_idx on public.security_logs (user_id)';
-  end if;
-end
-$$;
-
--- ---------------------------------------------------------------------------
--- 4. Explicit search_path for repo-known RAG RPC functions.
--- Keep return shape and filtering behavior unchanged.
--- The repo installs vector without a schema, so use public here. Only switch to
--- `public, extensions` after confirming the live vector extension lives there.
--- ---------------------------------------------------------------------------
-
-create or replace function public.match_lecture_chunks(
-  query_embedding vector(1536),
-  match_count int default 8,
-  filter_course text default null,
-  filter_professor text default null,
-  filter_source_id uuid default null
-)
-returns table (
-  id uuid,
-  source_id uuid,
-  clean_text text,
-  timestamp_start_seconds int,
-  timestamp_end_seconds int,
-  section_hint text,
-  similarity float
-)
-language sql stable
-set search_path = public
-as $$
-  select
-    c.id,
-    c.source_id,
-    c.clean_text,
-    c.timestamp_start_seconds,
-    c.timestamp_end_seconds,
-    c.section_hint,
-    1 - (c.embedding <=> query_embedding) as similarity
-  from public.lecture_chunks c
-  join public.lecture_sources s on s.id = c.source_id
-  where c.embedding is not null
-    and (filter_source_id is null or c.source_id = filter_source_id)
-    and (filter_course is null or s.course ilike '%' || filter_course || '%')
-    and (filter_professor is null or s.professor ilike '%' || filter_professor || '%')
-  order by c.embedding <=> query_embedding
-  limit greatest(match_count, 1);
-$$;
-
-create or replace function public.match_persona_snippets(
-  query_embedding vector(1536),
-  match_count int default 3,
-  filter_course text default null,
-  filter_professor text default null,
-  filter_source_id uuid default null
-)
-returns table (
-  id uuid,
-  source_id uuid,
-  snippet_text text,
-  persona_tag text,
-  timestamp_start_seconds int,
-  similarity float
-)
-language sql stable
-set search_path = public
-as $$
-  select
-    p.id,
-    p.source_id,
-    p.snippet_text,
-    p.persona_tag,
-    p.timestamp_start_seconds,
-    1 - (p.embedding <=> query_embedding) as similarity
-  from public.persona_snippets p
-  join public.lecture_sources s on s.id = p.source_id
-  where p.embedding is not null
-    and (filter_source_id is null or p.source_id = filter_source_id)
-    and (filter_course is null or s.course ilike '%' || filter_course || '%')
-    and (filter_professor is null or s.professor ilike '%' || filter_professor || '%')
-  order by p.embedding <=> query_embedding
-  limit greatest(match_count, 1);
-$$;
-
--- ---------------------------------------------------------------------------
--- 5. Dashboard-defined helper functions.
--- These are intentionally not changed in the executable path because their
--- bodies are not represented in repo SQL.
--- ---------------------------------------------------------------------------
-
--- Manual-confirmation-only changes:
--- Copy these into a separate staging migration only after confirming live
--- function bodies, dependencies, and Supabase linter output.
---
--- handle_updated_at search_path:
--- Inspect the live function body first, confirm whether it actually needs auth
--- in search_path, apply only in staging first, then retest update timestamp
--- behavior before production.
---
--- alter function public.handle_updated_at() set search_path = public, auth;
---
--- handle_new_user search_path:
--- Trigger behavior likely still works after hardening, but signup/profile
--- creation is beta-critical. Inspect the live function body and test signup,
--- email confirmation, OAuth, and profile creation in staging before applying.
---
--- alter function public.handle_new_user() set search_path = public, auth;
---
--- handle_new_user execute revoke:
--- Direct execute should usually be revoked from anon/authenticated, but test
--- trigger-driven signup/profile creation in staging first.
---
--- revoke execute on function public.handle_new_user() from anon, authenticated;
---
--- rls_auto_enable execute revoke:
--- Apply only after confirming no app/admin workflow depends on regular users
--- executing this helper.
---
--- revoke execute on function public.rls_auto_enable() from anon, authenticated;
---
--- usage_interactions FK index:
--- Repo SQL already defines usage_interactions_user_created_idx on
--- (user_id, created_at desc). Rerun Supabase linter in staging or confirm
--- whether that leading user_id composite index satisfies the FK warning before
--- adding this redundant single-column index.
---
--- create index if not exists usage_interactions_user_id_idx
--- on public.usage_interactions (user_id);
+using (user_id = (select auth.uid()));
 
 commit;
 
 -- ---------------------------------------------------------------------------
--- Manual follow-up required:
+-- Dashboard/manual-only remediation notes.
 -- ---------------------------------------------------------------------------
--- 1. Inspect dashboard-only policies for profiles, security_logs, chats, messages,
---    training_interactions, and usage_interactions.
--- 2. Replace direct auth.uid()/auth.role() calls with (select auth.uid()) /
---    (select auth.role()) only after confirming policy names and logic.
--- 3. Consolidate usage_interactions SELECT policies only if the combined policy
---    is logically identical and keeps metadata access safe.
--- 4. Confirm whether usage_interactions_user_created_idx satisfies the FK index
---    warning before adding usage_interactions_user_id_idx.
--- 5. Use `public, extensions` search_path for RAG RPCs only if the live vector
---    extension is confirmed to live in extensions.
--- 6. Rerun Supabase linter and the NIKIAI beta verification checklist.
+-- Supabase Performance Advisor also reported auth_rls_initplan warnings for
+-- tables whose live policies are not represented in repo SQL, such as:
+-- - profiles
+-- - security_logs
+-- - usage_interactions
+-- - chats
+-- - messages
+-- - training_interactions
+--
+-- Do not guess these policy names or expressions in this draft. Inspect the
+-- live policy SQL in Supabase first, then apply behavior-equivalent changes in
+-- staging using the same pattern:
+--
+--   -- Example only after confirming the exact live policy name and logic:
+--   -- alter policy "policy name"
+--   -- on public.table_name
+--   -- using (user_id = (select auth.uid()));
+--
+--   -- Example WITH CHECK conversion:
+--   -- alter policy "policy name"
+--   -- on public.table_name
+--   -- with check (user_id = (select auth.uid()));
+--
+-- If a policy uses auth.role(), use the equivalent wrapper:
+--
+--   -- (select auth.role())
+--
+-- usage_interactions also had multiple/overlapping SELECT policy warnings in
+-- Supabase. Consolidate those only after confirming the live policies are
+-- logically identical and still keep metadata access consent/user-scoped.
+
+-- ---------------------------------------------------------------------------
+-- Staging verification checklist after applying this draft.
+-- ---------------------------------------------------------------------------
+-- 1. Rerun Supabase Performance Advisor and confirm the repo-known
+--    study_artifacts/calendar_events auth_rls_initplan warnings are resolved.
+-- 2. Confirm study_artifacts no longer reports multiple permissive SELECT
+--    policies.
+-- 3. User A can read, create, update, and delete User A private artifacts.
+-- 4. User B cannot read, update, or delete User A private artifacts.
+-- 5. Anonymous users and other authenticated users can read public artifacts
+--    only when is_public = true.
+-- 6. Private artifacts do not appear in public artifact flows.
+-- 7. Calendar events remain owner-only for select/insert/update/delete.
+-- 8. User can read own chats/messages and cannot read another user's
+--    chats/messages after the dashboard-only policies are remediated.
+-- 9. Training and usage logs remain consent-gated and user-scoped after their
+--    dashboard-only policies are remediated.
+-- 10. Run the NIKIAI beta gates and browser smoke checks before production:
+--     npm run audit:beta
+--     npm run test:e2e
