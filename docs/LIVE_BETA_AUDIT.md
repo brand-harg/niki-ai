@@ -1,8 +1,15 @@
-# NIKIAI Live Beta Audit
+# NIKIAI Live Beta Audit Procedure
 
-Use this checklist against the real Supabase and Vercel setup before inviting beta users. Local validation is already strong, but live Auth settings, RLS policies, storage policies, environment scoping, deployed route behavior, and rollback readiness still need manual verification.
+Use this ordered procedure against the real Supabase and Vercel setup before inviting beta users. Local validation is already strong, but live Auth settings, RLS policies, storage policies, environment scoping, deployed route behavior, two-user isolation, and rollback readiness still need manual verification.
 
-Do not screenshot or copy actual secret values, service-role keys, API keys, cookies, access tokens, refresh tokens, private URLs, private prompts, uploaded files, profile data, or private artifact content.
+> Safety: Do not paste secrets. Do not paste private prompts, uploads, artifacts, tokens, cookies, API keys, or full user data. Screenshots must hide secret values.
+
+## How To Use These Docs
+
+- Use `docs/SUPABASE_RELEASE_QA.md` as the reference checklist for what beta-ready means.
+- Use this file as the live audit runbook, in order.
+- Use `docs/BETA_AUDIT_RESULTS.md` to record pass/fail results, evidence, issues, and sign-off.
+- When recording status, use only: `Not started`, `Pass`, `Fail`, `Blocked`, or `N/A`.
 
 ## 1. Quick 30-Minute Audit
 
@@ -30,6 +37,7 @@ Run the phases below in order. Use two dedicated beta-test accounts where cross-
 | Phase 4 | Confirm Vercel environment scoping | 15 minutes |
 | Phase 5 | Confirm deployment health and rollback path | 15 minutes |
 | Phase 6 | Run production browser smoke flows | 20 minutes |
+| Phase 7 | Verify two-user isolation boundaries | 20 minutes |
 
 ## 3. Phase 1: Supabase Auth Configuration
 
@@ -68,7 +76,7 @@ Run the phases below in order. Use two dedicated beta-test accounts where cross-
 
 ## 6. Phase 4: Vercel Environment Verification
 
-Do not screenshot or copy actual secret values. Capture variable names and environment scopes only.
+Capture variable names and environment scopes only. Do not capture secret values.
 
 | Item | Where to check | What to click/look for | Expected result | Red flag | Proof |
 | --- | --- | --- | --- | --- | --- |
@@ -104,7 +112,22 @@ Do not screenshot or copy actual secret values. Capture variable names and envir
 | Settings/profile | Settings/profile pages | Change one harmless setting and refresh | Persists correctly | UI-only or stale state | Screenshot |
 | Mobile sidebar/composer | Mobile viewport/device | Open/close sidebar, type message | Composer usable | Controls block input | Screenshot |
 
-## 9. Beta Go/No-Go Checklist
+## 9. Phase 7: Two-User Isolation Checks
+
+Use two dedicated beta-test accounts. Save proof of pass/fail outcomes, but do not capture private prompts, uploaded content, artifact contents, tokens, cookies, API keys, or full user data.
+
+| Item | Where to check | What to click/look for | Expected result | Red flag | Proof |
+| --- | --- | --- | --- | --- | --- |
+| User A chat history | Production app as User A | Create a saved chat and refresh | User A sees their own saved chat | Chat is missing for the owner | Screenshot |
+| User B chat history | Production app as User B | Log in as User B and open history | User B does not see User A chats | Cross-user chat history leak | Screenshot |
+| User A private artifact | Production app as User A | Save a private artifact | User A can reopen it | Owner cannot reopen saved artifact | Screenshot |
+| User B private artifact access | Production app as User B | Check artifact library/public views | User B cannot find/open User A private artifact | Private artifact visible to User B | Screenshot |
+| Public artifact boundary | Production app as User A and User B | Mark one safe artifact public | Public artifact behaves intentionally; private artifacts stay hidden | Public flow exposes private rows | Screenshot |
+| User A upload path | Production app + Supabase Storage | Upload a safe test file as User A | Path is user-scoped | Flat/global upload path | Screenshot with secrets hidden |
+| User B upload access | Production app/storage policy check | Try User B access to User A upload | Access denied or not listed | User B can read/list User A upload | Screenshot |
+| Logout boundary | Production app | User A logs out, then User B logs in | No User A profile/history/artifacts/upload context remains | Old user data flashes or persists | Screenshot |
+
+## 10. Beta Go/No-Go Checklist
 
 Go only if all are true:
 
@@ -116,6 +139,7 @@ Go only if all are true:
 - [ ] Chat history is isolated between two users.
 - [ ] Private artifacts do not appear publicly.
 - [ ] Uploads are login-gated and user-prefixed.
+- [ ] Two-user isolation checks pass for chat history, artifacts, uploads, and logout boundaries.
 - [ ] Profile/settings are user-owned.
 - [ ] Training logs require consent.
 - [ ] Usage logs are metadata-only.
@@ -125,18 +149,19 @@ Go only if all are true:
 - [ ] Chat, history, uploads, Lecture Mode, artifacts, settings, and mobile smoke tests pass.
 - [ ] Rollback target is available.
 
-## 10. Must Fix Before Beta
+## 11. Must Fix Before Beta
 
 - Broken auth confirmation, reset, or OAuth redirect.
 - Any RLS table allowing cross-user private data access.
 - Any private artifact appearing in public discovery.
 - Any upload readable or writable by the wrong user.
+- Any two-user isolation failure involving chats, artifacts, uploads, settings, or profile state.
 - Production logs exposing prompts, files, tokens, profiles, or private artifacts.
 - Chat stuck loading in normal production use.
 - Lecture Mode falsely claiming source support.
 - No available rollback path.
 
-## 11. Can Wait Until After Beta
+## 12. Can Wait Until After Beta
 
 - Lighthouse CI.
 - Automated two-user Supabase integration tests.
@@ -147,7 +172,7 @@ Go only if all are true:
 - Large-chat virtualization.
 - Detailed analytics dashboards.
 
-## 12. If A Serious Issue Is Found
+## 13. If A Serious Issue Is Found
 
 | Step | Action |
 | --- | --- |

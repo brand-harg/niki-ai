@@ -1,10 +1,17 @@
-# NIKIAI Supabase Release QA
+# NIKIAI Supabase Release QA Reference
 
-Use this checklist before serious beta use. The local test suite is strong, but Supabase dashboard settings, storage policies, redirect URLs, production environment variables, and deployed behavior still need live/manual verification.
+Use this reference checklist to understand what must be true before NIKIAI is ready for beta use. The local test suite is strong, but Supabase dashboard settings, storage policies, redirect URLs, production environment variables, deployed behavior, and rollback readiness still need live/manual verification.
 
-Do not paste secrets, real service-role keys, private URLs, user prompts, uploaded file contents, or private artifacts into this document.
+> Safety: Do not paste secrets. Do not paste private prompts, uploads, artifacts, tokens, cookies, API keys, or full user data. Screenshots must hide secret values.
 
-## 1. Supabase/Auth QA
+## How To Use These Docs
+
+- Use this file as the beta-readiness reference checklist.
+- Use `docs/LIVE_BETA_AUDIT.md` as the ordered step-by-step live audit procedure.
+- Use `docs/BETA_AUDIT_RESULTS.md` to record actual pass/fail results and evidence.
+- When recording status, use only: `Not started`, `Pass`, `Fail`, `Blocked`, or `N/A`.
+
+## 1. Supabase Auth Configuration
 
 | Area | What to check | Where to check it | Expected result | Red flag | Type |
 | --- | --- | --- | --- | --- | --- |
@@ -15,7 +22,7 @@ Do not paste secrets, real service-role keys, private URLs, user prompts, upload
 | Login persistence | Refresh after login | Browser on deployed app | User remains logged in and sees correct profile/settings | Logged-out UI or stale local data after refresh | Manual |
 | Logout boundary | Logout clears user-scoped UI | Browser on deployed app | History, saved artifacts, profile-only UI, and private context disappear | Previous user data remains visible | Manual |
 
-## 2. Database/RLS QA
+## 2. Supabase RLS Verification
 
 | Area | What to check | Where to check it | Expected result | Red flag | Type |
 | --- | --- | --- | --- | --- | --- |
@@ -29,7 +36,7 @@ Do not paste secrets, real service-role keys, private URLs, user prompts, upload
 | Training logs | Writes require explicit consent | `training_interactions` rows after chat tests | Rows appear only when `train_on_data = true` | Rows created without consent | Manual + automated |
 | Usage logs | Metadata only and consent-gated | `usage_interactions` rows after chat tests | Course/mode metadata only; no prompt/response text | Message text or file content stored | Manual + automated |
 
-## 3. Storage QA
+## 3. Supabase Storage Verification
 
 | Area | What to check | Where to check it | Expected result | Red flag | Type |
 | --- | --- | --- | --- | --- | --- |
@@ -39,7 +46,7 @@ Do not paste secrets, real service-role keys, private URLs, user prompts, upload
 | `Avatars` bucket | Avatar public read is intentional | Supabase Storage policies | Public read only for avatar images; writes scoped | Users can overwrite another avatar path | Manual |
 | Pinned syllabus/files | Private context is session/user-scoped | Deployed app + storage | Logout/user switch clears private syllabus context | Old syllabus is sent after logout | Manual |
 
-## 4. Lecture/Knowledge Data QA
+## 4. Lecture/Knowledge Data
 
 | Area | What to check | Where to check it | Expected result | Red flag | Type |
 | --- | --- | --- | --- | --- | --- |
@@ -48,7 +55,7 @@ Do not paste secrets, real service-role keys, private URLs, user prompts, upload
 | User upload separation | Private uploads are not global lecture data | Tables/storage review | User files stay in storage/private context | Uploaded file becomes public lecture source | Manual |
 | Lecture Mode honesty | Grounded/fallback wording is accurate | Production app | Sources shown only when actually used; Related Lectures are recommendations | Fake citation/source claim | Manual |
 
-## 5. Environment/Vercel QA
+## 5. Vercel Environment Verification
 
 | Area | What to check | Where to check it | Expected result | Red flag | Type |
 | --- | --- | --- | --- | --- | --- |
@@ -59,7 +66,7 @@ Do not paste secrets, real service-role keys, private URLs, user prompts, upload
 | Env separation | Preview/prod use intended resources | Vercel env scopes | Production points to production Supabase; preview is intentional | Preview writes to production unintentionally | Manual |
 | Build | Production build passes | Local, CI, or Vercel deployment logs | `npm run build` green | Build/type failure | Automated |
 
-## 6. Post-Deploy Smoke QA
+## 6. Production Browser Smoke Test
 
 | Flow | Expected result | Red flag | Type |
 | --- | --- | --- | --- |
@@ -74,7 +81,20 @@ Do not paste secrets, real service-role keys, private URLs, user prompts, upload
 | Lecture Mode | Source messaging is honest | Fake or incorrect source claims | Manual |
 | Settings/profile | Changes persist after refresh | UI-only settings or stale user state | Manual |
 
-## 7. Automated Gates Before Beta
+## 7. Two-User Isolation Checks
+
+Use two dedicated beta-test accounts. Do not paste private prompts, uploaded files, artifact content, tokens, cookies, or full user data into notes.
+
+| Area | What to check | Where to check it | Expected result | Red flag | Type |
+| --- | --- | --- | --- | --- | --- |
+| Chat history | User A saves chats; User B logs in | Production app + Supabase tables if needed | User B cannot see User A conversations | Cross-account chat history leak | Manual |
+| Private artifact | User A saves private artifact; User B checks library/public views | Production app | User B cannot find/open User A private artifact | Private artifact visible to another user | Manual |
+| Public artifact | User A marks artifact public | Production app + public artifact view/API | Only public artifact metadata/content intended for discovery is visible | Private rows or wrong owner data shown | Manual |
+| Upload path | User A uploads a file | Supabase Storage browser | Path is user-scoped and not globally listed | Flat/global upload path | Manual |
+| Upload access | User B attempts to read/list User A upload | Production app/storage policy check | Access denied or not listed | User B can read/list User A files | Manual |
+| Logout boundary | User A logs out; logged-out state loads | Production app | Profile, history, private artifacts, pinned syllabus, and upload context clear | Old user data remains visible | Manual |
+
+## 8. Automated Gates Before Beta
 
 Run locally before deploying or inviting beta users:
 
@@ -96,7 +116,7 @@ npm run test:performance
 npm run test:frontend-contract
 ```
 
-## 8. Rollback Plan
+## 9. Rollback Plan
 
 | Step | Action |
 | --- | --- |
@@ -108,7 +128,7 @@ npm run test:frontend-contract
 | 6 | Do not export private prompts, files, profiles, or artifact content unless absolutely required for incident response. |
 | 7 | After fixing, rerun privacy/session/E2E checks and manually retest the affected flow. |
 
-## 9. Beta Go/No-Go Checklist
+## 10. Beta Go/No-Go Checklist
 
 Go only if all are true:
 
@@ -118,12 +138,13 @@ Go only if all are true:
 - [ ] Public/private artifacts are manually tested.
 - [ ] Logged-in and logged-out lecture counts match.
 - [ ] No private data appears after logout or account switch.
+- [ ] Two-user isolation checks pass for chat history, artifacts, uploads, and logout boundaries.
 - [ ] Production environment variables are correct.
 - [ ] `npm run build`, `npm run test`, and `npm run test:e2e` pass.
 - [ ] Mobile composer/sidebar smoke test passes on a real device or browser emulation.
 - [ ] Rollback path is known and tested enough to use quickly.
 
-## 10. Must Fix Before Beta
+## 11. Must Fix Before Beta
 
 - Any RLS policy allowing cross-user reads or writes.
 - Any private artifact appearing in public discovery.
@@ -131,9 +152,10 @@ Go only if all are true:
 - Any broken auth redirect, email confirmation, or password reset flow in production.
 - Any production route logging full prompts, messages, uploaded files, profile data, tokens, or private artifacts.
 - Any logout/account-switch data leak.
+- Any two-user isolation failure involving chats, artifacts, uploads, settings, or profile state.
 - Any inability to rollback the deployment.
 
-## 11. Can Wait Until After Beta
+## 12. Can Wait Until After Beta
 
 - Lighthouse CI automation.
 - Full bundle analyzer budgets.
