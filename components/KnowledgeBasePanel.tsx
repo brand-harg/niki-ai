@@ -132,8 +132,8 @@ export default function KnowledgeBasePanel({
               <p className="text-sm text-slate-100 font-bold">{activeLectureSetLabel}</p>
               <p className="mt-1 text-[11px] leading-5 text-slate-500">
                 {activeKnowledgeCourse
-                  ? "Use this set to guide chat responses and lecture retrieval."
-                  : "Choose a course below to lock retrieval onto a lecture set, or leave it clear to let chat infer the course."}
+                  ? "Use this set to guide lecture-aware answers and source lookup."
+                  : "Choose a course below, or leave this clear so Niki can infer the course from your question."}
               </p>
             </div>
             <div
@@ -180,7 +180,7 @@ export default function KnowledgeBasePanel({
           role="button"
           tabIndex={0}
           aria-expanded={sourceHealthExpanded}
-          title="Lecture sources are available for chat"
+          title="Lecture sources are ready for chat"
           onClick={onToggleSourceHealth}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -193,7 +193,7 @@ export default function KnowledgeBasePanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className={`text-[10px] font-black ${accentColor} uppercase mb-1`}>
-                Source Health
+                Lecture Sources
               </p>
               <p className="text-sm font-bold text-slate-100">
                 {knowledgeBaseStatusIndexedCount} lectures available
@@ -213,7 +213,7 @@ export default function KnowledgeBasePanel({
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">{sourceHealth.detail}</p>
               )}
               <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                Lecture sources are available for chat
+                Expand to see course coverage
               </p>
             </div>
             <div className="mt-1 flex items-start gap-2">
@@ -308,7 +308,7 @@ export default function KnowledgeBasePanel({
                   </div>
                 ) : (
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    No course breakdown is available yet.
+                    Course coverage will appear once lecture data is grouped.
                   </p>
                 )}
               </div>
@@ -326,15 +326,14 @@ export default function KnowledgeBasePanel({
                 <>
                   <p className="text-sm font-bold text-slate-100">{pinnedSyllabus.name}</p>
                   <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                    Pinned {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)}. Niki can quietly consider
-                    this schedule context while answering.
+                    Pinned {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)}. Niki can use this as course context while answering, not as a lecture citation.
                   </p>
                 </>
               ) : (
                 <p className="text-[11px] leading-5 text-slate-500">
                   {sessionUserId
-                    ? "Upload or pin a syllabus, schedule, or study file so chat can follow your real course timeline."
-                    : "Log in to upload a syllabus or pin a course file for future study sessions."}
+                    ? "Upload or pin a syllabus, schedule, or study file so future answers can use it as course context."
+                    : "Log in to upload a syllabus or pin a course file for future sessions."}
                 </p>
               )}
             </div>
@@ -351,7 +350,7 @@ export default function KnowledgeBasePanel({
               onClick={onRequestSyllabusUpload}
               className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.035] ${accentColor} hover:bg-white/[0.07]`}
             >
-              {sessionUserId ? "Upload / Attach File" : "Log in to upload a syllabus"}
+              {sessionUserId ? "Upload Course File" : "Log in to upload a course file"}
             </button>
             {attachedKnowledgeButtonLabel && (
               <button
@@ -394,8 +393,8 @@ export default function KnowledgeBasePanel({
               </p>
               <p className="mt-1 text-[11px] leading-5 text-slate-500">
                 {sessionUserId
-                  ? "Saved artifacts reopen in the panel so you can keep editing, exporting, or reviewing them."
-                  : "You can still generate, edit, and export artifacts while logged out. Log in to save them for later."}
+                  ? "Saved artifacts reopen in the workspace so you can keep editing, exporting, or reviewing them."
+                  : "You can still generate, edit, and export artifacts while logged out. Log in to keep them for later."}
               </p>
             </div>
             {sessionUserId ? (
@@ -456,15 +455,13 @@ export default function KnowledgeBasePanel({
               </div>
             ) : (
               <p className="mt-3 text-[11px] leading-5 text-slate-500">
-                Save an artifact from the panel and it will show up here with its title, timestamp,
-                and course tag.
+                Save an artifact from the workspace and it will show up here with its title, timestamp, and course context.
               </p>
             )
           ) : (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-[11px] leading-5 text-slate-500">
-                Log in to build a persistent study library. Your current artifact work still stays fully
-                usable in-session.
+                Log in to build a persistent study library. Your current artifact work still stays usable in this session.
               </p>
               <button
                 type="button"
@@ -573,7 +570,7 @@ export default function KnowledgeBasePanel({
             </div>
           ) : (
             <p className="text-[11px] leading-5 text-slate-500">
-              No recent topic yet. Start a chat to build your study context.
+              No recent study context yet. Ask a question or choose a course to start building it.
             </p>
           )}
         </div>
@@ -601,7 +598,7 @@ export default function KnowledgeBasePanel({
             })}
           </div>
           <p className="mt-3 text-[11px] leading-5 text-slate-500">
-            Choose a course to set chat focus and guide lecture retrieval.
+            Choose a course to focus chat and guide lecture lookup when needed.
           </p>
         </div>
       </div>
@@ -624,7 +621,7 @@ export default function KnowledgeBasePanel({
                   {pinnedSyllabus.name}
                 </h2>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Attached {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)} for lecture-aware study help.
+                  Attached {formatPinnedTimestamp(pinnedSyllabus.pinnedAt)} for course-aware study help.
                 </p>
               </div>
               <button

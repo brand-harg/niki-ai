@@ -1,6 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
+import FocusModePanel from "@/components/focus/FocusModePanel";
 
 type KnowledgeBaseCourseOption = {
   label: string;
@@ -137,7 +138,7 @@ export default function ChatModeControls({
                       Lecture Mode
                     </p>
                     <p className="mt-0.5 text-[10px] text-slate-600/80">
-                      Use lecture-aware teaching when it helps.
+                      Use lecture sources when available and teach more like a tutor.
                     </p>
                   </div>
                   <button
@@ -149,80 +150,30 @@ export default function ChatModeControls({
                         : "border-white/10 bg-[#0b0b0b]/90 text-slate-500 hover:text-slate-300"
                     }`}
                   >
-                    {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                    {lectureMode ? "On" : "Off"}
                   </button>
                 </div>
               )}
 
-              <div>
-                <div className="mb-1.5 min-w-0">
-                  <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
-                    Focus Mode
-                  </p>
-                  <p className="mt-0.5 text-[10px] text-slate-600/80">
-                    Control how chat interprets your question
-                  </p>
-                </div>
-                <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
-                <label className="sr-only" htmlFor="chat-focus-course">
-                  Current focus course
-                </label>
-                <select
-                  id="chat-focus-course"
-                  value={chatFocus.course}
-                  onChange={(e) => setChatFocus((prev) => ({ ...prev, course: e.target.value }))}
-                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
-                >
-                  <option value="" className="bg-[#0d0d0d] text-slate-200">
-                    No subject selected
-                  </option>
-                  {knowledgeBaseCourses.map((course) => (
-                    <option
-                      key={course.courseContext}
-                      value={course.courseContext}
-                      className="bg-[#0d0d0d] text-slate-200"
-                    >
-                      {course.label}
-                    </option>
-                  ))}
-                </select>
-                <label className="sr-only" htmlFor="chat-focus-topic">
-                  Current topic or section
-                </label>
-                <input
-                  id="chat-focus-topic"
-                  type="text"
-                  value={chatFocus.topic}
-                  onChange={(e) => setChatFocus((prev) => ({ ...prev, topic: e.target.value }))}
-                  placeholder="Current topic or section, like 7.3 or integration by parts"
-                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
-                />
-                <button
-                  type="button"
-                    onClick={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
-                    className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 transition hover:border-white/20 hover:text-slate-300"
-                  >
-                    Clear
-                  </button>
-              </div>
-                {focusSuggestion && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500/85">
-                    <span>Suggested:</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setChatFocus((prev) => ({
-                          ...prev,
-                          topic: focusSuggestion,
-                        }))
-                      }
-                      className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
-                    >
-                      {focusCourseLabel} — {focusSuggestion}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <FocusModePanel
+                variant="desktop"
+                chatFocus={chatFocus}
+                focusSummary={focusSummary}
+                focusSuggestion={focusSuggestion}
+                focusCourseLabel={focusCourseLabel}
+                accentColor={accentColor}
+                accentBorder={accentBorder}
+                knowledgeBaseCourses={knowledgeBaseCourses}
+                onCourseChange={(course) => setChatFocus((prev) => ({ ...prev, course }))}
+                onTopicChange={(topic) => setChatFocus((prev) => ({ ...prev, topic }))}
+                onClearTopic={() => setChatFocus((prev) => ({ ...prev, topic: "" }))}
+                onApplySuggestion={() =>
+                  setChatFocus((prev) => ({
+                    ...prev,
+                    topic: focusSuggestion ?? prev.topic,
+                  }))
+                }
+              />
             </div>
           </div>
         </div>
@@ -284,7 +235,7 @@ export default function ChatModeControls({
                     Lecture Mode
                   </p>
                   <p className="mt-0.5 text-[10px] text-slate-600/80">
-                    Use lecture-aware teaching when it helps.
+                    Use lecture sources when available and teach more like a tutor.
                   </p>
                 </div>
                 <button
@@ -299,91 +250,38 @@ export default function ChatModeControls({
                       : "border-white/10 bg-[#0b0b0b]/90 text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                  {lectureMode ? "On" : "Off"}
                 </button>
               </div>
             )}
 
-            <div className={`${focusModeHeaderClass} rounded-2xl border-white/6 bg-white/[0.01] px-3 py-2.5`}>
-              <div className="min-w-0">
-                <p className={`text-[9px] font-black uppercase tracking-widest ${accentColor}`}>
-                  Focus Mode
-                </p>
-                <p className="mt-0.5 truncate text-[11px] text-slate-500/85">{focusSummary}</p>
-                <p className="mt-1 text-[10px] text-slate-600/80">
-                  Control how chat interprets your question
-                </p>
-              </div>
-
-              <div className="mt-2.5 block">
-                <div className="grid gap-2">
-                  <label className="sr-only" htmlFor="chat-focus-course-mobile">
-                    Current focus course
-                  </label>
-                  <select
-                    id="chat-focus-course-mobile"
-                    value={chatFocus.course}
-                    onChange={(e) => {
-                      setChatFocus((prev) => ({ ...prev, course: e.target.value }));
-                      setMobileControlsExpanded(false);
-                    }}
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-slate-200 outline-none transition focus:border-white/25"
-                  >
-                    <option value="" className="bg-[#0d0d0d] text-slate-200">
-                      No subject selected
-                    </option>
-                    {knowledgeBaseCourses.map((course) => (
-                      <option
-                        key={course.courseContext}
-                        value={course.courseContext}
-                        className="bg-[#0d0d0d] text-slate-200"
-                      >
-                        {course.label}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="sr-only" htmlFor="chat-focus-topic-mobile">
-                    Current topic or section
-                  </label>
-                  <input
-                    id="chat-focus-topic-mobile"
-                    type="text"
-                    value={chatFocus.topic}
-                    onChange={(e) => setChatFocus((prev) => ({ ...prev, topic: e.target.value }))}
-                    placeholder="Current topic or section"
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-white/25"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setChatFocus((prev) => ({ ...prev, topic: "" }));
-                      setMobileControlsExpanded(false);
-                    }}
-                    className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 transition hover:border-white/20 hover:text-slate-300"
-                  >
-                    Clear
-                  </button>
-                </div>
-                {focusSuggestion && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500/85">
-                    <span>Suggested:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChatFocus((prev) => ({
-                          ...prev,
-                          topic: focusSuggestion,
-                        }));
-                        setMobileControlsExpanded(false);
-                      }}
-                      className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-all outline-none ${accentBorder} bg-white/[0.03] ${accentColor} hover:bg-white/[0.06]`}
-                    >
-                      {focusCourseLabel} — {focusSuggestion}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+            <FocusModePanel
+              variant="mobile"
+              chatFocus={chatFocus}
+              focusSummary={focusSummary}
+              focusSuggestion={focusSuggestion}
+              focusCourseLabel={focusCourseLabel}
+              accentColor={accentColor}
+              accentBorder={accentBorder}
+              focusModeHeaderClass={focusModeHeaderClass}
+              knowledgeBaseCourses={knowledgeBaseCourses}
+              onCourseChange={(course) => {
+                setChatFocus((prev) => ({ ...prev, course }));
+                setMobileControlsExpanded(false);
+              }}
+              onTopicChange={(topic) => setChatFocus((prev) => ({ ...prev, topic }))}
+              onClearTopic={() => {
+                setChatFocus((prev) => ({ ...prev, topic: "" }));
+                setMobileControlsExpanded(false);
+              }}
+              onApplySuggestion={() => {
+                setChatFocus((prev) => ({
+                  ...prev,
+                  topic: focusSuggestion ?? prev.topic,
+                }));
+                setMobileControlsExpanded(false);
+              }}
+            />
           </div>
         )}
       </div>

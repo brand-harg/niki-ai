@@ -29,10 +29,10 @@ export default function RelatedLecturesCard({
     <div className={`mt-4 rounded-2xl border ${accentBorder} bg-white/[0.02] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_45px_rgba(0,0,0,0.18)]`}>
       <div className="mb-3">
         <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-          Related Lectures you may find helpful
+          Related Lectures
         </p>
         <p className="mt-1 text-[11px] leading-5 text-slate-500">
-          These lectures cover similar topics.
+          These are follow-up suggestions, not sources used in this answer.
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">

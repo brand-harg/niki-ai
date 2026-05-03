@@ -32,7 +32,7 @@ export default function LoginGatePrompt({
         className="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-3xl border border-white/10 bg-[#090909]/98 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl sm:bottom-8"
       >
         <p className={`text-[10px] font-black uppercase tracking-widest ${accentColor}`}>
-          Keep your progress
+          Save your progress
         </p>
         <h2 className="mt-2 text-lg font-extrabold tracking-tight text-white">
           {title}
@@ -40,13 +40,16 @@ export default function LoginGatePrompt({
         <p className="mt-2 text-sm leading-6 text-slate-400">
           {detail}
         </p>
+        <p className="mt-2 text-[11px] leading-5 text-slate-500">
+          You can keep using Niki right now. Logging in is only needed for saved progress and sync.
+        </p>
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 transition hover:border-white/20 hover:text-white"
           >
-            Not now
+            Keep Chatting
           </button>
           <button
             type="button"

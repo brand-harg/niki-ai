@@ -1674,10 +1674,10 @@ export default function Home() {
           .from("chats")
           .update({ updated_at: new Date().toISOString() })
           .eq("id", chatId)
-          .eq("user_id", session.user.id);
+          .eq("user_id", sendSessionUserId);
       }
     } catch (error: unknown) {
-      if (!(error instanceof Error) || error.name !== "AbortError") {
+      if (isSendSessionCurrent() && (!(error instanceof Error) || error.name !== "AbortError")) {
         console.error("handleSend error:", error);
         setMessages((prev) => [
           ...prev,
@@ -1691,10 +1691,12 @@ export default function Home() {
       }
     } finally {
       window.clearTimeout(timeoutId);
-      isStreamingRef.current = false;
-      if (abortControllerRef.current === controller) abortControllerRef.current = null;
-      if (!isUnmountingRef.current) setIsLoading(false);
-      if (session?.user?.id) fetchHistory(session.user.id);
+      if (abortControllerRef.current === controller) {
+        isStreamingRef.current = false;
+        abortControllerRef.current = null;
+      }
+      if (!isUnmountingRef.current && isSendSessionCurrent()) setIsLoading(false);
+      if (sendSessionUserId && isSendSessionCurrent()) fetchHistory(sendSessionUserId);
     }
   };
 
@@ -1974,7 +1976,7 @@ export default function Home() {
               </div>
               {isNikiMode && (
                 <div className={`flex items-center gap-2 rounded border px-3 py-1 ${lectureMode ? `${accentBorder} bg-white/[0.045] ${accentColor}` : "border-white/5 bg-white/[0.025] text-slate-600"}`}>
-                  <span>{lectureMode ? "Teaching: ON" : "Teaching: OFF"}</span>
+                  <span>{lectureMode ? "Lecture Mode: ON" : "Lecture Mode: OFF"}</span>
                 </div>
               )}
             </div>

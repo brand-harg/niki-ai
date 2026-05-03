@@ -175,7 +175,7 @@ export default function ChatSidebar({
             className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all group outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] ${accentBorder} bg-white/[0.06] hover:bg-white/[0.1]`}
           >
             <span className="text-sm font-bold text-slate-100">
-              Start New Session
+              New Chat
             </span>
             <div className={`p-1 rounded-md bg-white/5 ${accentGroupHoverBg} transition-all group-hover:text-white`}>
               <PlusIcon />
@@ -248,19 +248,19 @@ export default function ChatSidebar({
 
               {!sessionUserId && (
                 <p className="text-center text-slate-600 text-[10px] uppercase tracking-widest py-8 leading-5">
-                  Log in to save and reopen conversations.
+                  Chat works while logged out. Log in to save and reopen conversations.
                 </p>
               )}
 
               {sessionUserId && chatHistoryLoading && chatHistory.length === 0 && (
                 <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
-                  Loading conversations...
+                  Loading saved chats...
                 </p>
               )}
 
               {sessionUserId && !chatHistoryLoading && chatHistory.length === 0 && (
                 <p className="text-center text-slate-700 text-[10px] uppercase tracking-widest py-8">
-                  No sessions yet
+                  No saved chats yet
                 </p>
               )}
             </div>

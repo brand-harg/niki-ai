@@ -60,7 +60,7 @@ export default function FileUploadButton({
             : "bg-white/[0.04] border-white/10 text-slate-500 hover:text-slate-300 hover:bg-white/[0.07] hover:border-white/15"
           }
           disabled:opacity-40 disabled:cursor-not-allowed`}
-        aria-label="Open tools menu"
+        aria-label="Open attachment and tools menu"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
@@ -80,7 +80,7 @@ export default function FileUploadButton({
             {/* Header */}
             <div className="px-4 py-3 border-b border-white/10 bg-white/[0.02]">
               <span className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-500">
-                Tools
+                Attach & Tools
               </span>
             </div>
 
@@ -101,7 +101,7 @@ export default function FileUploadButton({
                     Upload File
                   </div>
                   <div className="text-[10px] text-slate-500">
-                    Image, text, code, syllabus
+                    Attach image, text, code, or syllabus
                   </div>
                 </div>
               </button>
@@ -123,7 +123,7 @@ export default function FileUploadButton({
                     Screenshot Chat
                   </div>
                   <div className="text-[10px] text-slate-500">
-                    Save as PNG
+                    Save this chat as PNG
                   </div>
                 </div>
               </button>
@@ -144,10 +144,10 @@ export default function FileUploadButton({
                   </div>
                   <div className="text-left">
                     <div className={`text-[13px] font-bold transition-colors ${lectureMode ? a.text : "text-slate-300 group-hover:text-white"}`}>
-                      {lectureMode ? "Teaching: ON" : "Teaching: OFF"}
+                      {lectureMode ? "Lecture Mode On" : "Lecture Mode Off"}
                     </div>
                     <div className="text-[10px] text-slate-500">
-                      Toggle retrieval context
+                      Use lecture sources when available
                     </div>
                   </div>
                 </button>

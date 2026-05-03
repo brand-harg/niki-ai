@@ -28,7 +28,7 @@ export default function FilePreview({ attached, onRemove, accentColor = "cyan" }
       {/* Thumbnail or icon */}
       {attached.type === "image" && attached.preview ? (
        <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-white/10 flex-shrink-0 shadow-lg">
-          <NextImage src={attached.preview} alt="preview" fill className="object-cover" />
+          <NextImage src={attached.preview} alt="Image preview" fill className="object-cover" />
         </div>
       ) : (
         <div className="w-10 h-10 rounded-lg bg-white/[0.045] border border-white/10 flex items-center justify-center flex-shrink-0">
@@ -43,7 +43,7 @@ export default function FilePreview({ attached, onRemove, accentColor = "cyan" }
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-bold text-slate-200 truncate">{attached.file.name}</p>
         <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">
-          {attached.type === "image" ? "Image" : "Text file"} · {(attached.file.size / 1024).toFixed(0)} KB
+          {attached.type === "image" ? "Attached image context" : "Attached file context"} · {(attached.file.size / 1024).toFixed(0)} KB
         </p>
       </div>
 

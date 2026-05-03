@@ -83,12 +83,12 @@ export default function CitationCard({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className={`text-[9px] font-black uppercase tracking-widest ${accentText}`}>
-            Lecture Source
+            Lecture Sources Used
           </p>
           <p className="mt-1 text-[10px] leading-4 text-slate-500">
-              {lectureSupportTone === "strong"
-              ? "This answer is based on lecture material"
-              : "Partially supported by lecture material"}
+            {lectureSupportTone === "strong"
+              ? "This answer uses lecture material."
+              : "This answer uses lecture material with partial support."}
             </p>
           {activeLectureSet && (
             <p className="mt-1 text-[10px] leading-4 text-slate-500">
@@ -105,7 +105,7 @@ export default function CitationCard({
               onClick={() => setInspectorOpen(true)}
               className={`rounded-md border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest transition ${accentBorder} bg-black/25 ${accentText} hover:bg-white/[0.05]`}
             >
-            View source
+              Review Sources
             </button>
           {shownConfidence && shownConfidence !== "none" && (
             <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
