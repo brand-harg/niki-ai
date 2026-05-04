@@ -108,15 +108,17 @@ export default function ChatSidebar({
       )}
 
       <div className="flex items-center gap-2 flex-shrink-0">
-        <div
+        <button
+          type="button"
+          aria-label={chat.is_pinned ? "Unpin chat" : "Pin chat"}
           onClick={(e) => onTogglePin(e, chat.id, !!chat.is_pinned)}
-          className={`cursor-pointer transition-opacity ${chat.is_pinned
+          className={`cursor-pointer border-0 bg-transparent p-0 transition-opacity ${chat.is_pinned
             ? `${accentColor} opacity-100`
             : "opacity-20 hover:opacity-100 hover:text-white"
             }`}
         >
           {chat.is_pinned ? "★" : "☆"}
-        </div>
+        </button>
 
         {confirmDeleteId === chat.id ? (
           <div className="flex items-center gap-2">
@@ -140,15 +142,17 @@ export default function ChatSidebar({
             </span>
           </div>
         ) : (
-          <div
+          <button
+            type="button"
+            aria-label="Delete chat"
             onClick={(e) => {
               e.stopPropagation();
               onSetConfirmDeleteId(chat.id);
             }}
-            className="text-red-400 hover:text-red-300 cursor-pointer opacity-70 hover:opacity-100"
+            className="cursor-pointer border-0 bg-transparent p-0 text-red-400 opacity-70 transition-opacity hover:text-red-300 hover:opacity-100"
           >
             ✕
-          </div>
+          </button>
         )}
       </div>
     </div>

@@ -622,6 +622,11 @@ const fixtures = [
     pattern: /matchMedia\("\(min-width: 768px\)"\)[\s\S]*setIsSidebarOpen\(query\.matches\)/,
   },
   {
+    name: "chat-sidebar-icon-actions-have-accessible-names",
+    source: chatSidebarSource,
+    pattern: /(?=[\s\S]*aria-label=\{chat\.is_pinned \? "Unpin chat" : "Pin chat"\})(?=[\s\S]*aria-label="Delete chat")/,
+  },
+  {
     name: "screenshot-has-safe-color-normalizer",
     source: pageSource,
     pattern: /screenshotSafeColor/,
@@ -635,6 +640,11 @@ const fixtures = [
     name: "screenshot-target-is-stable-data-attribute",
     source: pageSource,
     pattern: /data-chat-capture/,
+  },
+  {
+    name: "screenshot-uses-clean-transcript-export-clone",
+    source: pageSource,
+    pattern: /(?=[\s\S]*data-chat-screenshot-export)(?=[\s\S]*cloneNode\(true\))(?=[\s\S]*querySelectorAll\("button"\)[\s\S]*remove\(\))(?=[\s\S]*document\.body\.appendChild\(exportTarget\))(?=[\s\S]*captureElementCanvas\(exportTarget,\s*"\[data-chat-screenshot-export\]")(?=[\s\S]*exportTarget\.remove\(\))/,
   },
   {
     name: "tools-menu-contains-teaching-toggle",
@@ -660,6 +670,11 @@ const fixtures = [
     name: "artifact-pdf-export-downloads-without-popup-window",
     source: `${artifactWorkspaceSource}\n${artifactWorkspacePanelSource}`,
     pattern: /(?=[\s\S]*window\.print\(\))(?=[\s\S]*niki-artifact-print-mode)(?=[\s\S]*afterprint)(?=[\s\S]*@media print)(?=[\s\S]*data-artifact-panel-shell)(?=[\s\S]*data-artifact-export)(?=[\s\S]*data-print-hide)/,
+  },
+  {
+    name: "artifact-print-export-supports-multipage-content",
+    source: artifactWorkspacePanelSource,
+    pattern: /(?=[\s\S]*body\.niki-artifact-print-mode \.h-\\\[100dvh\\\])(?=[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\][\s\S]*height: auto !important;[\s\S]*max-height: none !important;[\s\S]*overflow: visible !important;)(?=[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] \.prose,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] p,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] ul,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] ol,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] li[\s\S]*page-break-inside: auto !important;[\s\S]*break-inside: auto !important;)(?=[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] \.katex-display,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] pre,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] blockquote,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] table[\s\S]*page-break-inside: avoid !important;)(?=[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] h1,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] h2,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] h3,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] h4,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] h5,[\s\S]*body\.niki-artifact-print-mode \[data-artifact-export\] h6[\s\S]*page-break-after: avoid !important;[\s\S]*break-after: avoid-page !important;)/,
   },
   {
     name: "artifact-creation-shows-workspace-feedback",
