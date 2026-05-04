@@ -173,7 +173,7 @@ export default function ChatSidebar({
       {/* SIDEBAR */}
       <aside
         data-testid="chat-sidebar"
-        className={`fixed inset-y-0 left-0 h-full bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-transform duration-300 md:relative md:transition-none md:shadow-none ${isOpen ? "w-[19.5rem] translate-x-0" : "w-[19.5rem] -translate-x-full md:w-0 md:translate-x-0 overflow-hidden"
+        className={`fixed inset-y-0 left-0 h-full w-[19.5rem] bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-transform duration-300 md:relative md:translate-x-0 md:transition-none md:shadow-none ${isOpen ? "translate-x-0" : "-translate-x-full md:overflow-visible"
           }`}
       >
         <div className="p-4 pt-6">
@@ -195,7 +195,7 @@ export default function ChatSidebar({
             onClick={() => onSetActiveTab("history")}
             className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "history"
               ? `bg-white/5 ${accentColor} ${accentBorder}`
-              : "text-slate-500 border-transparent hover:text-slate-300"
+              : "text-slate-400 border-transparent hover:text-slate-300"
               }`}
           >
             History
@@ -204,7 +204,7 @@ export default function ChatSidebar({
             onClick={() => onSetActiveTab("projects")}
             className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all outline-none ${activeTab === "projects"
               ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-              : "text-slate-500 border-transparent hover:text-slate-300"
+              : "text-slate-400 border-transparent hover:text-slate-300"
               }`}
           >
             Knowledge Base
@@ -226,7 +226,7 @@ export default function ChatSidebar({
                     <div className={accentColor}>
                       <PinIcon />
                     </div>
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                       Pinned
                     </span>
                   </div>
@@ -241,7 +241,7 @@ export default function ChatSidebar({
 
               {chatHistory.filter((c) => !c.is_pinned).length > 0 && (
                 <div className="flex items-center gap-2 px-2 py-1">
-                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                     Recent
                   </span>
                 </div>

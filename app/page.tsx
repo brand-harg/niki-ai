@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import ThoughtTrace from "@/components/ThoughtTrace";
@@ -554,16 +554,6 @@ export default function Home() {
   });
 
   const focusModeHeaderClass = getFocusModeHeaderClass(focusModeExpanded);
-
-  useLayoutEffect(() => {
-    const query = window.matchMedia("(min-width: 768px)");
-    const syncSidebarToViewport = () => setIsSidebarOpen(query.matches);
-
-    syncSidebarToViewport();
-    query.addEventListener("change", syncSidebarToViewport);
-
-    return () => query.removeEventListener("change", syncSidebarToViewport);
-  }, []);
 
   useEffect(() => {
     if (!studyProgressNotice) return;
@@ -1999,7 +1989,7 @@ export default function Home() {
               type="button"
               aria-label={isSidebarOpen ? "Close chat sidebar" : "Open chat sidebar"}
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none`}
+              className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none md:hidden`}
             >
               <MenuIcon />
             </button>

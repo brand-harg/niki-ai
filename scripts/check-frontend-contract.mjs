@@ -622,14 +622,19 @@ const fixtures = [
     pattern: /const \[isSidebarOpen, setIsSidebarOpen\] = useState\(false\)/,
   },
   {
-    name: "desktop-sidebar-opens-from-media-query",
-    source: pageSource,
-    pattern: /matchMedia\("\(min-width: 768px\)"\)[\s\S]*setIsSidebarOpen\(query\.matches\)/,
+    name: "desktop-sidebar-reserves-width-before-hydration",
+    source: chatSidebarSource,
+    pattern: /w-\[19\.5rem\][\s\S]*md:relative md:translate-x-0 md:transition-none/,
   },
   {
     name: "desktop-sidebar-does-not-animate-width-on-hydration",
     source: chatSidebarSource,
-    pattern: /transition-transform duration-300 md:relative md:transition-none/,
+    pattern: /transition-transform duration-300 md:relative md:translate-x-0 md:transition-none/,
+  },
+  {
+    name: "desktop-sidebar-toggle-is-mobile-only",
+    source: pageSource,
+    pattern: /data-testid="sidebar-toggle"[\s\S]*md:hidden/,
   },
   {
     name: "chat-sidebar-icon-actions-have-accessible-names",
@@ -640,6 +645,11 @@ const fixtures = [
     name: "chat-sidebar-icon-actions-have-touch-targets",
     source: chatSidebarSource,
     pattern: /(?=[\s\S]*aria-label=\{chat\.is_pinned \? "Unpin chat" : "Pin chat"\}[\s\S]*className=\{`flex h-8 w-8 items-center justify-center rounded-lg)(?=[\s\S]*aria-label="Delete chat"[\s\S]*className="flex h-8 w-8 items-center justify-center rounded-lg)/,
+  },
+  {
+    name: "chat-sidebar-inactive-labels-meet-contrast-floor",
+    source: chatSidebarSource,
+    pattern: /(?=[\s\S]*text-slate-400 border-transparent hover:text-slate-300)(?=[\s\S]*text-\[10px\] font-black text-slate-400 uppercase tracking-widest[\s\S]*Pinned)(?=[\s\S]*text-\[10px\] font-black text-slate-400 uppercase tracking-widest[\s\S]*Recent)/,
   },
   {
     name: "screenshot-has-safe-color-normalizer",
@@ -783,6 +793,11 @@ const fixtures = [
     name: "public-artifacts-route-only-returns-public-rows",
     source: publicArtifactsRouteSource,
     pattern: /from\("study_artifacts"\)[\s\S]*select\("id, title, content, source_prompt, kind, course_tag, topic_tag, is_public, created_at, updated_at"\)[\s\S]*eq\("is_public", true\)/,
+  },
+  {
+    name: "public-artifacts-route-fails-softly-with-empty-list",
+    source: publicArtifactsRouteSource,
+    pattern: /if \(error\)[\s\S]*return NextResponse\.json\(\{ artifacts: \[\] \}\);[\s\S]*catch \(error\)[\s\S]*return NextResponse\.json\(\{ artifacts: \[\] \}\);/,
   },
   {
     name: "artifact-library-badges-reflect-public-and-private-state",

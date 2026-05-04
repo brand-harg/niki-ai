@@ -16,12 +16,12 @@ export async function GET() {
 
     if (error) {
       logSafeError("api.artifacts.public.fetch", error, { route: "/api/artifacts/public" });
-      return NextResponse.json({ artifacts: [] }, { status: 500 });
+      return NextResponse.json({ artifacts: [] });
     }
 
     return NextResponse.json({ artifacts: data ?? [] });
   } catch (error) {
     logSafeError("api.artifacts.public.route", error, { route: "/api/artifacts/public" });
-    return NextResponse.json({ artifacts: [] }, { status: 500 });
+    return NextResponse.json({ artifacts: [] });
   }
 }
