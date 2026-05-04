@@ -1268,8 +1268,37 @@ export default function Home() {
       return;
     }
 
+    const exportTarget = document.createElement("div");
+    const targetWidth = Math.min(
+      960,
+      Math.max(560, Math.ceil(target.getBoundingClientRect().width || target.scrollWidth || 720))
+    );
+    exportTarget.dataset.chatScreenshotExport = "true";
+    exportTarget.style.position = "fixed";
+    exportTarget.style.left = "-10000px";
+    exportTarget.style.top = "0";
+    exportTarget.style.width = `${targetWidth}px`;
+    exportTarget.style.padding = "24px";
+    exportTarget.style.boxSizing = "border-box";
+    exportTarget.style.background = "#030303";
+    exportTarget.style.color = "#e2e8f0";
+    exportTarget.style.pointerEvents = "none";
+    exportTarget.style.zIndex = "-1";
+
+    const transcriptClone = target.cloneNode(true) as HTMLElement;
+    transcriptClone.style.margin = "0";
+    transcriptClone.style.maxWidth = "none";
+    transcriptClone.style.width = "100%";
+    transcriptClone.style.boxSizing = "border-box";
+    transcriptClone.style.gap = "20px";
+    transcriptClone.querySelectorAll("button").forEach((button) => {
+      button.remove();
+    });
+    exportTarget.appendChild(transcriptClone);
+    document.body.appendChild(exportTarget);
+
     try {
-      const canvas = await captureElementCanvas(target, "[data-chat-thread]", {
+      const canvas = await captureElementCanvas(exportTarget, "[data-chat-screenshot-export]", {
         backgroundColor: "#030303",
       });
 
@@ -1280,6 +1309,8 @@ export default function Home() {
     } catch (err) {
       console.error("Screenshot failed:", err);
       alert("Screenshot failed. I could not capture this view in the browser.");
+    } finally {
+      exportTarget.remove();
     }
   };
 
