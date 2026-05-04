@@ -123,6 +123,11 @@ const fixtures = [
     pattern: /persistSession:\s*true/,
   },
   {
+    name: "next-config-adds-conservative-security-headers",
+    source: nextConfigSource,
+    pattern: /async headers\(\)[\s\S]*X-Frame-Options[\s\S]*DENY[\s\S]*X-Content-Type-Options[\s\S]*nosniff[\s\S]*Referrer-Policy[\s\S]*strict-origin-when-cross-origin[\s\S]*Permissions-Policy[\s\S]*camera=\(\), geolocation=\(\), payment=\(\), usb=\(\)/,
+  },
+  {
     name: "supabase-auto-refreshes-token",
     source: supabaseClientSource,
     pattern: /autoRefreshToken:\s*true/,
@@ -622,9 +627,19 @@ const fixtures = [
     pattern: /matchMedia\("\(min-width: 768px\)"\)[\s\S]*setIsSidebarOpen\(query\.matches\)/,
   },
   {
+    name: "desktop-sidebar-does-not-animate-width-on-hydration",
+    source: chatSidebarSource,
+    pattern: /transition-transform duration-300 md:relative md:transition-none/,
+  },
+  {
     name: "chat-sidebar-icon-actions-have-accessible-names",
     source: chatSidebarSource,
     pattern: /(?=[\s\S]*aria-label=\{chat\.is_pinned \? "Unpin chat" : "Pin chat"\})(?=[\s\S]*aria-label="Delete chat")/,
+  },
+  {
+    name: "chat-sidebar-icon-actions-have-touch-targets",
+    source: chatSidebarSource,
+    pattern: /(?=[\s\S]*aria-label=\{chat\.is_pinned \? "Unpin chat" : "Pin chat"\}[\s\S]*className=\{`flex h-8 w-8 items-center justify-center rounded-lg)(?=[\s\S]*aria-label="Delete chat"[\s\S]*className="flex h-8 w-8 items-center justify-center rounded-lg)/,
   },
   {
     name: "screenshot-has-safe-color-normalizer",
