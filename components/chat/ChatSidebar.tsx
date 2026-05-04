@@ -112,7 +112,7 @@ export default function ChatSidebar({
           type="button"
           aria-label={chat.is_pinned ? "Unpin chat" : "Pin chat"}
           onClick={(e) => onTogglePin(e, chat.id, !!chat.is_pinned)}
-          className={`cursor-pointer border-0 bg-transparent p-0 transition-opacity ${chat.is_pinned
+          className={`flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent transition-opacity ${chat.is_pinned
             ? `${accentColor} opacity-100`
             : "opacity-20 hover:opacity-100 hover:text-white"
             }`}
@@ -122,24 +122,26 @@ export default function ChatSidebar({
 
         {confirmDeleteId === chat.id ? (
           <div className="flex items-center gap-2">
-            <span
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onDeleteChat(chat.id);
               }}
-              className="text-red-400 hover:text-red-300 cursor-pointer font-bold"
+              className="min-h-8 rounded-lg border-0 bg-transparent px-2 text-red-400 hover:text-red-300 font-bold"
             >
               Delete
-            </span>
-            <span
+            </button>
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onSetConfirmDeleteId(null);
               }}
-              className="text-slate-400 hover:text-white cursor-pointer"
+              className="min-h-8 rounded-lg border-0 bg-transparent px-2 text-slate-400 hover:text-white"
             >
               Cancel
-            </span>
+            </button>
           </div>
         ) : (
           <button
@@ -149,7 +151,7 @@ export default function ChatSidebar({
               e.stopPropagation();
               onSetConfirmDeleteId(chat.id);
             }}
-            className="cursor-pointer border-0 bg-transparent p-0 text-red-400 opacity-70 transition-opacity hover:text-red-300 hover:opacity-100"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-red-400 opacity-70 transition-opacity hover:text-red-300 hover:opacity-100"
           >
             ✕
           </button>
@@ -171,7 +173,7 @@ export default function ChatSidebar({
       {/* SIDEBAR */}
       <aside
         data-testid="chat-sidebar"
-        className={`fixed inset-y-0 left-0 h-full bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-all duration-300 md:relative md:shadow-none ${isOpen ? "w-[19.5rem] translate-x-0" : "w-[19.5rem] -translate-x-full md:w-0 md:translate-x-0 overflow-hidden"
+        className={`fixed inset-y-0 left-0 h-full bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-transform duration-300 md:relative md:transition-none md:shadow-none ${isOpen ? "w-[19.5rem] translate-x-0" : "w-[19.5rem] -translate-x-full md:w-0 md:translate-x-0 overflow-hidden"
           }`}
       >
         <div className="p-4 pt-6">
