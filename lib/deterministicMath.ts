@@ -38,6 +38,7 @@ function detectSimpleMathIntent(message: string): SimpleMathIntent | null {
   ) {
     return "integral";
   }
+  if (/\b(factor|factoring|factorize|factored form)\b/i.test(message)) return "factor";
   if (/\b(limit|lim|approaches)\b/i.test(message) || /x\s*(?:→|->|\\to)\s*/i.test(message)) return "limit";
   if (
     /\bprobability\s+of\b/i.test(message) ||
@@ -47,7 +48,6 @@ function detectSimpleMathIntent(message: string): SimpleMathIntent | null {
   ) {
     return "solve";
   }
-  if (/\b(factor|factorize|factored form)\b/i.test(message)) return "factor";
   if (/\b(expand|expanded form)\b/i.test(message)) return "expand";
   if (/\b(simplify|reduce|combine like terms)\b/i.test(message)) return "simplify";
   if (/\b(solve|find x|roots?|zeros?|quadratic formula)\b/i.test(message) || /=/.test(normalized)) return "solve";
@@ -213,7 +213,7 @@ function extractSimpleMathExpression(message: string, intent: SimpleMathIntent):
           ]
         : intent === "factor"
           ? [
-            /\bfactor(?:ize)?\s+(.+)$/i,
+            /\b(?:show\s+(?:only\s+)?(?:the\s+)?math\s+steps\s+for\s+)?factor(?:ing|ize)?\s+(.+)$/i,
             /\bfactored form\s+(?:of|for)?\s*(.+)$/i,
           ]
           : intent === "expand"

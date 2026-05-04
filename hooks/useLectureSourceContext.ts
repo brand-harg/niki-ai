@@ -72,6 +72,18 @@ function isExplicitKnowledgeBaseRequest(message: string) {
   );
 }
 
+function isUnsupportedLectureKnowledgeRequest(message: string) {
+  const asksForLectureContext =
+    /\b(lectures?|lecture notes?|lecture context|lecture sources?|professor|nemanja|class notes?|sources?)\b/i.test(
+      message
+    );
+  if (!asksForLectureContext) return false;
+
+  return /\b(organic chemistry|reaction mechanisms?|chemistry|ancient roman|roman history|ancient history|world history|history|medieval poetry|poetry|literature|quantum mechanics|quantum|biology|physics)\b/i.test(
+    message
+  );
+}
+
 export function useLectureSourceContext({
   activeKnowledgeCourse,
   chatFocus,
@@ -88,6 +100,7 @@ export function useLectureSourceContext({
       const nikiMode = options?.nikiMode ?? isNikiMode;
       const teachingMode = options?.teachingMode ?? lectureMode;
       if (!question.trim()) return null;
+      if (isUnsupportedLectureKnowledgeRequest(question)) return null;
       if (!isExplicitKnowledgeBaseRequest(question) && !teachingMode) return null;
       if (isLectureInventoryRequest(question)) return null;
 
@@ -159,9 +172,10 @@ export function useLectureSourceContext({
     ): Promise<LectureSourceBundle> => {
       const teachingMode = options?.teachingMode ?? lectureMode;
       const nikiMode = options?.nikiMode ?? isNikiMode;
+      const unsupportedLectureRequest = isUnsupportedLectureKnowledgeRequest(question);
       const rag = await fetchRag(question, { teachingMode, nikiMode });
       const relatedLectures =
-        teachingMode && (!rag?.citations || rag.citations.length === 0)
+        teachingMode && !unsupportedLectureRequest && (!rag?.citations || rag.citations.length === 0)
           ? await fetchRelatedLectures(question)
           : [];
       const activeLectureSet = activeKnowledgeCourse || profileCurrentUnit || undefined;

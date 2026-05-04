@@ -609,10 +609,10 @@ function buildModeReminderSystemMessage({
   }
 
   if (knowledgeBaseActive) {
-    return `Current response mode: Nemanja Mode with Lecture Mode, but no lecture context was retrieved. Use Nemanja classroom style without inventing lecture details, and keep a short Lecture Source that plainly says no lecture source was available for this answer.${longFormSuffix}`;
+    return `Current response mode: Nemanja Mode with Lecture Mode, but no lecture context was retrieved. Use Nemanja classroom style without inventing lecture details. If the user asked for lecture-specific material, say no direct lecture source was found for this topic; do not add a Lecture Source section or imply source support.${longFormSuffix}`;
   }
 
-  return `Current response mode: Nemanja Mode with Lecture Mode. Use Nemanja classroom style, keep the answer self-contained, and include a short Lecture Source that plainly says no lecture source was attached for this answer.${longFormSuffix}`;
+  return `Current response mode: Nemanja Mode with Lecture Mode. Use Nemanja classroom style and keep the answer self-contained. If no lecture context is attached, do not add a Lecture Source section or imply source support.${longFormSuffix}`;
 }
 
 export {

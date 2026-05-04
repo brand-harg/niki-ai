@@ -544,7 +544,7 @@ const fixtures = [
   {
     name: "ungrounded-lecture-answers-offer-related-lectures",
     source: `${chatRenderSource}\n${lectureSourceHookSource}\n${relatedLecturesRouteSource}`,
-    pattern: /(?=[\s\S]*Related Lectures)(?=[\s\S]*These are follow-up suggestions, not sources used in this answer\.)(?=[\s\S]*lectures\.slice\(0, 3\))(?=[\s\S]*formatRelatedLectureTitle)(?=[\s\S]*\/api\/lectures\/related)(?=[\s\S]*teachingMode && \(!rag\?\.citations \|\| rag\.citations\.length === 0\))(?=[\s\S]*lecture_sources)/,
+    pattern: /(?=[\s\S]*Related Lectures)(?=[\s\S]*These are follow-up suggestions, not sources used in this answer\.)(?=[\s\S]*lectures\.slice\(0, 3\))(?=[\s\S]*formatRelatedLectureTitle)(?=[\s\S]*\/api\/lectures\/related)(?=[\s\S]*teachingMode && !unsupportedLectureRequest && \(!rag\?\.citations \|\| rag\.citations\.length === 0\))(?=[\s\S]*lecture_sources)/,
   },
   {
     name: "lecture-mode-uses-nuanced-source-support-messaging",

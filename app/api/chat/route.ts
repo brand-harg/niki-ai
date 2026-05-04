@@ -217,6 +217,26 @@ function hasSpecificUnsupportedLectureDomain(message: string): boolean {
   return remainingTerms.length >= 2;
 }
 
+function isUnsupportedLectureKnowledgeRequest(message: string): boolean {
+  const asksForLectureContext =
+    /\b(lectures?|lecture notes?|lecture context|lecture sources?|professor|nemanja|class notes?|sources?)\b/i.test(
+      message
+    );
+  if (!asksForLectureContext) return false;
+
+  return /\b(organic chemistry|reaction mechanisms?|chemistry|ancient roman|roman history|ancient history|world history|history|medieval poetry|poetry|literature|quantum mechanics|quantum|biology|physics)\b/i.test(
+    message
+  );
+}
+
+function unsupportedLectureKnowledgeReply(): string {
+  return [
+    "No direct lecture source found for this topic.",
+    "",
+    "I can answer from general knowledge if you want, but I do not have NIKIAI lecture material for that request.",
+  ].join("\n");
+}
+
 function buildBroadLectureTopicClarification(message: string): string | null {
   const topic = message.toLowerCase().replace(/[?.!,;:]+$/g, "").trim();
   const options: Record<string, string[]> = {
@@ -1073,6 +1093,12 @@ function ambiguousMathFollowupReply(expression: string): string {
   ].join("\n");
 }
 
+function isAmbiguousClassThingRequest(message: string): boolean {
+  return /\b(?:can you|could you|please)?\s*(?:do|solve|work(?:\s+out)?)\s+(?:the\s+)?(?:thing|problem|one)\s+from\s+class\b/i.test(
+    message
+  );
+}
+
 function isInternalModeReminder(content?: string): boolean {
   return /^Current response mode:/i.test(content?.trim() ?? "");
 }
@@ -1248,6 +1274,25 @@ function getLectureSupportLevel(
   return bestSimilarity >= 0.82 ? "strong" : "partial";
 }
 
+function hasNoLectureContextLanguage(content: string): boolean {
+  return /no (?:direct )?lecture (?:source|context|retrieval)|no matching lecture source|without direct lecture retrieval|(?:do not|don't|don’t)\s+have\s+(?:direct\s+)?lecture\s+(?:(?:retrieval\s+)?context|source)|hypothetical\s+Lecture\s+Source/i.test(
+    content
+  );
+}
+
+function alignLectureContextLanguage(content: string): string {
+  return content
+    .replace(/\bhypothetical\s+Lecture\s+Source\b/gi, "Lecture Source")
+    .replace(
+      /\b(?:I\s+)?(?:do not|don't|don’t)\s+have\s+(?:direct\s+)?lecture\s+(?:(?:retrieval\s+)?context|source)(?:\s+for\s+[^.\n]+)?\./gi,
+      "I found relevant lecture material for this topic."
+    )
+    .replace(
+      /\bNo (?:direct |matching )?lecture source (?:was )?found(?: for this topic)?\.?/gi,
+      "I found relevant lecture material for this topic."
+    );
+}
+
 function ensureLectureConnectionSection(input: {
   content: string;
   lectureMode: boolean;
@@ -1269,6 +1314,24 @@ function ensureLectureConnectionSection(input: {
   ].join("\n");
   const lectureConnectionPattern =
     /(?:^|\n)(\*\*Lecture (?:Connection|Source)\*\*|#{1,6}\s*Lecture (?:Connection|Source)|Lecture (?:Connection|Source):)\s*[\s\S]*?(?=\n(?:\*\*[^*\n]+\*\*|#{1,6}\s+|## Final Answer\b)|$)/i;
+  const lectureConnectionBlock =
+    supportLevel === "strong"
+      ? [
+          "**Lecture Source**",
+          "Using lecture sources for this answer.",
+          "This answer is based on lecture material",
+        ]
+      : supportLevel === "partial"
+        ? [
+            "**Lecture Source**",
+            "Using lecture sources for this answer.",
+            "Partially supported by lecture material",
+          ]
+        : [
+            "**Lecture Source**",
+            "No direct lecture source found for this topic",
+            attachedSourceLine,
+          ];
 
   if (supportLevel === "none") {
     if (lectureConnectionPattern.test(trimmed)) {
@@ -1290,36 +1353,26 @@ function ensureLectureConnectionSection(input: {
     return `${beforeFinal}\n\n${noSourceBlock}\n\n${finalAnswerAndAfter}`;
   }
 
-  if (/\*\*Lecture (Connection|Source)\*\*|(^|\n)Lecture (Connection|Source):/i.test(trimmed)) {
-    return trimmed;
+  const sourceAlignedContent = hasNoLectureContextLanguage(trimmed)
+    ? alignLectureContextLanguage(trimmed)
+    : trimmed;
+
+  if (lectureConnectionPattern.test(sourceAlignedContent)) {
+    if (hasNoLectureContextLanguage(sourceAlignedContent)) {
+      return sourceAlignedContent
+        .replace(lectureConnectionPattern, `\n${lectureConnectionBlock.join("\n")}`)
+        .trim();
+    }
+    return sourceAlignedContent;
   }
 
-  const lectureConnectionBlock =
-    supportLevel === "strong"
-      ? [
-          "**Lecture Source**",
-          "Using lecture sources for this answer.",
-          "This answer is based on lecture material",
-        ]
-      : supportLevel === "partial"
-        ? [
-            "**Lecture Source**",
-            "Using lecture sources for this answer.",
-            "Partially supported by lecture material",
-          ]
-        : [
-            "**Lecture Source**",
-            "No direct lecture source found for this topic",
-            attachedSourceLine,
-          ];
-
-  const finalAnswerMatch = trimmed.match(/\n## Final Answer\b/i);
+  const finalAnswerMatch = sourceAlignedContent.match(/\n## Final Answer\b/i);
   if (!finalAnswerMatch || finalAnswerMatch.index === undefined) {
-    return `${trimmed}\n\n${lectureConnectionBlock.join("\n")}`;
+    return `${sourceAlignedContent}\n\n${lectureConnectionBlock.join("\n")}`;
   }
 
-  const beforeFinal = trimmed.slice(0, finalAnswerMatch.index).trimEnd();
-  const finalAnswerAndAfter = trimmed.slice(finalAnswerMatch.index).trimStart();
+  const beforeFinal = sourceAlignedContent.slice(0, finalAnswerMatch.index).trimEnd();
+  const finalAnswerAndAfter = sourceAlignedContent.slice(finalAnswerMatch.index).trimStart();
   return `${beforeFinal}\n\n${lectureConnectionBlock.join("\n")}\n\n${finalAnswerAndAfter}`;
 }
 
@@ -1565,6 +1618,20 @@ export async function POST(req: Request) {
       isLectureListIntent(message) &&
       !wantsLectureRecovery &&
       /\b(all|show|list|those|them|that course|the lectures?)\b/i.test(message);
+
+    if (
+      lectureMode &&
+      isUnsupportedLectureKnowledgeRequest(message) &&
+      ragContext.length === 0 &&
+      ragCitations.length === 0
+    ) {
+      return await buildLoggedTextResponse(unsupportedLectureKnowledgeReply(), {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
 
     if (
       knowledgeBaseActive &&
@@ -2018,6 +2085,53 @@ export async function POST(req: Request) {
         });
       }
 
+      if (isAmbiguousClassThingRequest(message)) {
+        const recentMathIntent = detectRecentMathIntentFromHistory(effectiveHistory);
+        const recentMathExpression = extractRecentMathExpressionFromHistory(effectiveHistory);
+        const contextualMathMessage =
+          recentMathIntent && recentMathExpression
+            ? buildContextualMathMessage(recentMathIntent, recentMathExpression)
+            : null;
+        const contextualMathReply = contextualMathMessage
+          ? buildDeterministicMathReply({
+              message: contextualMathMessage,
+              isProfessorMode: isNikiMode,
+              lectureMode,
+              hasLectureContext:
+                ragContext.length > 0 || ragStyleSnippets.length > 0 || ragCitations.length > 0,
+            })
+          : null;
+
+        if (contextualMathReply && recentMathExpression) {
+          const targetLabel = recentMathExpression.includes("=")
+            ? `the previous equation ${recentMathExpression}`
+            : `the previous problem ${recentMathExpression}`;
+          const lectureSafeReply = ensureLectureConnectionSection({
+            content: `If you mean ${targetLabel}, here it is.\n\n${polishDeterministicMathPresentation(contextualMathReply)}`,
+            lectureMode,
+            citations: ragCitations,
+            attachedSourceLabel,
+          });
+
+          return await buildLoggedTextResponse(normalizeModelMathOutput(lectureSafeReply), {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          });
+        }
+
+        return await buildLoggedTextResponse(
+          "Which problem do you mean from class? Send the equation, expression, or topic and I will do it.",
+          {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
+      }
+
       const mathIntentClarification = buildMathIntentClarification(message);
       if (mathIntentClarification) {
         return await buildLoggedTextResponse(mathIntentClarification, {
@@ -2223,8 +2337,8 @@ export async function POST(req: Request) {
                 attachedSourceLabel
                   ? `Lecture mode is enabled without direct lecture retrieval. Use the ${attachedSourceLabel} context only where it is relevant, label it as attached context rather than a lecture citation, and do not invent lecture-specific details.`
                   : knowledgeBaseActive
-                    ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details."
-                    : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained, include a short Lecture Source fallback near the end, and do not invent lecture-specific details or citations.",
+                    ? "Lecture mode is enabled, but no lecture retrieval context is available. Keep the answer self-contained. If the user asked for lecture-specific material, say no direct lecture source was found for this topic; do not add a Lecture Source section or invent lecture-specific details."
+                    : "Lecture mode is enabled without active Knowledge Base retrieval. Keep the answer self-contained. Do not add a Lecture Source section or invent lecture-specific details or citations.",
             },
           ]
           : []),

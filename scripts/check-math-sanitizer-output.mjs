@@ -234,6 +234,19 @@ R=\\infty
 $$`,
   },
   {
+    name: "final-answer-fraction-domain-constraint-stays-clean",
+    input: `Final answer: \\frac{x^2 - 9}{x - 3} = x + 3$ for x \\neq 3`,
+    contains: [/\\frac\{x\^2 - 9\}\{x - 3\} = x \+ 3/, /for \$x \\neq 3\$/],
+    rejects: [/x \+ 3\$/, /\$\$\s*for x \\neq 3\s*\$\$/],
+  },
+  {
+    name: "increasing-decreasing-intervals-stay-inline",
+    input: `The function is increasingon(-\\infty, -1) and increasing on $$(1, \\infty)$$.`,
+    ensureFinal: false,
+    contains: [/increasing on \$\(-\\infty, -1\)\$/, /increasing on \$\(1, \\infty\)\$/],
+    rejects: [/increasingon/, /increasing\s*\$\$/],
+  },
+  {
     name: "alternating-series-test-raw-latex-prose",
     input: `**Alternating Series Test**
 The AST states that an alternating series \\sum_{n=1}^{\\infty} (-1)^{n-1} b_n converges if the following two conditions are met.

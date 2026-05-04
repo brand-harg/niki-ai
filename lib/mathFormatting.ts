@@ -197,7 +197,7 @@ function normalizeInlineDollarMath(content: string): string {
   const normalizedInline = protectedContent.replace(/\$([^\n$]+?)\$/g, (match, expr: string) => {
     const trimmedExpr = expr.trim();
     const isInlineLatexExpression =
-      /\\(?:frac|sqrt|ln|log|sin|cos|tan|sec|csc|cot|text|mid|times|left|right)\b/.test(trimmedExpr) &&
+      /\\(?:frac|sqrt|ln|log|sin|cos|tan|sec|csc|cot|text|mid|times|left|right|infty|neq|leq|geq)\b/.test(trimmedExpr) &&
       !/\\begin\b/.test(trimmedExpr);
     if (!isLikelyInlineMathExpression(trimmedExpr) && !isInlineLatexExpression) return trimmedExpr;
     const token = `@@INLINE_MATH_${inlineTokens.length}@@`;
@@ -332,6 +332,34 @@ function normalizeInlineMathSpacing(content: string): string {
     .replace(/[ \t]{2,}/g, " ");
 }
 
+function normalizeConstraintProse(text: string): string {
+  return text.replace(
+    /\b(for|where|when)\s+([A-Za-z][A-Za-z0-9]*)\s+\\(neq|leq|geq)\s+([^.,;:\n]+)/gi,
+    (_match, lead: string, variable: string, operator: string, value: string) =>
+      `${lead} $${variable} \\${operator} ${value.trim()}$`
+  );
+}
+
+function repairIntervalProse(content: string): string {
+  const repairedSpacing = content.replace(/\b(increasing|decreasing)on(?=\s*[\(\[])/gi, "$1 on ");
+
+  return repairedSpacing
+    .replace(
+      /\b(increasing|decreasing)\s+on\s+([([]\s*(?:-?\s*(?:\\infty|∞)|[-+]?\d+(?:\.\d+)?)\s*,\s*(?:-?\s*(?:\\infty|∞)|[-+]?\d+(?:\.\d+)?)\s*[\])])/gi,
+      (_match, direction: string, interval: string) => `${direction} on $${interval.replace(/\s+/g, " ").trim()}$`
+    )
+    .replace(
+    /\b(increasing|decreasing)\s+on\s*\$\$\s*([([]\s*(?:-?\s*(?:\\infty|∞)|[-+]?\d+(?:\.\d+)?)\s*,\s*(?:-?\s*(?:\\infty|∞)|[-+]?\d+(?:\.\d+)?)\s*[\])])\s*\$\$/gi,
+    (_match, direction: string, interval: string) => `${direction} on $${interval.replace(/\s+/g, " ").trim()}$`
+    );
+}
+
+function repairConstraintDisplayBlocks(content: string): string {
+  return content.replace(/\$\$\s*((?:for|where|when)\s+[A-Za-z][A-Za-z0-9]*\s+\\(?:neq|leq|geq)\s+[^$\n]+?)\s*\$\$/gi, (_match, constraint: string) => {
+    return normalizeConstraintProse(constraint.trim());
+  });
+}
+
 function repairLooseMathLines(content: string): string {
   const lines = content.split("\n");
   const out: string[] = [];
@@ -399,6 +427,7 @@ function cleanExtractedMathExpression(expression: string): string {
   let cleaned = expression
     .replace(/\*\*/g, "")
     .replace(/`/g, "")
+    .replace(/\$/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s*\.$/, "")
     .trim();
@@ -528,7 +557,7 @@ function splitRawLatexLine(line: string): string | null {
   }
   parts.push("$$", math, "$$");
   if (split.suffix) {
-    parts.push("", split.suffix);
+    parts.push("", normalizeConstraintProse(split.suffix));
   }
   return parts.join("\n");
 }
@@ -578,12 +607,19 @@ function unwrapNonMathDisplayBlocks(content: string): string {
       /\b(Step-by-Step Solution|Step\s+\d+:|Final Answer|Formula used|Rule used|Method used|Checkpoint|Lecture (?:Connection|Source))\b/i.test(
         normalized
       );
+    const isConstraintProse = /^(?:for|where|when)\s+[A-Za-z][A-Za-z0-9]*\s+\\(?:neq|leq|geq)\s+[^.\n]+$/i.test(
+      normalized
+    );
     const hasLatexCommand = /\\(?:frac|sqrt|int|sum|lim|ln|log|sin|cos|tan|begin|left|right|cdot|,|;|!)/.test(
       normalized
     );
     const hasEquationShape = /[=^_+\-*/]|f'\(x\)|[A-Za-z]\([A-Za-z]\)/.test(normalized);
     const wordCount = (normalized.match(/[A-Za-z]{2,}/g) ?? []).length;
     const proseOnly = wordCount >= 4 && !hasLatexCommand && !hasEquationShape;
+
+    if (isConstraintProse) {
+      return `\n\n${normalizeConstraintProse(normalized)}\n\n`;
+    }
 
     if (isMarkdownStructure || proseOnly) {
       return `\n\n${normalized}\n\n`;
@@ -722,6 +758,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = normalizeEscapedMathDelimiters(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = normalizeInlineDollarMath(cleaned);
+  cleaned = repairIntervalProse(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = repairSeriesTestProse(cleaned);
   cleaned = normalizeBrokenMarkdown(cleaned);
@@ -752,6 +789,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
 
   cleaned = repairRawLatexOutsideDisplay(cleaned);
   cleaned = wrapBareInlineMath(cleaned);
+  cleaned = repairIntervalProse(cleaned);
   cleaned = normalizeInlineMathExpressions(cleaned);
   cleaned = normalizeInlineMathSpacing(cleaned);
 
@@ -777,6 +815,8 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = repairLooseMathLines(cleaned);
   cleaned = repairRawLatexOutsideDisplay(cleaned);
   cleaned = repairSplitInequalityBlocks(cleaned);
+  cleaned = repairIntervalProse(cleaned);
+  cleaned = repairConstraintDisplayBlocks(cleaned);
   cleaned = normalizeDollarFenceLines(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
 
@@ -806,6 +846,7 @@ function normalizeMathMarkdown(content: string, { ensureFinalAnswer }: { ensureF
   cleaned = normalizeInlineMathSpacing(cleaned);
   cleaned = repairInvalidBackslashNumbers(cleaned);
   cleaned = collapseNestedDisplayMath(cleaned);
+  cleaned = repairConstraintDisplayBlocks(cleaned);
 
   const fenceCount = (cleaned.match(/\$\$/g) ?? []).length;
   if (fenceCount % 2 === 1) {

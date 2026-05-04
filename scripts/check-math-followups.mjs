@@ -223,6 +223,34 @@ const scenarios = [
     expect: [/f'\(x\)\s*=\s*e\^\{x\}/i],
     reject: [/ln\(e\)/i, /Qwen/i],
   },
+  {
+    id: "factoring-request-routes-before-limit-clarification",
+    body: {
+      message: "Show only the math steps for factoring x^2 + 7x + 12.",
+      history: [],
+      isNikiMode: false,
+      lectureMode: false,
+    },
+    expect: [/\(x\s*\+\s*3\)\s*\(x\s*\+\s*4\)/i],
+    reject: [/approach value/i, /evaluate a limit/i, /Qwen/i],
+  },
+  {
+    id: "ambiguous-class-thing-uses-prior-context-conditionally",
+    body: {
+      message: "Can you do the thing from class?",
+      history: [
+        { role: "user", content: "solve x^2 - 5x + 6 = 0" },
+        {
+          role: "assistant",
+          content: "**Solving x^2 - 5x + 6 = 0**\n\n## Final Answer\n$$\nx=2,3\n$$",
+        },
+      ],
+      isNikiMode: true,
+      lectureMode: false,
+    },
+    expect: [/If you mean the previous equation .*x\^2 - 5x \+ 6 = 0/i, /x_1&=3[\s\S]*x_2&=2|x\s*=\s*2.*x\s*=\s*3/i],
+    reject: [/Qwen/i],
+  },
 ];
 
 async function postText(body) {
