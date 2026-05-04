@@ -287,12 +287,29 @@ export default function ArtifactWorkspacePanel({
         </div>
         <style jsx global>{`
           @media print {
+            html,
             body.niki-artifact-print-mode {
               background: #ffffff !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
             }
 
             body.niki-artifact-print-mode * {
               visibility: hidden !important;
+            }
+
+            body.niki-artifact-print-mode > *,
+            body.niki-artifact-print-mode .h-\[100dvh\],
+            body.niki-artifact-print-mode .h-full,
+            body.niki-artifact-print-mode .min-h-0,
+            body.niki-artifact-print-mode .flex-1,
+            body.niki-artifact-print-mode .overflow-hidden,
+            body.niki-artifact-print-mode .overflow-y-auto {
+              height: auto !important;
+              min-height: 0 !important;
+              max-height: none !important;
+              overflow: visible !important;
             }
 
             body.niki-artifact-print-mode [data-artifact-panel-shell],
@@ -347,9 +364,24 @@ export default function ArtifactWorkspacePanel({
               box-shadow: none !important;
               color: #0f172a !important;
               display: block !important;
+              height: auto !important;
+              max-height: none !important;
+              overflow: visible !important;
               width: 100% !important;
               max-width: 7.5in !important;
               margin: 0 auto !important;
+              page-break-inside: auto !important;
+              break-inside: auto !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] .prose,
+            body.niki-artifact-print-mode [data-artifact-export] p,
+            body.niki-artifact-print-mode [data-artifact-export] ul,
+            body.niki-artifact-print-mode [data-artifact-export] ol,
+            body.niki-artifact-print-mode [data-artifact-export] li {
+              height: auto !important;
+              max-height: none !important;
+              overflow: visible !important;
               page-break-inside: auto !important;
               break-inside: auto !important;
             }
@@ -382,9 +414,19 @@ export default function ArtifactWorkspacePanel({
             body.niki-artifact-print-mode [data-artifact-export] .katex-display,
             body.niki-artifact-print-mode [data-artifact-export] pre,
             body.niki-artifact-print-mode [data-artifact-export] blockquote,
-            body.niki-artifact-print-mode [data-artifact-export] table,
-            body.niki-artifact-print-mode [data-artifact-export] ul,
-            body.niki-artifact-print-mode [data-artifact-export] ol {
+            body.niki-artifact-print-mode [data-artifact-export] table {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+
+            body.niki-artifact-print-mode [data-artifact-export] h1,
+            body.niki-artifact-print-mode [data-artifact-export] h2,
+            body.niki-artifact-print-mode [data-artifact-export] h3,
+            body.niki-artifact-print-mode [data-artifact-export] h4,
+            body.niki-artifact-print-mode [data-artifact-export] h5,
+            body.niki-artifact-print-mode [data-artifact-export] h6 {
+              page-break-after: avoid !important;
+              break-after: avoid-page !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
             }
