@@ -12,6 +12,7 @@ type ChatSidebarTab = "history" | "projects";
 
 type ChatSidebarProps = {
   isOpen: boolean;
+  isDesktopCollapsed: boolean;
   activeTab: ChatSidebarTab;
   chatHistory: ChatSidebarItem[];
   currentChatId: string | null;
@@ -52,6 +53,7 @@ const PinIcon = () => (
 
 export default function ChatSidebar({
   isOpen,
+  isDesktopCollapsed,
   activeTab,
   chatHistory,
   currentChatId,
@@ -173,7 +175,7 @@ export default function ChatSidebar({
       {/* SIDEBAR */}
       <aside
         data-testid="chat-sidebar"
-        className={`fixed inset-y-0 left-0 h-full w-[19.5rem] bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-transform duration-300 md:relative md:translate-x-0 md:transition-none md:shadow-none ${isOpen ? "translate-x-0" : "-translate-x-full md:overflow-visible"
+        className={`fixed inset-y-0 left-0 h-full w-[19.5rem] bg-[#070707]/98 border-r border-white/10 z-30 flex flex-col shadow-[24px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-transform duration-300 md:relative md:translate-x-0 md:transition-none md:shadow-none ${isOpen ? "translate-x-0" : "-translate-x-full"} ${isDesktopCollapsed ? "md:w-0 md:overflow-hidden md:border-r-0" : "md:w-[19.5rem] md:overflow-visible"
           }`}
       >
         <div className="p-4 pt-6">

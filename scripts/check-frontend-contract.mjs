@@ -619,7 +619,15 @@ const fixtures = [
   {
     name: "mobile-sidebar-starts-closed",
     source: pageSource,
-    pattern: /const \[isSidebarOpen, setIsSidebarOpen\] = useState\(false\)/,
+    pattern: /const \[isMobileSidebarOpen, setIsMobileSidebarOpen\] = useState\(false\)/,
+  },
+  {
+    name: "desktop-sidebar-starts-expanded-without-hydration-sync",
+    check: () =>
+      /const \[isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed\] = useState\(false\)/.test(pageSource) &&
+      pageSource.includes("const isDesktopViewport") &&
+      !pageSource.includes("syncSidebarToViewport") &&
+      !pageSource.includes('addEventListener("change", syncSidebarToViewport)'),
   },
   {
     name: "desktop-sidebar-reserves-width-before-hydration",
@@ -632,9 +640,14 @@ const fixtures = [
     pattern: /transition-transform duration-300 md:relative md:translate-x-0 md:transition-none/,
   },
   {
-    name: "desktop-sidebar-toggle-is-mobile-only",
+    name: "desktop-sidebar-can-collapse-after-user-action",
+    source: `${pageSource}\n${chatSidebarSource}`,
+    pattern: /setIsDesktopSidebarCollapsed\(\(prev\) => !prev\)[\s\S]*isDesktopCollapsed \? "md:w-0 md:overflow-hidden md:border-r-0" : "md:w-\[19\.5rem\] md:overflow-visible"/,
+  },
+  {
+    name: "sidebar-toggle-remains-available-on-desktop-and-mobile",
     source: pageSource,
-    pattern: /data-testid="sidebar-toggle"[\s\S]*md:hidden/,
+    pattern: /data-testid="sidebar-toggle"[\s\S]*aria-label="Toggle chat sidebar"[\s\S]*onClick=\{toggleSidebar\}/,
   },
   {
     name: "chat-sidebar-icon-actions-have-accessible-names",

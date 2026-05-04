@@ -35,6 +35,21 @@ test.describe("NIKIAI home smoke", () => {
     await expect(chatInput).toHaveValue("Explain limits step by step");
   });
 
+  test("desktop sidebar starts stable and can collapse after user action", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await openFreshHome(page);
+
+    const sidebar = page.getByTestId("chat-sidebar");
+    await expect(sidebar).toBeVisible();
+    await expect(sidebar).toHaveClass(/md:w-\[19\.5rem\]/);
+
+    await page.getByTestId("sidebar-toggle").click();
+    await expect(sidebar).toHaveClass(/md:w-0/);
+
+    await page.getByTestId("sidebar-toggle").click();
+    await expect(sidebar).toHaveClass(/md:w-\[19\.5rem\]/);
+  });
+
   test("logged-out protected knowledge-base upload shows a login prompt", async ({ page }) => {
     await openFreshHome(page);
 

@@ -215,7 +215,8 @@ export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const [isNikiMode, setIsNikiMode] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"history" | "projects">("history");
   const [isLoading, setIsLoading] = useState(false);
   const [chatFocus, setChatFocus] = useState<ChatFocusState>({
@@ -554,6 +555,14 @@ export default function Home() {
   });
 
   const focusModeHeaderClass = getFocusModeHeaderClass(focusModeExpanded);
+  const isDesktopViewport = () =>
+    typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+  const toggleSidebar = () =>
+    isDesktopViewport()
+      ? setIsDesktopSidebarCollapsed((prev) => !prev)
+      : setIsMobileSidebarOpen((prev) => !prev);
+  const openSidebarForViewport = () =>
+    isDesktopViewport() ? setIsDesktopSidebarCollapsed(false) : setIsMobileSidebarOpen(true);
 
   useEffect(() => {
     if (!studyProgressNotice) return;
@@ -1902,7 +1911,8 @@ export default function Home() {
       className="flex h-[100dvh] overflow-hidden bg-[#030303] font-sans antialiased text-white"
     >
       <ChatSidebar
-        isOpen={isSidebarOpen}
+        isOpen={isMobileSidebarOpen}
+        isDesktopCollapsed={isDesktopSidebarCollapsed}
         activeTab={activeTab}
         chatHistory={chatHistory}
         currentChatId={currentChatId}
@@ -1915,7 +1925,7 @@ export default function Home() {
         accentColor={accentColor}
         accentBorder={accentBorder}
         accentGroupHoverBg={accentGroupHoverBg}
-        onCloseSidebar={() => setIsSidebarOpen(false)}
+        onCloseSidebar={() => setIsMobileSidebarOpen(false)}
         onStartNewSession={startNewSession}
         onSetActiveTab={setActiveTab}
         onLoadChat={(chatId) => void loadChat(chatId)}
@@ -1987,9 +1997,9 @@ export default function Home() {
             <button
               data-testid="sidebar-toggle"
               type="button"
-              aria-label={isSidebarOpen ? "Close chat sidebar" : "Open chat sidebar"}
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none md:hidden`}
+              aria-label="Toggle chat sidebar"
+              onClick={toggleSidebar}
+              className={`p-2 hover:bg-white/5 rounded-lg text-slate-500 ${accentHoverText} transition-colors outline-none`}
             >
               <MenuIcon />
             </button>
@@ -2558,7 +2568,7 @@ export default function Home() {
         hasActiveChat={!!currentChatId}
         currentChatTitle={chatHistory.find((c) => c.id === currentChatId)?.title ?? ""}
         onNewSession={startNewSession}
-        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onToggleSidebar={toggleSidebar}
         onClearChat={() => {
           clearAttachment();
           applyPreferredModeToFreshChat({ resetTeaching: true });
@@ -2566,7 +2576,7 @@ export default function Home() {
         }}
         onRenameChat={() => {
           if (currentChatId) {
-            setIsSidebarOpen(true);
+            openSidebarForViewport();
             setRenamingChatId(currentChatId);
           }
           setIsPaletteOpen(false);
